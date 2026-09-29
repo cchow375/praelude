@@ -23,20 +23,26 @@ the DB password) or `supabase link --password`.
 
 ## What's in each migration
 
-| File                                        | Contents                                                                                                                                                                   |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `20260926220001_extensions_and_helpers`     | Enums used across later files, `set_updated_at()`, the offensive-word filter (`blocked_words`/`contains_blocked_word`), the `sync_tables`/`append_only_tables` allow-lists |
-| `20260926220002_profiles`                   | `profiles` (spec §4c), per-field privacy, the minor-clamping safety trigger, auto-provisioning on signup                                                                   |
-| `20260926220003_library_sync_tables`        | Every schema3 collection except the append-only logs, `instruments` (§6), the `_setup_owner_table` procedure                                                               |
-| `20260926220004_logs_sync_tables`           | The append-only logs, `_setup_append_only_table`                                                                                                                           |
-| `20260926220005_sync_rpc`                   | `sync_upsert`/`sync_append`/`sync_update_last_page`/`sync_undo_attempt`                                                                                                    |
-| `20260926220006_social`                     | Corrections to 1–5 (below), then all of spec §5: friendships, blocks, profile cards, activity feed, notes, presence, studios, invites, contact discovery                   |
-| `20260926220007_moderation_and_leaderboard` | `reports` (the moderation queue), `leaderboard_friends()`                                                                                                                  |
-| `20260926220008_storage_buckets`            | The four buckets and their `storage.objects` policies                                                                                                                      |
-| `20260926220009_account_deletion`           | `delete_my_account()`, and un-cascading a studio away from its members                                                                                                     |
-| `20260926220010_grants_and_indexes`         | anon lockdown, closing a stats leak, indexing every FK (as it existed at that point)                                                                                       |
-| `20260926220011_advisor_fixes`              | Full remediation of a `supabase db advisors` run: see below                                                                                                                |
-| `20260926220012_more_indexes`               | The FK indexes advisors found that `010` predated                                                                                                                          |
+| File                                                 | Contents                                                                                                                                                                   |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260926220001_extensions_and_helpers`              | Enums used across later files, `set_updated_at()`, the offensive-word filter (`blocked_words`/`contains_blocked_word`), the `sync_tables`/`append_only_tables` allow-lists |
+| `20260926220002_profiles`                            | `profiles` (spec §4c), per-field privacy, the minor-clamping safety trigger, auto-provisioning on signup                                                                   |
+| `20260926220003_library_sync_tables`                 | Every schema3 collection except the append-only logs, `instruments` (§6), the `_setup_owner_table` procedure                                                               |
+| `20260926220004_logs_sync_tables`                    | The append-only logs, `_setup_append_only_table`                                                                                                                           |
+| `20260926220005_sync_rpc`                            | `sync_upsert`/`sync_append`/`sync_update_last_page`/`sync_undo_attempt`                                                                                                    |
+| `20260926220006_social`                              | Corrections to 1–5 (below), then all of spec §5: friendships, blocks, profile cards, activity feed, notes, presence, studios, invites, contact discovery                   |
+| `20260926220007_moderation_and_leaderboard`          | `reports` (the moderation queue), `leaderboard_friends()`                                                                                                                  |
+| `20260926220008_storage_buckets`                     | The four buckets and their `storage.objects` policies                                                                                                                      |
+| `20260926220009_account_deletion`                    | `delete_my_account()`, and un-cascading a studio away from its members                                                                                                     |
+| `20260926220010_grants_and_indexes`                  | anon lockdown, closing a stats leak, indexing every FK (as it existed at that point)                                                                                       |
+| `20260926220011_advisor_fixes`                       | Full remediation of a `supabase db advisors` run: see below                                                                                                                |
+| `20260926220012_more_indexes`                        | The FK indexes advisors found that `010` predated                                                                                                                          |
+| `20260926220013_fix_respond_friend_request`          | Enum-cast bug fix — see "Corrections found while writing the tests" below                                                                                                  |
+| `20260926220014_grant_friend_block_helpers`          | Superseded by `018` (see correction 5 below) — kept as-is, not edited, matching how `011` corrects `010` rather than rewriting it                                          |
+| `20260926220015_fix_enforce_owned_piece_passage`     | `notes` insert crash fix — see below                                                                                                                                       |
+| `20260926220016_grant_studio_membership_helpers`     | `is_studio_member`/`is_studio_owner` grants — see below                                                                                                                    |
+| `20260926220017_fix_delete_my_account_storage`       | `delete_my_account()` storage fix + new client contract — see below                                                                                                        |
+| `20260926220018_revert_unneeded_friend_block_grants` | Reverts part of `014`, fixes a `search_path` finding — see below                                                                                                           |
 
 ## Corrections found in review (in `20260926220006`, before anything depended on them)
 
@@ -68,6 +74,56 @@ now make that decision inside the same atomic statement (`ON CONFLICT ... DO UPD
 stored.updated_at <= excluded.updated_at`), so Postgres's own row lock serializes concurrent callers
 correctly: the second one re-evaluates the `WHERE` against the first one's already-committed row, not
 a snapshot from before either of them ran.
+
+## Corrections found while writing the tests (after `20260926220012`)
+
+The WIP this track continued also included migrations 1–12 and both docs, already reviewed once (see
+above) — but untested against the hosted project beyond `db advisors`. Writing `supabase/tests/`
+(below) exercised every RPC as an actual impersonated caller for the first time, and found five more
+real bugs, none of them reachable by `db advisors` (they're runtime/permission failures, not lint
+findings) — each is its own migration (`20260926220013`–`20260926220018`):
+
+1. **`respond_friend_request` could never accept or decline anything.** `set status = case when
+p_accept then 'accepted' else 'declined' end` fails with "column is of type friendship_status but
+   expression is of type text" — a bare `CASE` over two string literals resolves to `text`, which
+   (unlike a single literal) doesn't implicitly cast to an enum column on assignment. Fixed with an
+   explicit `::public.friendship_status` cast. The one call site with this exact pattern; checked.
+2. **Every `notes` insert crashed**, with `record "new" has no field "passage_id"`.
+   `_enforce_owned_piece_passage()` (shared by `activity_events_ownership` and `notes_ownership`)
+   unconditionally read `new.passage_id`, a column `activity_events` has and `notes` never did. Fixed
+   to read it via `to_jsonb(new) ->> 'passage_id'` instead, the same way `enforce_no_blocked_words()`
+   already handles running across differently-shaped tables (`(select ... )::uuid` is `null`, not an
+   error, when the column doesn't exist).
+3. **`is_studio_member`/`is_studio_owner` were never granted to `authenticated`**, so every query
+   against `studios`/`studio_members`/`studio_goals` failed outright — both are read from inside a
+   plain RLS policy `USING` clause, which runs as the querying role, not as `postgres`. Granted.
+4. **`delete_my_account()` could never succeed.** `delete from storage.objects ...` always failed:
+   `protect_delete()`, a platform-level trigger, blocks _every_ direct `DELETE` against
+   `storage.objects`, even from a `SECURITY DEFINER` function — "Use the Storage API instead," with no
+   SQL-level workaround. New contract: **the client deletes its own objects in all four buckets via
+   the Storage API before calling `delete_my_account()`** (the `*_delete_own` policies from
+   `20260926220008` already make that possible today); the function now checks first and raises a
+   named, actionable error if anything remains, instead of either crashing or silently orphaning
+   files. iOS client track: sequence account deletion as storage-delete-per-bucket, then this RPC.
+5. **A false start, corrected within the same pass**: `is_friend`/`is_blocked` looked like they had
+   the same missing-grant problem as (3) above (this project's own early test called them directly and
+   got "permission denied"), so `20260926220014` granted them too. Checking every real call site
+   (`grep` across every migration, not assumed) showed that was wrong — both are only ever called from
+   _inside_ another `SECURITY DEFINER` function, which always runs as that function's owner regardless
+   of the caller's own grants, exactly the reasoning `20260926220011` already used for
+   `_profile_stats`/`_profile_field_visible`/`_week_start` (and correctly didn't extend to
+   `is_friend`/`is_blocked` when it revoked them). `20260926220018` reverted the grant; the test was
+   fixed to check friendship state through the `friendships` table instead (already self-scoped and
+   selectable), which is what a real client would do anyway. `supabase/tests/01` now has a check
+   (01.16/01.17) encoding this exact contract — which helpers must be `authenticated`-executable
+   (read from a plain policy/trigger: `is_studio_member`, `is_studio_owner`, `can_view_activity_event`,
+   `_can_view_social_target`) and which must not (called only from inside another definer function:
+   `is_friend`, `is_blocked`, `_profile_stats`, `_profile_field_visible`) — so this class of mistake,
+   in either direction, fails a test instead of needing to be rediscovered.
+
+`20260926220018` also fixed a `function_search_path_mutable` finding `db advisors` raised against
+`20260926220015`'s replacement `_enforce_owned_piece_passage()`: it carried forward the original's
+missing `set search_path`, the one function in this schema that still lacked it.
 
 ## Design: cross-user reads go through named functions, not scattered policies
 
@@ -134,11 +190,20 @@ their own report's status via the ordinary self-select policy.
 
 Every `owner_id`/`id`/`created_by`/`member_id`/etc. reference to `auth.users` in every migration in
 this directory is `on delete cascade` — checked by `grep -n "references auth.users" supabase/migrations/*.sql`
-and confirming all of them, not asserted from memory. `delete_my_account()` therefore only needs to
-handle the one thing that _doesn't_ cascade automatically (`storage.objects` has no FK to
-`auth.users` at all) before deleting the `auth.users` row itself; GoTrue's own internal tables
-(identities, sessions, refresh tokens, MFA factors, …) already cascade from `auth.users` the same way
-the platform's own admin "delete user" does.
+and confirming all of them, not asserted from memory. `delete_my_account()` therefore only ever has to
+issue one statement itself, `delete from auth.users where id = auth.uid()`; GoTrue's own internal
+tables (identities, sessions, refresh tokens, MFA factors, …) already cascade from `auth.users` the
+same way the platform's own admin "delete user" does, and so does every table in this schema.
+
+**Storage is the one exception, and it is the client's job, not this function's** (revised in
+`20260926220017` — see correction 4 above for why the original direct-delete design couldn't work:
+`storage.objects` has no FK to `auth.users`, and the platform blocks a direct SQL `DELETE` against it
+outright, full stop, from any role). **iOS client track: before calling `delete_my_account()`, delete
+the caller's own objects in all four buckets via the Storage API** (`avatars/{uid}/…`,
+`scores/{uid}/…`, `recordings/{uid}/…`, `note-media/{uid}/…` — the `*_delete_own` policies from
+`20260926220008` already allow this today). `delete_my_account()` checks first and raises a clear,
+named error (`errcode 55000`) if anything remains under the caller's prefix in any bucket, rather than
+either crashing (the old behavior) or silently leaving orphaned files.
 
 The one deliberate non-cascade: `studios.created_by`/`studio_goals.created_by` are `on delete set
 null`, not cascade. A studio is shared data — if it cascaded, one member (its creator) deleting their
@@ -187,18 +252,45 @@ what the terminal shows.
 supabase db advisors --linked --project-ref zotswpjyvmhnxdyibnnz --type all --level info
 ```
 
-Run after `20260926220012`: 104 findings remain, all expected/by design —
-`unused_index` (67, INFO: every index in this schema is new, on tables with no query traffic yet;
-nothing to remove), `rls_enabled_no_policy` (3, INFO: the intentional `sync_tables`/
-`append_only_tables`/`blocked_words` lockdown), `authenticated_security_definer_function_executable`
-(33, WARN: this schema's entire public RPC surface — each one checked by hand against this run's
-output to confirm it either self-scopes via `auth.uid()` implicitly or validates its explicit target
-parameter internally before returning/mutating anything), and the one leaked-password-protection
-item above. Re-run this after any future migration that adds a table, policy or function.
+Run after `20260926220018` (and after `supabase/tests` had already found and driven five real fixes
+that this lint-style pass could never have caught on its own — see above): 56 findings remain, all
+expected/by design —
+
+- `unused_index` (16, INFO): every index in this schema is new, on tables with next to no query
+  traffic yet (a handful of rolled-back test rows). Nothing to remove; re-check once real traffic
+  exists.
+- `rls_enabled_no_policy` (3, INFO): the intentional `sync_tables`/`append_only_tables`/
+  `blocked_words` lockdown (RLS on, zero policies, so only a migration running as `postgres` can touch
+  them — see correction 1 above for why that matters).
+- `authenticated_security_definer_function_executable` (35, WARN): this schema's entire public RPC
+  surface. Each one is `SECURITY DEFINER` specifically so it can do a controlled cross-user
+  read/write RLS alone can't express (see "Design" below); being `authenticated`-executable is the
+  point, not an oversight, and every one either self-scopes via `auth.uid()` internally or validates
+  its explicit target parameter (friendship/block/ownership) before returning or mutating anything.
+- `auth_db_connections_absolute` (1, INFO): a generic platform suggestion (percentage- vs
+  absolute-based Auth server connection allocation) unrelated to this schema; left as a project-level
+  ops decision, out of scope for this track.
+- `auth_leaked_password_protection` (1, WARN): still not reachable with this project's CLI version
+  (unchanged from the note above) — needs the Dashboard or a Management API endpoint `supabase config`
+  doesn't wrap.
+
+Re-run this after any future migration that adds a table, policy or function.
 
 ## Tests
 
-`supabase/tests/` — see that directory's own notes for how they're run (two throwaway users via the
-public signup endpoint, impersonated with `set local role authenticated` + `request.jwt.claims`
-inside a transaction that's rolled back, per the standard pattern for testing RLS without a
-persistent second account).
+`supabase/tests/` proves spec §5c's isolation requirement — "user A cannot read/write user B's
+private data through any table/view/RPC/storage" — against the **hosted** project (no local Postgres,
+no DB password): `set local role authenticated` + `request.jwt.claims` impersonation inside a
+transaction, using two throwaway users created through the real public signup endpoint (not inserted
+into `auth.users` directly — that would skip `handle_new_auth_user` and risk testing against a user
+shape the app never actually produces). See `supabase/tests/run.sh`'s own header for exact setup
+steps (creating the throwaway users, the `email_sent` rate limit gotcha) and usage.
+
+| File                                         | Proves                                                                                                                                                                                                                 | Destructive?      |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `01_rls_policy_coverage.sql`                 | Every owner-scoped table has exactly the right three policies and no delete policy; storage buckets aren't public; the authenticated-grant contract for every internal helper (see correction 5)                       | No (read-only)    |
+| `02_owner_isolation_and_sync_rpc.sql`        | Direct SELECT/UPDATE/DELETE and `sync_upsert`'s ownership guard all actually hold at runtime (`tags`, `pieces`, `ink_strokes`)                                                                                         | No (rolled back)  |
+| `03_social_privacy_blocks_notes_storage.sql` | Profile privacy tiers + the private-account clamp, friend requests, blocks, avatar visibility, leaderboard opt-out, notes' 24h expiry, private replies, all four storage buckets' policies, reports, studio membership | No (rolled back)  |
+| `04_account_deletion.sql`                    | `delete_my_account()` refuses to run with leftover storage (rolled back), then really deletes an account end-to-end and touches nothing belonging to anyone else                                                       | **Yes** — commits |
+
+Re-run the whole suite after any migration that touches RLS, a grant, or one of these RPCs.
