@@ -100,6 +100,12 @@ final class MetronomeService {
     @ObservationIgnored private var rebuilding = false
     @ObservationIgnored private var audioRequiresRelaunch = false
     @ObservationIgnored private var resumeAfterInterruption = false
+    /// The count-in actually scheduled for the *current* sample-clock epoch (see `playBar`) — 0 on
+    /// a live rebuild while already playing, even when `settings.countInBars > 0`, so a tempo/meter/
+    /// dropout-plan change mid-play doesn't replay the count-in. `startDisplayUpdates` reads this
+    /// rather than `settings.countInBars` directly so the displayed "counting in" state always
+    /// matches what was actually scheduled for this epoch.
+    @ObservationIgnored private var scheduledCountInBars = 0
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -162,7 +168,7 @@ final class MetronomeService {
             beat = 1
             pulse = 1
             beatProgress = 0
-            isCountingIn = settings.countInBars > 0
+            isCountingIn = scheduledCountInBars > 0
             isDropoutSilent = false
             if hapticsEnabled { beatHaptic.prepare() }
             startDisplayUpdates()
@@ -185,6 +191,7 @@ final class MetronomeService {
         beatProgress = 0
         isCountingIn = false
         isDropoutSilent = false
+        scheduledCountInBars = 0
         lastAbsoluteBeat = nil
         AudioSessionCoordinator.shared.release(.metronome)
     }
@@ -260,8 +267,12 @@ final class MetronomeService {
         // A count-in plays the ordinary bar once, unlooped, then the (possibly dropout-cycled)
         // music queues right behind it — `scheduleBuffer(at: nil)` plays buffers back-to-back in
         // the order scheduled, so no manual timestamp arithmetic is needed for a sample-accurate join.
-        if settings.countInBars > 0 {
-            let countIn = try makeBuffer(format: format, samples: Array(repeating: bar, count: settings.countInBars).flatMap { $0 })
+        // Only on a fresh start, not a live rebuild (`isPlaying` is still false here only when this
+        // call came from `start()`) — otherwise every tempo nudge or dropout-plan update while
+        // already playing would replay the count-in.
+        scheduledCountInBars = !isPlaying && settings.countInBars > 0 ? settings.countInBars : 0
+        if scheduledCountInBars > 0 {
+            let countIn = try makeBuffer(format: format, samples: Array(repeating: bar, count: scheduledCountInBars).flatMap { $0 })
             player.scheduleBuffer(countIn, at: nil, options: [])
         }
         let cycle: [Float]
@@ -301,7 +312,7 @@ final class MetronomeService {
                       let time = self.player.playerTime(forNodeTime: nodeTime), time.sampleTime >= 0,
                       let position = MetronomeClock.position(sampleTime: time.sampleTime, barFrames: self.barFrames,
                                                               beatsPerBar: self.beatsPerBar, subdivision: self.subdivision,
-                                                              countInBars: self.settings.countInBars, dropoutPlan: self.dropoutPlan)
+                                                              countInBars: self.scheduledCountInBars, dropoutPlan: self.dropoutPlan)
                 else { continue }
                 if position.absoluteBeatIndex != self.lastAbsoluteBeat {
                     self.lastAbsoluteBeat = position.absoluteBeatIndex
