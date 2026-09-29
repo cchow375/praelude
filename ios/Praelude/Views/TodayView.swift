@@ -13,6 +13,9 @@ struct TodayView: View {
     let onOpenPiece: (UUID) -> Void
     var onAddPiece: () -> Void = {}
     var onContinueWarmup: () -> Void = {}
+    /// §9/R3: hands a cold-eligible passage off to the score's own arm/cold-grade flow — see
+    /// `startItem` below for why a review/learning/new item can't simply `store.startSet` here.
+    var onStartPassage: (UUID, UUID) -> Void = { _, _ in }
 
     private var todaySessions: [PracticeSession] {
         store.sessions.filter { Calendar.current.isDateInToday($0.startedAt) }
@@ -261,6 +264,10 @@ struct TodayView: View {
     private func skip(_ item: SessionItem) {
         locallySkippedIDs.insert(item.id)
         sessionItems.removeAll { $0.id == item.id }
+        // §11 "one-tap override, logged" — R15 built this item into today's plan; skipping it is
+        // that same override, previously kept only in `locallySkippedIDs` (in-memory, unlogged).
+        let decision = Decision(ruleID: .r15SessionBuilder, pieceID: item.pieceID, passageID: item.passageID, reason: item.reason)
+        try? store.recordRuleEvent(decision.asRuleEvent(overridden: true))
     }
 
     private func startItem(_ item: SessionItem) {
@@ -271,10 +278,23 @@ struct TodayView: View {
             case .warmup:
                 return // No warmup practice flow exists yet (§12 is a separate track).
             case .review, .learning, .new:
-                guard let passageID = item.passageID,
-                      let configuration = PracticeRulesEngine.defaultConfiguration(for: passageID, context: context) else { return }
+                guard let passageID = item.passageID, let pieceID = item.pieceID else { return }
+                // §9/R3: "the first attempt of the day... prompts Clean/Shaky/Missed" — that grade is
+                // what actually drives R4's schedule (`PracticeArmController.start(grade:...)` is the
+                // only writer of `coldGrades`). Starting the set directly here, the way the run-through
+                // branch below still does, would silently skip both rules on every cold-eligible
+                // passage, the same way tapping this passage on the score itself never would — so this
+                // hands off to that exact flow instead, landing on the score already armed. Only once
+                // today's cold grade is already behind this passage (nothing left for R3 to do) is a
+                // direct start here equivalent to going through the arm controller, so that case keeps
+                // the original ≤1-tap behavior rather than adding a needless extra confirmation.
+                if PracticeRulesEngine.isColdAttemptEligible(passageID: passageID, context: context) {
+                    onStartPassage(pieceID, passageID)
+                    return
+                }
+                guard let configuration = PracticeRulesEngine.defaultConfiguration(for: passageID, context: context) else { return }
                 try store.startSet(configuration)
-                if let pieceID = item.pieceID { onOpenPiece(pieceID) }
+                onOpenPiece(pieceID)
             case .runThrough:
                 guard let pieceID = item.pieceID else { return }
                 let configuration = PracticeConfiguration(pieceID: pieceID, focus: "Run-through", basis: .totalPlays, targetCount: 1)

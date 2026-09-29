@@ -48,6 +48,12 @@ final class FeedbackService {
 
     func prime(existingAttemptIDs: [UUID]) { gate.prime(existingAttemptIDs) }
 
+    /// Whether `emit(_:)` would itself sound a tone right now — what `VoiceConfirmationPlayer` checks
+    /// before it fills in a generic confirmation of its own for a spoken verdict, so a verdict is
+    /// never left with no audible confirmation at all just because Practice feedback (or only its
+    /// sound) happens to be off. See "(C) Audit.md".
+    var playsAudibleConfirmation: Bool { isEnabled && soundsEnabled && volume > 0 }
+
     func emit(_ input: PracticeFeedbackInput) {
         guard let event = gate.accept(input) else { return }
         guard isEnabled else { stop(); return }

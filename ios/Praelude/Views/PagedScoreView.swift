@@ -87,6 +87,7 @@ struct PagedScoreView: UIViewRepresentable {
     var onRegionSelected: (UUID) -> Void = { _ in }
     var onPlaceStamp: (Int, NormalizedRect) -> Void = { _, _ in }
     var onPlaceTextBox: (Int, NormalizedRect) -> Void = { _, _ in }
+    var onPlaceBreakPoint: (Int, NormalizedRect) -> Void = { _, _ in }
     var onEditTextBox: (TextBoxAnnotation) -> Void = { _ in }
     var onTurnPage: (Int) -> Void = { _ in }
     /// §7 performance mode: a long press anywhere on the score exits it. The only way out while
@@ -355,6 +356,7 @@ struct PagedScoreView: UIViewRepresentable {
             overlay.emphasizedIDs = parent.emphasizedIDs; overlay.practicedIDs = parent.practicedIDs
             overlay.displayedStamps = parent.stamps; overlay.displayedTextBoxes = parent.textBoxes
             overlay.onPlaceStamp = parent.onPlaceStamp; overlay.onPlaceTextBox = parent.onPlaceTextBox
+            overlay.onPlaceBreakPoint = parent.onPlaceBreakPoint
             overlay.onEditTextBox = parent.onEditTextBox
             let number = overlay.pageNumber
             if !dirtyPages.contains(number), parent.drawingData(number) != committed[number] {

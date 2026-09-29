@@ -114,6 +114,44 @@ final class PracticeArmControllerTests: XCTestCase {
         XCTAssertEqual(Set(fixture.store.state.ruleEvents.map(\.ruleID)), [.r3ColdAttempt, .r4SpacedReview])
     }
 
+    /// Regression for "(C) Audit.md": R3/R4 were logged but never surfaced anywhere for the player to
+    /// see — `lastColdGradeDecision` is what `PracticeHUDView` now displays for the running set's own
+    /// lifetime, and it must be R4's own line (not R3's plainer one) whenever R4 is enabled.
+    @MainActor
+    func testStartWithCleanGradeExposesR4sReasonAsTheLastColdGradeDecision() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertNil(fixture.arm.lastColdGradeDecision)
+        _ = try fixture.arm.start(grade: .clean, store: fixture.store, runtime: fixture.runtime)
+        let decision = try XCTUnwrap(fixture.arm.lastColdGradeDecision)
+        XCTAssertEqual(decision.ruleID, .r4SpacedReview)
+        XCTAssertEqual(decision.reason, "Clean. Next review in 1 day.")
+        // Persists for the running set's own lifetime — re-arming a *different* target clears it,
+        // the same rule `nextStep`/`suggestions` already follow.
+        let (otherPiece, otherPassage) = try addPassage(fixture.store)
+        fixture.arm.arm(pieceID: otherPiece.id, passage: otherPassage, store: fixture.store)
+        XCTAssertNil(fixture.arm.lastColdGradeDecision)
+    }
+
+    @MainActor
+    func testSkipColdGradeStartsPlainlyWithoutRecordingAnything() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertTrue(fixture.arm.awaitingColdGrade)
+        fixture.arm.skipColdGrade()
+        XCTAssertFalse(fixture.arm.awaitingColdGrade)
+        let started = try fixture.arm.start(store: fixture.store, runtime: fixture.runtime)
+        XCTAssertTrue(started)
+        XCTAssertEqual(fixture.store.activeSet?.attempts.count, 0, "Skipping records no grade and no attempt")
+        XCTAssertTrue(fixture.store.state.coldGrades.isEmpty, "Skipping is local to this visit, not a standing decision")
+        // Re-arming the same passage (e.g. navigating back to it later) must offer the gate again.
+        try fixture.store.endSet()
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertTrue(fixture.arm.awaitingColdGrade)
+    }
+
     @MainActor
     func testStartWithShakyGradeRecordsSloppyAttempt() throws {
         let fixture = try fixture()
@@ -148,6 +186,40 @@ final class PracticeArmControllerTests: XCTestCase {
         XCTAssertTrue(started)
         XCTAssertEqual(fixture.store.activeSet?.attempts.count, 0, "No grade means no attempt is pre-recorded")
         XCTAssertEqual(fixture.store.state.coldGrades.count, 1, "Unchanged — already graded earlier today")
+    }
+
+    // MARK: - arm(...) preserves nextStep/suggestions for the same target
+
+    /// Regression for "(C) Audit.md": `stopPractice()` calls `computeAfterSet` to populate §10c's
+    /// headline and suggestions, then (via `store.endSet()`'s own `.onChange`-driven `rearmIfIdle`)
+    /// immediately re-arms the very same passage — which used to unconditionally wipe both straight
+    /// back out before the idle screen could ever show them. Re-arming the identical piece/passage
+    /// (how every idle rearm after a set ends reaches `arm(...)`) must preserve them; arming something
+    /// genuinely different must still clear them.
+    @MainActor
+    func testArmPreservesNextStepAndSuggestionsWhenReArmingTheSameTarget() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store, learningState: .review, performanceTempo: 100)
+        // A real Start always goes through `arm(...)` first (`selectPassage` → `rearmIfIdle`) — the
+        // controller's own `pieceID`/`passage` must already be this target for the re-arm below to
+        // actually be "the same" one, not merely a first-ever arm that happens to match by chance.
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        var configuration = PracticeConfiguration(pieceID: piece.id, passageID: passage.id, targetCount: 1, startBPM: 100, targetBPM: 100)
+        configuration.passageSnapshot = passage
+        try fixture.store.startSet(configuration)
+        _ = try fixture.runtime.record(.clean)
+        let completed = try XCTUnwrap(fixture.store.activeSet)
+        fixture.arm.computeAfterSet(completed, store: fixture.store)
+        let headline = try XCTUnwrap(fixture.arm.nextStep)
+
+        // Re-arming the *same* piece/passage (the Stop/idle path) must not clear it.
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.nextStep?.id, headline.id, "Re-arming the same target must preserve the just-computed next step")
+
+        // Arming a genuinely different passage must clear it — it no longer applies.
+        let (otherPiece, otherPassage) = try addPassage(fixture.store)
+        fixture.arm.arm(pieceID: otherPiece.id, passage: otherPassage, store: fixture.store)
+        XCTAssertNil(fixture.arm.nextStep, "Arming something else must clear a stale next step from a different passage")
     }
 
     // MARK: - accept(...) / dismiss(...)
@@ -229,6 +301,68 @@ final class PracticeArmControllerTests: XCTestCase {
         XCTAssertEqual(fixture.store.state.ruleEvents.last?.overridden, true)
     }
 
+    // MARK: - R7 speed-up: accept-only, cap actually enforced
+
+    /// Regression for "(C) Audit.md": R7 used to be auto-baked into every `arm()` regardless of
+    /// player choice, with nothing ever logged — so `r7MaxIncreasesPerDay` (default 2) never saw a
+    /// single applied increase to count and the tempo silently climbed every set. This drives the
+    /// full loop end to end: complete a set below performance tempo, accept the offered R7 suggestion
+    /// (logging it and raising the *next* arm's tempo), twice — then confirms a third completed set
+    /// offers nothing further today, and that declining instead never moves the tempo at all.
+    @MainActor
+    func testR7OnlyReachesTheNextSetThroughAnExplicitAcceptAndStopsAtTheDailyCap() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store, performanceTempo: 100)
+        try fixture.store.recordColdGrade(ColdGradeRecord(passageID: passage.id, grade: .clean, tempo: 80)) // skip the cold gate below
+
+        func completeASet(startBPM: Double) throws -> ActiveSet {
+            fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+            var configuration = try XCTUnwrap(fixture.arm.configuration)
+            configuration.startBPM = startBPM; configuration.targetBPM = startBPM; configuration.targetCount = 1
+            fixture.arm.configuration = configuration
+            _ = try fixture.arm.start(store: fixture.store, runtime: fixture.runtime)
+            _ = try fixture.runtime.record(.clean)
+            return try XCTUnwrap(fixture.store.activeSet)
+        }
+        // R7 may surface either as §10c's own headline (when nothing higher-priority also fires) or
+        // as a dismissible suggestion (`PracticeArmController.computeAfterSet` never duplicates it
+        // into both) — `RuleSuggestionsView`'s headline row now makes the former equally acceptable.
+        func r7Decision() -> Decision? {
+            if fixture.arm.nextStep?.ruleID == .r7SpeedUp { return fixture.arm.nextStep }
+            return fixture.arm.suggestions.first { $0.ruleID == .r7SpeedUp }
+        }
+
+        // Set 1 (80 bpm, below the 100 bpm performance tempo): completes, R7 fires, accept it.
+        var completed = try completeASet(startBPM: 80)
+        fixture.arm.computeAfterSet(completed, store: fixture.store)
+        var r7 = try XCTUnwrap(r7Decision())
+        fixture.arm.accept(r7, store: fixture.store)
+        try fixture.store.endSet()
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 84, "The accepted increase reaches the next arm")
+        XCTAssertEqual(fixture.store.state.ruleEvents.filter { $0.ruleID == .r7SpeedUp }.count, 1)
+        XCTAssertEqual(fixture.store.state.ruleEvents.last?.overridden, false)
+
+        // Set 2 (now at 84): completes, accept again — the second of two allowed today.
+        completed = try completeASet(startBPM: 84)
+        fixture.arm.computeAfterSet(completed, store: fixture.store)
+        r7 = try XCTUnwrap(r7Decision())
+        fixture.arm.accept(r7, store: fixture.store)
+        try fixture.store.endSet()
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 88)
+        XCTAssertEqual(fixture.store.state.ruleEvents.filter { $0.ruleID == .r7SpeedUp && !$0.overridden }.count, 2)
+
+        // Set 3 (now at 88): the cap (2/day) has been reached — R7 must not offer again today, and
+        // the next arm must not have silently climbed on its own either.
+        completed = try completeASet(startBPM: 88)
+        fixture.arm.computeAfterSet(completed, store: fixture.store)
+        XCTAssertNil(r7Decision(), "The daily cap must actually engage once two increases are logged")
+        try fixture.store.endSet()
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 88, "No further, unlogged climb")
+    }
+
     // MARK: - computeAfterSet(...)
 
     @MainActor
@@ -246,5 +380,39 @@ final class PracticeArmControllerTests: XCTestCase {
         let headline = try XCTUnwrap(fixture.arm.nextStep)
         XCTAssertFalse(headline.reason.isEmpty)
         XCTAssertFalse(fixture.arm.suggestions.contains { $0.id == headline.id }, "The headline is never duplicated into the dismissible list")
+        XCTAssertFalse(fixture.arm.suggestions.contains { $0.ruleID == headline.ruleID && $0.passageID == headline.passageID },
+                       "Regression for the fixed bug: the old check compared `id`s, which are always fresh — the same rule (not merely the same `Decision` value) must never appear twice")
+    }
+
+    /// Regression: a rule urgent enough to *also* become §10c's own headline (nothing else fired
+    /// ahead of it) must still be a rule a player can accept or decline, not become permanently
+    /// un-actionable the moment it is excluded from `suggestions` above. `RuleSuggestionsView`'s
+    /// headline row (not `PracticeArmController` itself) is what makes this reachable; this test
+    /// exercises the same `accept`/`dismiss` calls that row now makes.
+    @MainActor
+    func testHeadlineRuleIsStillAcceptableAndDismissibleNotOnlyDisplayed() throws {
+        let fixture = try fixture()
+        // R9 stop-grinding (checked first in `nextStepLine`'s own priority order): one today's-set
+        // without progress is already "1 consecutive set without progress" when `r9Sets` is 1 — the
+        // simplest reliable way to make a single rule both the headline *and* the only thing that fired.
+        var settings = RuleSettings(); settings.r9Sets = 1
+        try fixture.store.updateRuleSettings(settings)
+        let (piece, passage) = try addPassage(fixture.store)
+        var configuration = PracticeConfiguration(pieceID: piece.id, passageID: passage.id, targetCount: 1, startBPM: 60, targetBPM: 60)
+        configuration.passageSnapshot = passage
+        try fixture.store.startSet(configuration)
+        _ = try fixture.runtime.record(.sloppy)
+        let completed = try XCTUnwrap(fixture.store.activeSet)
+        fixture.arm.computeAfterSet(completed, store: fixture.store)
+        let headline = try XCTUnwrap(fixture.arm.nextStep)
+        XCTAssertEqual(headline.ruleID, .r9StopGrinding)
+        XCTAssertFalse(fixture.arm.suggestions.contains { $0.ruleID == .r9StopGrinding }, "Excluded from suggestions, as the dedup above requires")
+
+        fixture.arm.accept(headline, store: fixture.store)
+        XCTAssertNil(fixture.arm.nextStep, "Accepting the headline clears it, the same as a suggestion disappearing once acted on")
+        XCTAssertEqual(fixture.store.state.ruleEvents.last?.ruleID, .r9StopGrinding)
+        XCTAssertEqual(fixture.store.state.ruleEvents.last?.overridden, false)
+        let updated = try XCTUnwrap(fixture.store.state.passages.first { $0.id == passage.id })
+        XCTAssertNotNil(updated.parkedUntil, "R9's own outcome (.park) must still apply when accepted from the headline")
     }
 }

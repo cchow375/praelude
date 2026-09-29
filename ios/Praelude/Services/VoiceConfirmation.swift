@@ -27,6 +27,17 @@ enum VoiceConfirmationSound: Equatable {
         }
     }
 
+    /// True for the five verdict words, whose normal audible confirmation is `FeedbackService`'s own
+    /// distinct tone rather than one of these three generic ones (see `forCommand`'s doc comment
+    /// above) — `VoiceConfirmationPlayer.confirm` uses this to know when it must fill in for that
+    /// pipeline instead of relying on it.
+    static func isVerdict(_ command: VoiceCommand) -> Bool {
+        switch command {
+        case .clean, .sloppy, .again, .shaky, .missed: return true
+        default: return false
+        }
+    }
+
     /// A short, human-readable label for the HUD flash — what the player should see confirmed the
     /// instant a command lands, independent of whatever the app then does with it.
     static func label(for command: VoiceCommand) -> String {
@@ -105,7 +116,16 @@ final class VoiceConfirmationPlayer {
             guard !Task.isCancelled, let self, self.lastCommand == command else { return }
             self.lastCommand = nil
         }
-        guard let sound = VoiceConfirmationSound.forCommand(command) else { return }
+        guard let sound = VoiceConfirmationSound.forCommand(command) else {
+            // §9: "every command confirmed... audibly" is unconditional, but a verdict's normal
+            // audible confirmation is `FeedbackService`'s own distinct tone, which the player's
+            // separate "Practice feedback" preference (a discretionary nicety, per its own Settings
+            // footer) can turn off. Fill in the plain `.tick` whenever that pipeline would not itself
+            // sound anything right now, so a spoken verdict is never silently unconfirmed — see
+            // "(C) Audit.md".
+            if VoiceConfirmationSound.isVerdict(command), !FeedbackService.shared.playsAudibleConfirmation { play(.tick) }
+            return
+        }
         play(sound)
     }
 

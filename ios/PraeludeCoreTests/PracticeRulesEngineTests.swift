@@ -550,6 +550,39 @@ final class PracticeRulesEngineTests: XCTestCase {
         XCTAssertNil(PracticeRulesEngine.evaluateR11PerformanceDate(pieceID: noDate.id, context: context))
     }
 
+    /// R11's own reason text promises "reviews capped at N days" — this confirms R4's *actual*
+    /// schedule honors that cap rather than just describing it in a separate decision. Without the
+    /// cap, a Clean grade at ladder position 3 (its own next rung is 14 days) lands after a
+    /// performance only 10 days out — see "(C) Audit.md".
+    func testR11CapIsAppliedToTheSchedule() throws {
+        let calendar = makeCalendar()
+        let now = makeDate(2026, 3, 1, calendar: calendar)
+        let performance = makeDate(2026, 3, 11, calendar: calendar) // 10 days out: two-weeks window, not final week.
+        let piece = makePiece(performanceDates: [performance])
+        let passage = makePassage(pieceID: piece.id, learningState: .review,
+                                   schedule: PassageSchedule(dueDate: nil, intervalDays: 7, reviewStep: 3))
+        let context = makeContext(now: now, calendar: calendar, pieces: [piece], passages: [passage])
+
+        let r11 = try XCTUnwrap(PracticeRulesEngine.evaluateR11PerformanceDate(pieceID: piece.id, context: context))
+        guard case let .performanceCaps(cappedIntervalDays, _, _, inFinalWeek) = r11.outcome else {
+            return XCTFail("Expected .performanceCaps")
+        }
+        XCTAssertEqual(cappedIntervalDays, 3)
+        XCTAssertFalse(inFinalWeek)
+
+        let application = try XCTUnwrap(PracticeRulesEngine.applyColdGrade(passageID: passage.id, grade: .clean, tempo: 90, context: context))
+        XCTAssertEqual(application.newSchedule.intervalDays, 3, "R11's cap must be applied to the schedule, not just reported alongside it")
+        XCTAssertEqual(application.newSchedule.dueDate, calendar.startOfDay(afterAdding: 3, to: now))
+        let due = try XCTUnwrap(application.newSchedule.dueDate)
+        XCTAssertLessThan(due, performance, "A capped review must never land after the performance it is capping for")
+
+        // A schedule already tighter than the cap (e.g. a fresh passage's first rung) is untouched.
+        let freshPassage = makePassage(pieceID: piece.id, learningState: .new)
+        let freshContext = makeContext(now: now, calendar: calendar, pieces: [piece], passages: [freshPassage])
+        let freshApplication = try XCTUnwrap(PracticeRulesEngine.applyColdGrade(passageID: freshPassage.id, grade: .clean, tempo: 90, context: freshContext))
+        XCTAssertEqual(freshApplication.newSchedule.intervalDays, 1)
+    }
+
     // MARK: - R12 variants when stuck
 
     func testR12SuggestsVariantsAfterTwoAppliedSlowDownsToday() throws {
@@ -563,7 +596,7 @@ final class PracticeRulesEngineTests: XCTestCase {
         ]
         let context = makeContext(now: now, calendar: calendar, pieces: [piece], passages: [passage], ruleEvents: events)
         let decision = try XCTUnwrap(PracticeRulesEngine.evaluateR12VariantsWhenStuck(passageID: passage.id, context: context))
-        XCTAssertEqual(decision.reason, "Two slow-downs today. Try a variant chain.")
+        XCTAssertEqual(decision.reason, "2 slow-downs today. Try a variant chain.")
         XCTAssertEqual(decision.outcome, .suggestVariants)
         assertOverridable(decision, ruleID: .r12VariantsWhenStuck)
 
@@ -571,6 +604,20 @@ final class PracticeRulesEngineTests: XCTestCase {
                           RuleEvent(ruleID: .r6SlowDown, passageID: passage.id, reasonText: "x", firedAt: now, overridden: true)]
         let notEnoughContext = makeContext(now: now, calendar: calendar, pieces: [piece], passages: [passage], ruleEvents: notEnough)
         XCTAssertNil(PracticeRulesEngine.evaluateR12VariantsWhenStuck(passageID: passage.id, context: notEnoughContext))
+    }
+
+    /// The reason text must reflect a *non-default* `r12SlowDownsPerDay`, not a hardcoded "Two" —
+    /// see "(C) Audit.md": with the threshold set to 3, the old copy still read "Two slow-downs".
+    func testR12ReasonTextReflectsACustomThreshold() throws {
+        let calendar = makeCalendar()
+        let now = makeDate(2026, 1, 5, calendar: calendar)
+        let piece = makePiece()
+        let passage = makePassage(pieceID: piece.id)
+        var settings = RuleSettings(); settings.r12SlowDownsPerDay = 3
+        let events = (0..<3).map { _ in RuleEvent(ruleID: .r6SlowDown, passageID: passage.id, reasonText: "x", firedAt: now, overridden: false) }
+        let context = makeContext(now: now, calendar: calendar, settings: settings, pieces: [piece], passages: [passage], ruleEvents: events)
+        let decision = try XCTUnwrap(PracticeRulesEngine.evaluateR12VariantsWhenStuck(passageID: passage.id, context: context))
+        XCTAssertEqual(decision.reason, "3 slow-downs today. Try a variant chain.")
     }
 
     // MARK: - R13 parts separately
@@ -667,11 +714,38 @@ final class PracticeRulesEngineTests: XCTestCase {
         let lastSet = makeSet(configuration: lastConfiguration, status: .completed, startedAt: now, currentBPM: 120)
         let context = makeContext(now: now, calendar: calendar, pieces: [piece], passages: [passage], history: [lastSet])
 
+        // R7 is eligible here (a completed set below performance tempo) — confirmed by evaluating it
+        // directly — but `defaultConfiguration` must never auto-apply it (see the test right below,
+        // and this method's own doc comment): only the rest of the last set's shape and R5's target
+        // are folded in here.
+        XCTAssertNotNil(PracticeRulesEngine.evaluateR7SpeedUp(passageID: passage.id, context: context))
         let result = try XCTUnwrap(PracticeRulesEngine.defaultConfiguration(for: passage.id, context: context))
         let expected = PracticeConfiguration(pieceID: piece.id, passageID: passage.id, focus: "Pulse", goal: .notesAndAccuracy,
-                                              basis: .totalPlays, targetCount: 3, startBPM: 126, targetBPM: 126,
+                                              basis: .totalPlays, targetCount: 3, startBPM: 120, targetBPM: 125,
                                               tempoStep: .percent(5), hands: "Right hand", useMetronome: false)
-        XCTAssertEqual(result, expected, "carries goal/basis/tempoStep/hands forward, applies R5's Review target, folds in R7's speed-up, and turns the click off for a non-tempo goal")
+        XCTAssertEqual(result, expected, "carries goal/basis/tempoStep/hands/tempo forward, applies R5's Review target, turns the click off for a non-tempo goal, and never auto-applies R7")
+    }
+
+    /// Regression for "(C) Audit.md": `defaultConfiguration` used to fold R7's speed-up in directly,
+    /// unconditionally and unlogged — bypassing the player's own accept/dismiss and, because
+    /// `r7MaxIncreasesPerDay` only counts *logged* applied increases, letting the tempo climb every
+    /// single set with the cap never once engaging. Confirms several same-day completed sets in a row
+    /// never move the next default's tempo on their own.
+    func test10aDefaultConfigurationNeverAutoAppliesR7AcrossRepeatedCompletedSets() throws {
+        let calendar = makeCalendar()
+        let now = makeDate(2026, 1, 5, calendar: calendar)
+        let piece = makePiece()
+        let passage = makePassage(pieceID: piece.id, performanceTempo: 130)
+        var history: [ActiveSet] = []
+        var bpm = 80.0
+        for _ in 0..<4 {
+            let configuration = makeConfiguration(pieceID: piece.id, passageID: passage.id, targetBPM: bpm, tempoStep: .fixed(4))
+            history.append(makeSet(configuration: configuration, status: .completed, startedAt: now, currentBPM: bpm))
+            let context = makeContext(now: now, calendar: calendar, pieces: [piece], passages: [passage], history: history)
+            let result = try XCTUnwrap(PracticeRulesEngine.defaultConfiguration(for: passage.id, context: context))
+            XCTAssertEqual(result.startBPM, bpm, "Never climbs on its own — only an explicit R7 accept may raise it")
+            bpm = result.startBPM // A real caller's next set would start exactly here, never higher.
+        }
     }
 
     // MARK: - §10c next-step line

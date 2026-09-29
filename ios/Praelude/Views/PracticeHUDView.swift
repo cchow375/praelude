@@ -28,6 +28,10 @@ struct PracticeHUDView: View {
     var onAnotherSet: () -> Void
     var onToggleMetronome: () -> Void
     var metronomeOn: Bool
+    /// §10a "tempo in one gesture... never a modal": the running/paused set's own tempo, a direct
+    /// drag/nudge target on the dial below — not display-only while a set is active (see
+    /// "(C) Audit.md").
+    var onAdjustTempo: (Double) -> Void = { _ in }
     var onMuteVoice: () -> Void
     var onVoiceOff: () -> Void
     var onApplySuggestion: (Decision) -> Void
@@ -40,6 +44,7 @@ struct PracticeHUDView: View {
     /// R14 (§11): non-nil while the metronome is mid-pulse-check for this set. The verdict buttons
     /// stay exactly as they are during one — the player's own judgement is still what counts.
     var activePulseCheck: Decision?
+    var onDismissPulseCheck: () -> Void = {}
 
     private var ladderRung: (rung: Int, total: Int)? {
         PracticeUXHelpers.ladderRung(startBPM: active.configuration.startBPM, targetBPM: active.configuration.targetBPM,
@@ -53,11 +58,15 @@ struct PracticeHUDView: View {
             } else {
                 if collapsed { collapsedStrip } else { expandedReadout }
                 if let activePulseCheck { pulseCheckBanner(activePulseCheck) }
+                if let coldGradeDecision = arm.lastColdGradeDecision { reasonBanner(coldGradeDecision, identifier: "coldGradeReason") }
                 controlsRow
             }
             micRow
             if let failure = flashLabel {
-                Text(failure).font(.caption.weight(.semibold)).foregroundStyle(PraeludeColor.live)
+                // Confirms a spoken command that just fired while the player is very likely looking
+                // at the score, not the HUD — the same legibility-at-a-distance need as the title line
+                // above (see "(C) Audit.md").
+                Text(failure).font(.title3.weight(.semibold)).foregroundStyle(PraeludeColor.live)
                     .transition(.opacity).id(flashedCommandID).accessibilityIdentifier("voiceFlash")
             }
         }
@@ -72,12 +81,15 @@ struct PracticeHUDView: View {
         VStack(spacing: 6) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(passageTitle).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    HStack(spacing: 6) {
+                    // §3d/§10c: readable from playing position, not just up close — see "(C) Audit.md"
+                    // (this line measured well under the 20/20 acuity floor at arm's length at its old
+                    // `.subheadline`/`.caption` sizes).
+                    Text(passageTitle).font(.title3.weight(.semibold)).lineLimit(1)
+                    HStack(spacing: 8) {
                         if let stageName = active.currentStage?.name {
-                            Text(stageName).font(.caption).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
+                            Text(stageName).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
                         }
-                        if let ladderRung { Text("Rung \(ladderRung.rung) of \(ladderRung.total)").font(.caption).foregroundStyle(PraeludeColor.inkTertiary) }
+                        if let ladderRung { Text("Rung \(ladderRung.rung) of \(ladderRung.total)").font(.subheadline).foregroundStyle(PraeludeColor.inkTertiary) }
                     }
                 }
                 Spacer(minLength: 8)
@@ -92,7 +104,9 @@ struct PracticeHUDView: View {
                     .accessibilityIdentifier("repProgress")
                     .accessibilityLabel("\(active.progressCount) of \(active.requiredCount) \(active.configuration.basis == .cleanStreak ? "clean" : "plays")")
                 Spacer(minLength: 0)
-                TempoDial(bpm: .constant(active.currentBPM), locked: true, numeralSize: 34)
+                // §10a "tempo in one gesture... never a modal" applies even mid-set: drag/±1/±5 must
+                // stay live, not merely a locked, dimmed readout — see "(C) Audit.md".
+                TempoDial(bpm: Binding(get: { active.currentBPM }, set: onAdjustTempo), numeralSize: 44)
             }
         }
     }
@@ -143,8 +157,24 @@ struct PracticeHUDView: View {
             Text(decision.reason).font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
+            // §11: every rule's one-tap override, logged — this one previously had no way to end
+            // early besides waiting out its own timer. See "(C) Audit.md".
+            Button("Resume click", action: onDismissPulseCheck)
+                .font(.caption.weight(.semibold)).frame(minHeight: 32).accessibilityIdentifier("dismissPulseCheck")
         }
         .accessibilityElement(children: .combine).accessibilityIdentifier("pulseCheckBanner")
+    }
+
+    /// A rule's already-decided one-line reason, purely informational (nothing left to accept or
+    /// decline — see `PracticeArmController.lastColdGradeDecision`'s own doc comment).
+    private func reasonBanner(_ decision: Decision, identifier: String) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(PraeludeColor.inkTertiary).frame(width: 6, height: 6)
+            Text(decision.reason).font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine).accessibilityIdentifier(identifier)
     }
 
     private func verdictButton(_ verdict: Verdict, title: String, glyph: PraeludeGlyph, key: KeyEquivalent, primary: Bool) -> some View {
@@ -188,7 +218,7 @@ struct PracticeHUDView: View {
             HStack(spacing: 8) {
                 Circle().fill(speech.isMuted ? PraeludeColor.inkTertiary : PraeludeColor.live).frame(width: 6, height: 6)
                 PraeludeIcon(glyph: .mic, size: 14).foregroundStyle(speech.isMuted ? PraeludeColor.inkTertiary : PraeludeColor.live)
-                Text(speech.status).font(.caption)
+                Text(speech.status).font(.subheadline)
                 Spacer()
                 Button(speech.isMuted ? "Unmute" : "Mute", action: onMuteVoice).font(.caption.weight(.semibold))
                     .frame(minHeight: 44).contentShape(Rectangle()).accessibilityIdentifier("muteVoice")

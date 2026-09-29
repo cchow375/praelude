@@ -11,6 +11,11 @@ struct ScoreWorkspace: View {
     let pieceID: UUID
     let onClose: (() -> Void)?
     var sharedMarkup: ScoreMarkupState? = nil
+    /// Today's "Start"/"Start session" (§15) hands a specific cold-eligible passage off here rather
+    /// than starting it directly, so it goes through the exact same `selectPassage`/`arm` cold-grade
+    /// path a manual on-score tap already does (see `TodayView.startItem`). Consumed once on appear.
+    var autoSelectPassageID: UUID? = nil
+    var onAutoSelectConsumed: () -> Void = {}
     @Environment(PracticeStore.self) private var store
     @Environment(MetronomeService.self) private var metronome
     @Environment(SpeechCommandService.self) private var speech
@@ -23,6 +28,11 @@ struct ScoreWorkspace: View {
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("ios.feedback") private var feedbackEnabled = true
+    /// §9 "onboarding voice setup... check recognition in room": previously reachable only from
+    /// Settings, never from the point a player actually turns hands-free on for the first time. See
+    /// "(C) Audit.md".
+    @AppStorage("ios.voiceCheckedOnce") private var voiceCheckedOnce = false
+    @State private var showFirstVoiceCheck = false
     @State private var voiceOwnerID = UUID()
     @State private var arm = PracticeArmController()
     @State private var page = 1
@@ -32,6 +42,10 @@ struct ScoreWorkspace: View {
     @State private var confirmDiscardSelection = false
     @State private var selectedPassage: Passage?
     @State private var sheet: ScoreSheet?
+    /// §11 R8: "after Sloppy, optional tap where it broke" — offers the tap-to-mark control below the
+    /// HUD; `markup.breakPointArmed` is the separate "currently waiting for that tap on the score"
+    /// state `ScorePageOverlay` reads.
+    @State private var offerBreakPointTap = false
     @State private var focusMode = false
     /// §7 performance mode: a stronger focus that also hides the compact top row focus mode still
     /// shows (Exit focus/jump-back/page indicator) and disables ink, so the only surviving
@@ -111,12 +125,6 @@ struct ScoreWorkspace: View {
                             }
                         }
                     }
-                    .overlay(alignment: .bottom) {
-                        if markup.mode == .reading {
-                            PracticeFeedbackView(feedback: runtime.feedback, setID: active?.id)
-                                .padding(.bottom, 12).allowsHitTesting(false)
-                        }
-                    }
                     .safeAreaInset(edge: .top, spacing: 0) {
                         if markup.mode != .reading {
                             markupHeader
@@ -153,15 +161,25 @@ struct ScoreWorkspace: View {
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         if markup.mode == .selecting {
                             selectionTools
+                        } else if markup.mode == .reading && focusMode && !performanceMode {
+                            // "Focus on score" must still leave Stop/Undo/the metronome toggle and a
+                            // verdict fallback one tap away (§3d) — only true performance mode ("the
+                            // only surviving interaction is turning pages") hides the dock entirely.
+                            // Collapsing the HUD first (its own, separately reachable control) is how
+                            // a player recovers the vertical space this used to free by hiding
+                            // everything — see "(C) Audit.md".
+                            if active != nil { withFeedback { practiceDock } }
                         } else if markup.mode == .reading && !focusMode {
                             if dynamicTypeSize.isAccessibilitySize {
-                                ScrollView {
-                                    practiceDock.fixedSize(horizontal: false, vertical: true)
+                                withFeedback {
+                                    ScrollView {
+                                        practiceDock.fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .frame(height: min(520, geometry.size.height * 0.6))
+                                    .praeludeScoreChrome()
+                                    .accessibilityIdentifier("accessiblePracticeControls")
                                 }
-                                .frame(height: min(520, geometry.size.height * 0.6))
-                                .praeludeScoreChrome()
-                                .accessibilityIdentifier("accessiblePracticeControls")
-                            } else { practiceDock }
+                            } else { withFeedback { practiceDock } }
                         }
                     }
                 }
@@ -270,9 +288,21 @@ struct ScoreWorkspace: View {
             Button("Cancel", role: .cancel) {}
         } message: { Text("Your repetitions and time stay saved. Unfinished work remains in your history.") }
         .alert("Couldn’t complete that", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
-        .onAppear { page = piece?.lastPage ?? 1; runtime.scoreAppeared(ownerID: voiceOwnerID); rearmIfIdle() }
+        .onAppear {
+            page = piece?.lastPage ?? 1
+            runtime.scoreAppeared(ownerID: voiceOwnerID)
+            if let autoSelectPassageID, let target = savedPassages.first(where: { $0.id == autoSelectPassageID }) {
+                selectPassage(target)
+                onAutoSelectConsumed()
+            } else {
+                rearmIfIdle()
+            }
+        }
         .onDisappear { _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); runtime.scoreDisappeared(ownerID: voiceOwnerID) }
-        .onChange(of: pieceID) { _, _ in page = piece?.lastPage ?? 1; selectedPassage = nil; jumpBackStack = []; speech.stop(ifOwnedBy: voiceOwnerID); arm.clearArm() }
+        .onChange(of: pieceID) { _, _ in
+            page = piece?.lastPage ?? 1; selectedPassage = nil; jumpBackStack = []; speech.stop(ifOwnedBy: voiceOwnerID); arm.clearArm()
+            offerBreakPointTap = false; markup.breakPointArmed = false
+        }
         .onChange(of: scenePhase) { _, phase in if phase != .active { _ = markup.flushInk() } }
         .onChange(of: markup.errorMessage) { _, message in if let message { error = message; markup.errorMessage = nil } }
         .onChange(of: markup.pendingQuickBox) { _, box in
@@ -285,6 +315,7 @@ struct ScoreWorkspace: View {
         .onChange(of: active?.currentBPM) { _, _ in refreshAudio() }
         .onChange(of: active?.status) { _, newStatus in
             refreshAudio(); runtime.updateScreenAwake()
+            if newStatus == .completed { offerBreakPointTap = false; markup.breakPointArmed = false }
             if newStatus == .completed, let active { arm.computeAfterSet(active, store: store) }
             // Covers every path back to "no active set for this piece" in one place — Finish,
             // relaunching mid-set and then finishing, a different window ending the set, and so
@@ -311,7 +342,7 @@ struct ScoreWorkspace: View {
                        pageEdits: effectivePageEdits, scoreLinks: effectiveScoreLinks, onLinkActivated: activateLink,
                        stamps: visibleStamps, textBoxes: visibleTextBoxes, otherLayersInkData: otherLayersInk,
                        drawingData: mergedInkData, saveDrawing: persistInk, onRegionSelected: onRegionSelected,
-                       onPlaceStamp: placeStamp, onPlaceTextBox: placeTextBox, onEditTextBox: { editingTextBox = $0 },
+                       onPlaceStamp: placeStamp, onPlaceTextBox: placeTextBox, onPlaceBreakPoint: placeBreakPointTap, onEditTextBox: { editingTextBox = $0 },
                        onTurnPage: turnPage, onLongPress: exitPerformanceMode, onPageChanged: savePage)
             .accessibilityIdentifier("scorePDF")
     }
@@ -452,6 +483,15 @@ struct ScoreWorkspace: View {
     private func placeTextBox(_ page: Int, _ position: NormalizedRect) {
         editingTextBox = TextBoxAnnotation(pieceID: pieceID, page: page, region: position, text: "", layer: markup.activeLayer)
     }
+    /// §11 R8: "after Sloppy, optional tap where it broke." `active`'s own passage (not
+    /// `selectedPassage`, which can drift once a set is running against a snapshot — e.g. after §8's
+    /// quick-create) is what a fired R8 decision, and the next `computeAfterSet`, actually key off of.
+    private func placeBreakPointTap(_ page: Int, _ position: NormalizedRect) {
+        markup.breakPointArmed = false
+        offerBreakPointTap = false
+        guard let passageID = active?.configuration.passageID else { return }
+        perform { try store.recordBreakPointTap(BreakPointTap(passageID: passageID, location: position)) }
+    }
     private func removeSelectedStamp() {
         guard let id = markup.selectedStampID else { return }
         perform { try store.deleteStampAnnotation(id) }
@@ -471,6 +511,17 @@ struct ScoreWorkspace: View {
             try store.savePassage(passage)
         }
     }
+    /// §3a "nothing covers music while practicing": a saved-repetition acknowledgement used to float
+    /// as an overlay on top of the score itself (`.overlay(alignment: .bottom)`), so a Sloppy/Clean
+    /// card sat directly on the page for its whole 1.0–1.8s. Placing it here instead, inside the same
+    /// reserved `safeAreaInset` region the dock already occupies, gives it its own space above the
+    /// controls rather than borrowing the score's — see "(C) Audit.md".
+    @ViewBuilder private func withFeedback<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            PracticeFeedbackView(feedback: runtime.feedback, setID: active?.id).allowsHitTesting(false)
+            content()
+        }
+    }
     @ViewBuilder private var practiceDock: some View {
         VStack(spacing: 12) {
             if markup.quickBoxArmed {
@@ -480,9 +531,31 @@ struct ScoreWorkspace: View {
                     Button("Cancel") { markup.quickBoxArmed = false }.font(.caption.weight(.semibold)).accessibilityIdentifier("cancelQuickSubPassage")
                 }
             }
+            // §11 R8: "after Sloppy, optional tap where it broke" — three clustered taps across sets
+            // offer a split. Never forced: Skip (or simply moving on) leaves nothing recorded.
+            if markup.breakPointArmed {
+                HStack {
+                    Text("Tap the score to mark where it broke.").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
+                    Spacer(minLength: 8)
+                    Button("Cancel") { markup.breakPointArmed = false }.font(.caption.weight(.semibold)).accessibilityIdentifier("cancelBreakPointTap")
+                }
+            } else if offerBreakPointTap, active?.status == .running {
+                HStack {
+                    Button("Mark where it broke") { markup.breakPointArmed = true }
+                        .font(.caption.weight(.semibold)).accessibilityIdentifier("markBreakPoint")
+                    Spacer(minLength: 8)
+                    Button("Skip") { offerBreakPointTap = false }
+                        .font(.caption).foregroundStyle(PraeludeColor.inkSecondary).accessibilityIdentifier("skipBreakPointTap")
+                }
+            }
             if let active {
                 PracticeHUDView(
-                    active: active, passageTitle: active.currentStage?.name ?? active.configuration.focus, arm: arm,
+                    // §10c: the passage actually being practiced, not the set's focus text or its
+                    // current variant stage name — those already show one row down. A whole-piece set
+                    // (no `passageSnapshot`) falls back to the piece title, never a blank line. See
+                    // "(C) Audit.md" (commit 325871f's claim of always-the-passage-name did not hold
+                    // at this call site).
+                    active: active, passageTitle: active.configuration.passageSnapshot?.title ?? piece?.title ?? active.configuration.focus, arm: arm,
                     speech: speech, voiceOwnerID: voiceOwnerID, flashedCommand: VoiceConfirmationPlayer.shared.lastCommand,
                     flashedCommandID: VoiceConfirmationPlayer.shared.lastCommandID,
                     onVerdict: record, onUndo: { perform { try runtime.undo() } }, onTogglePause: togglePause,
@@ -492,12 +565,13 @@ struct ScoreWorkspace: View {
                         if let set = store.activeSet, !set.isComplete { metronome.setTempo(set.currentBPM) }
                         metronome.toggle()
                     }, metronomeOn: metronome.isPlaying,
+                    onAdjustTempo: adjustRunningTempo,
                     onMuteVoice: { speech.setMuted(!speech.isMuted) }, onVoiceOff: { speech.stop() },
                     onApplySuggestion: applySuggestion, onDismissSuggestion: { arm.dismiss($0, store: store) },
                     // §8: draw one box without stopping the set — a new sub-passage, not a mode
                     // change, so the dock/HUD/music never move.
                     quickSubPassageArmed: markup.quickBoxArmed, onQuickSubPassage: { markup.quickBoxArmed = true },
-                    activePulseCheck: runtime.activePulseCheck
+                    activePulseCheck: runtime.activePulseCheck, onDismissPulseCheck: { runtime.dismissPulseCheck() }
                 )
             } else if let other = store.activeSet, !other.isComplete {
                 Text("A set is open for \(store.state.pieces.first { $0.id == other.configuration.pieceID }?.title ?? "another piece").")
@@ -604,8 +678,14 @@ struct ScoreWorkspace: View {
                 Section {
                     Button(speech.isListening ? "Stop listening" : "Enable hands-free") {
                         if speech.isListening { speech.stop() }
-                        else { speech.start(ownerID: voiceOwnerID, onCommand: handleVoice) }
-                    }.frame(minHeight: 44).fontWeight(.semibold)
+                        else if voiceCheckedOnce { speech.start(ownerID: voiceOwnerID, onCommand: handleVoice) }
+                        else {
+                            // First-ever enable: the natural moment to actually check recognition in
+                            // this room, not a step buried in Settings — see "(C) Audit.md".
+                            voiceCheckedOnce = true
+                            showFirstVoiceCheck = true
+                        }
+                    }.frame(minHeight: 44).fontWeight(.semibold).accessibilityIdentifier("enableHandsFree")
                     if speech.isListening {
                         Button(speech.isMuted ? "Unmute" : "Mute") { speech.setMuted(!speech.isMuted) }.frame(minHeight: 44)
                     }
@@ -616,6 +696,7 @@ struct ScoreWorkspace: View {
                 }
             }.navigationTitle("Hands-free").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { sheet = nil } } }
+                .sheet(isPresented: $showFirstVoiceCheck) { VoiceOnboardingView() }
         }.presentationDetents([.large])
     }
     private func turnPage(_ direction: Int) {
@@ -680,6 +761,9 @@ struct ScoreWorkspace: View {
             }
             FeedbackService.shared.isEnabled = feedbackEnabled
             _ = try runtime.record(verdict)
+            // §11 R8: only a Sloppy is ever worth asking "where did it break?" — offered until the
+            // player either marks a spot, records the set's next repetition, or stops.
+            offerBreakPointTap = verdict == .sloppy
             advancePassagePageIfNeeded()
         }
     }
@@ -699,11 +783,17 @@ struct ScoreWorkspace: View {
     /// kept separate because voice dispatch lives here, not inside that view.
     private func armStart(grade: ColdGrade? = nil) {
         perform {
-            guard try arm.start(grade: grade, store: store, runtime: runtime) else { return }
+            // Retune *before* `arm.start`, not after: a cold grade's own first attempt is recorded
+            // inside `arm.start` itself (`PracticeArmController.start(grade:...)` calls
+            // `runtime.record`), which refuses to record while the audible click is still at some
+            // other tempo. Retuning only afterward left that very first recording throw — "the click
+            // was restored to your set tempo" — on a set that had *just* started, an unrecoverable
+            // half-state (cold grade + schedule already saved, but no attempt) — see "(C) Audit.md".
             if let configuration = arm.configuration {
                 metronome.setTempo(configuration.startBPM)
                 if configuration.useMetronome { metronome.start() } else { metronome.stop() }
             }
+            guard try arm.start(grade: grade, store: store, runtime: runtime) else { return }
             // A cold grade is the set's first recorded attempt too (§9/R3) — it deserves the same
             // auto page-turn treatment as every later verdict, not just attempt #2 onward.
             if grade != nil { advancePassagePageIfNeeded() }
@@ -713,12 +803,24 @@ struct ScoreWorkspace: View {
         guard let current = active else { return }
         arm.computeAfterSet(current, store: store)
         perform { try store.endSet(); metronome.stop() }
+        offerBreakPointTap = false; markup.breakPointArmed = false
     }
-    private func nudgeArmedTempo(_ delta: Double) {
-        guard store.activeSet == nil || store.activeSet?.isComplete == true, var configuration = arm.configuration else { return }
-        configuration.startBPM = min(max(configuration.startBPM + delta, 20), 300)
-        if configuration.targetBPM < configuration.startBPM { configuration.targetBPM = configuration.startBPM }
-        arm.configuration = configuration
+    /// §10a "tempo in one gesture... never a modal": before a set exists, nudges the armed
+    /// configuration's starting tempo; once one is running or paused, nudges the set actually in
+    /// progress (`store.adjustActiveTempo` — the metronome then follows via `refreshAudio`'s own
+    /// `.onChange(of: active?.currentBPM)`). Previously this returned early while a set was active at
+    /// all, so the HUD's own tempo dial/±5 controls had nothing to call — see "(C) Audit.md".
+    private func nudgeTempo(_ delta: Double) {
+        if store.activeSet == nil || store.activeSet?.isComplete == true, var configuration = arm.configuration {
+            configuration.startBPM = min(max(configuration.startBPM + delta, 20), 300)
+            if configuration.targetBPM < configuration.startBPM { configuration.targetBPM = configuration.startBPM }
+            arm.configuration = configuration
+        } else if let active {
+            adjustRunningTempo(active.currentBPM + delta)
+        }
+    }
+    private func adjustRunningTempo(_ bpm: Double) {
+        perform { try store.adjustActiveTempo(bpm) }
     }
     private func refreshAudio() {
         guard let active else { return }
@@ -748,8 +850,8 @@ struct ScoreWorkspace: View {
             // No session-queue feature exists yet (out of this track's scope); "Next" is defined as
             // moving straight on to another set on the same passage once this one is complete.
             if let active, active.isComplete { perform { try store.endSet() }; rearm(); armStart() }
-        case .slower: nudgeArmedTempo(-5)
-        case .faster: nudgeArmedTempo(5)
+        case .slower: nudgeTempo(-5)
+        case .faster: nudgeTempo(5)
         case .metronomeStart:
             if let set = store.activeSet, !set.isComplete { metronome.setTempo(set.currentBPM) }
             metronome.start()
@@ -762,6 +864,10 @@ struct ScoreWorkspace: View {
                     if configuration.targetBPM < bpm { configuration.targetBPM = bpm }
                     arm.configuration = configuration
                 }
+            } else if let active, active.status == .running || active.status == .paused {
+                // §10a: a spoken tempo is a direct gesture-equivalent command, not blocked by a modal
+                // just because a set happens to be running — see "(C) Audit.md".
+                adjustRunningTempo(bpm)
             } else { error = "Tempo follows your current set. Finish the set to choose a new tempo." }
         case .nextPage: turnPage(1)
         case .previousPage: turnPage(-1)

@@ -55,6 +55,9 @@ enum ScorePassageBoxStyle {
     /// `PracticeStore`.
     var onPlaceStamp: (Int, NormalizedRect) -> Void = { _, _ in }
     var onPlaceTextBox: (Int, NormalizedRect) -> Void = { _, _ in }
+    /// §11 R8: (page, normalized position) of a tap while `markup.breakPointArmed` — `ScoreWorkspace`
+    /// builds the `BreakPointTap` itself, the same division of labor as `onPlaceStamp` above.
+    var onPlaceBreakPoint: (Int, NormalizedRect) -> Void = { _, _ in }
     var onEditTextBox: (TextBoxAnnotation) -> Void = { _ in }
     var inkReadOnly = false
     private(set) var selectionPan: UIPanGestureRecognizer!
@@ -87,7 +90,7 @@ enum ScorePassageBoxStyle {
 
     func refresh() {
         canvas.drawingPolicy = markup.mode == .writing && markup.fingerDrawing ? .anyInput : .pencilOnly
-        canvas.isUserInteractionEnabled = markup.mode != .selecting && !markup.quickBoxArmed && !placementToolArmed && !inkReadOnly
+        canvas.isUserInteractionEnabled = markup.mode != .selecting && !markup.quickBoxArmed && !markup.breakPointArmed && !placementToolArmed && !inkReadOnly
         setNeedsDisplay()
         accessibilityValue = "\(visibleRegions.count) boxes on page \(pageNumber)"
         canvas.accessibilityValue = "\(canvas.drawing.strokes.count) ink strokes"
@@ -100,7 +103,7 @@ enum ScorePassageBoxStyle {
     private var visibleTextBoxes: [TextBoxAnnotation] { displayedTextBoxes.filter { $0.page == pageNumber && markup.visibleLayers.contains($0.layer) } }
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard bounds.contains(point) else { return nil }
-        if markup.mode == .selecting || markup.quickBoxArmed { return self }
+        if markup.mode == .selecting || markup.quickBoxArmed || markup.breakPointArmed { return self }
         if placementToolArmed { return self }
         let pencil = event?.allTouches?.contains { $0.type == .pencil } == true
         if pencil || (markup.mode == .writing && markup.fingerDrawing) {
@@ -187,6 +190,11 @@ enum ScorePassageBoxStyle {
     /// Point-based so tests can drive it directly without a live touch sequence (`UIGestureRecognizer.
     /// location(in:)` has no public way to fake a location outside real touch tracking).
     func handleTap(at point: CGPoint) {
+        if markup.breakPointArmed {
+            guard let position = NormalizedRect.centered(at: point, width: 0.05, height: 0.05, in: bounds.size) else { return }
+            onPlaceBreakPoint(pageNumber, position)
+            return
+        }
         if markup.mode == .writing, markup.tool.kind == .stamp {
             handleStampTap(at: point); return
         }

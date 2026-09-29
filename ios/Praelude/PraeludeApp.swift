@@ -176,6 +176,11 @@ struct AppRootView: View {
     @State private var sheet: RootSheet?
     @State private var incomingURL: URL?
     @State private var pendingPiece: UUID?
+    /// One-shot hand-off for `TodayView.onStartPassage` (§9/R3 — see its own doc comment): which
+    /// passage the score should arm as soon as it appears, so "Start session" lands on the same
+    /// cold-grade prompt a manual on-score tap would. Cleared by `ScoreWorkspace.onAutoSelectConsumed`
+    /// right after it is read, so it never re-fires on a later, unrelated visit to this piece.
+    @State private var pendingAutoSelectPassage: (pieceID: UUID, passageID: UUID)?
     @State private var pendingBackupAction: String?
     @State private var sidebarVisibility = NavigationSplitViewVisibility.automatic
     @State private var backup: NativeBackupDocument?
@@ -220,7 +225,9 @@ struct AppRootView: View {
                             if ProcessInfo.processInfo.arguments.contains("--uitesting") { NSLog("PraeludeUITest: Close score action") }
                             #endif
                             navigateFromScore { self.selectedPiece = nil; sidebarVisibility = .automatic }
-                        }, sharedMarkup: scoreMarkup) }
+                        }, sharedMarkup: scoreMarkup,
+                        autoSelectPassageID: pendingAutoSelectPassage?.pieceID == selectedPiece ? pendingAutoSelectPassage?.passageID : nil,
+                        onAutoSelectConsumed: { pendingAutoSelectPassage = nil }) }
                         else { content(destination).toolbar { ToolbarItem(placement: .topBarTrailing) { settingsButton } } }
                     }
                 }.navigationSplitViewStyle(.balanced)
@@ -233,7 +240,11 @@ struct AppRootView: View {
                     }
                 }
                 .fullScreenCover(item: $phoneScore) { route in
-                    NavigationStack { ScoreWorkspace(pieceID: route.id, onClose: { navigateFromScore { phoneScore = nil } }, sharedMarkup: scoreMarkup) }
+                    NavigationStack {
+                        ScoreWorkspace(pieceID: route.id, onClose: { navigateFromScore { phoneScore = nil } }, sharedMarkup: scoreMarkup,
+                                       autoSelectPassageID: pendingAutoSelectPassage?.pieceID == route.id ? pendingAutoSelectPassage?.passageID : nil,
+                                       onAutoSelectConsumed: { pendingAutoSelectPassage = nil })
+                    }
                 }
             }
         }
@@ -359,7 +370,8 @@ struct AppRootView: View {
     }
     @ViewBuilder private func content(_ destination: Destination) -> some View {
         switch destination {
-        case .today: TodayView(onOpenPiece: openPiece, onAddPiece: { sheet = .add }, onContinueWarmup: { practicingWarmup = true })
+        case .today: TodayView(onOpenPiece: openPiece, onAddPiece: { sheet = .add }, onContinueWarmup: { practicingWarmup = true },
+                               onStartPassage: startPassage)
         case .pieces: LibraryView(onOpenPiece: openPiece, onAddPiece: { sheet = .add })
         case .friends: FriendsView()
         case .warmups: WarmupsView(onStartPractice: { practicingWarmup = true })
@@ -392,6 +404,13 @@ struct AppRootView: View {
             if ProcessInfo.processInfo.arguments.contains("--uitesting") { NSLog("PraeludeUITest: Open piece assigned, sidebar=%d", usesSidebar) }
             #endif
         }
+    }
+    /// §9/R3: `TodayView.onStartPassage` — open `pieceID` exactly like `openPiece`, but also stage
+    /// `passageID` to be armed (not started) the moment the score appears, so a cold-eligible
+    /// passage's grade prompt shows instead of silently skipping it.
+    private func startPassage(pieceID: UUID, passageID: UUID) {
+        pendingAutoSelectPassage = (pieceID, passageID)
+        openPiece(pieceID)
     }
     private func navigateFromScore(_ action: @escaping () -> Void) {
         guard scoreMarkup.flushInk() else {

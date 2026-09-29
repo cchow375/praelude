@@ -42,10 +42,19 @@ final class AudioSessionCoordinator {
         let options: AVAudioSession.CategoryOptions = needsInput
             ? [.defaultToSpeaker, .mixWithOthers, .allowBluetoothHFP]
             : [.mixWithOthers]
-        let changesFormat = session.category != category || session.categoryOptions != options
+        // §9: "works with metronome playing, click never misheard" — `.voiceChat` turns on the
+        // system's own echo cancellation/noise suppression for the input, which is what lets the mic
+        // pick out a spoken word while the click (or another instrument) sounds at the same time.
+        // Only chosen when speech is the *sole* input-needing client: that processing also reshapes
+        // the captured signal, which would corrupt a tuner's pitch read or a recorded take — a
+        // concurrent metronome/drone/reward is fine (playback-only), but `.tuner`/`.recording` keep
+        // the flat `.default` mode even if speech also happens to be running.
+        let voiceOptimized = proposed.contains(.speech) && !proposed.contains(.tuner) && !proposed.contains(.recording)
+        let mode: AVAudioSession.Mode = voiceOptimized ? .voiceChat : .default
+        let changesFormat = session.category != category || session.categoryOptions != options || session.mode != mode
         if changesFormat { configurationObservers.forEach { $0.willChange() } }
         defer { if changesFormat { configurationObservers.forEach { $0.didChange() } } }
-        if changesFormat { try session.setCategory(category, mode: .default, options: options) }
+        if changesFormat { try session.setCategory(category, mode: mode, options: options) }
         try? session.setPreferredSampleRate(48_000)
         try? session.setPreferredIOBufferDuration(0.005)
         try session.setActive(true)

@@ -98,6 +98,76 @@ final class PulseCheckWiringTests: XCTestCase {
         XCTAssertNil(noPerformanceTempo.runtime.activePulseCheck)
     }
 
+    /// §11 R14's own contract is "at most once per running set" — not only "at most once while a
+    /// check is still showing" (`testFiresAtMostOncePerRunningSetNotOncePerAttempt` above only ever
+    /// records while the first check is still active). This drives the check to its own natural end
+    /// on its timer, then records another still-qualifying attempt on the *same* running set, and
+    /// confirms it does not fire a second time — see "(C) Audit.md".
+    @MainActor
+    func testDoesNotRefireOnTheSameSetAfterItsOwnCheckEndsOnATimer() async throws {
+        let fixture = try fixture()
+        fixture.metronome.bpm = 300
+        fixture.metronome.setMeter(beats: 1, denominator: 4)
+        XCTAssertTrue(try fixture.runtime.record(.clean, eventID: UUID()))
+        XCTAssertNotNil(fixture.runtime.activePulseCheck)
+
+        try await Task.sleep(for: .seconds(3))
+        XCTAssertNil(fixture.runtime.activePulseCheck, "The pulse check must end on its own once its bars have elapsed")
+
+        XCTAssertTrue(try fixture.runtime.record(.clean, eventID: UUID()))
+        XCTAssertNil(fixture.runtime.activePulseCheck, "R14 fires at most once per running set, even after its own check already ended")
+        XCTAssertEqual(fixture.store.state.ruleEvents.filter { $0.ruleID == .r14PulseCheck }.count, 1)
+    }
+
+    /// The same "already consumed" memory must also survive a check ending early via `syncPulseCheck`
+    /// (a pause mid-check), not just its own timer — both paths go through the same `endPulseCheck`.
+    @MainActor
+    func testDoesNotRefireOnTheSameSetAfterAPauseEndsAnInFlightCheck() async throws {
+        let fixture = try fixture()
+        XCTAssertTrue(try fixture.runtime.record(.clean, eventID: UUID()))
+        XCTAssertNotNil(fixture.runtime.activePulseCheck)
+
+        try fixture.store.pause()
+        fixture.runtime.syncPulseCheck()
+        XCTAssertNil(fixture.runtime.activePulseCheck)
+        try fixture.store.resume()
+
+        XCTAssertTrue(try fixture.runtime.record(.clean, eventID: UUID()))
+        XCTAssertNil(fixture.runtime.activePulseCheck, "Still the same running set — must not re-offer a second check")
+        XCTAssertEqual(fixture.store.state.ruleEvents.filter { $0.ruleID == .r14PulseCheck }.count, 1)
+    }
+
+    /// §11 "one-tap override, logged": a player-initiated end to an in-flight check must restore the
+    /// click immediately (not wait out the remaining silent bars) and log a second, overridden entry
+    /// for the same decision — the pulse check's own banner previously had no dismiss control at all.
+    @MainActor
+    func testDismissPulseCheckEndsItImmediatelyAndLogsAnOverriddenFollowUp() async throws {
+        let fixture = try fixture()
+        XCTAssertTrue(try fixture.runtime.record(.clean, eventID: UUID()))
+        let decision = try XCTUnwrap(fixture.runtime.activePulseCheck)
+        XCTAssertNotNil(fixture.metronome.dropoutPlan)
+
+        fixture.runtime.dismissPulseCheck()
+        XCTAssertNil(fixture.runtime.activePulseCheck)
+        XCTAssertNil(fixture.metronome.dropoutPlan, "The click must be restored immediately, not wait out its remaining silent bars")
+        let events = fixture.store.state.ruleEvents.filter { $0.ruleID == .r14PulseCheck }
+        XCTAssertEqual(events.count, 2, "The original fire-time log survives, plus a follow-up for the dismiss")
+        XCTAssertEqual(events.first?.id, decision.id); XCTAssertEqual(events.first?.overridden, false)
+        // The follow-up needs its own fresh id — `validate(_:)` requires every `ruleEvents` id to be
+        // unique, and `decision.id` was already spent by the fire-time log above.
+        XCTAssertNotEqual(events.last?.id, decision.id)
+        XCTAssertEqual(events.last?.overridden, true)
+        XCTAssertEqual(events.last?.reasonText, decision.reason)
+    }
+
+    @MainActor
+    func testDismissPulseCheckIsHarmlessWithNothingInFlight() async throws {
+        let fixture = try fixture()
+        fixture.runtime.dismissPulseCheck()
+        XCTAssertNil(fixture.runtime.activePulseCheck)
+        XCTAssertTrue(fixture.store.state.ruleEvents.isEmpty)
+    }
+
     @MainActor
     func testSyncPulseCheckClearsImmediatelyOnceTheSetStopsRunning() async throws {
         let fixture = try fixture()

@@ -77,6 +77,10 @@ final class PracticeRuntime {
             }
         }
         guard try store.record(verdict, eventID: eventID) else { return false }
+        // R6's own replay counts a manual Reset exactly like a Sloppy (`evaluateR6SlowDown`: "3
+        // *resets* in a row") toward its under-half-goal window, so this must run before the early
+        // return below — a Reset that completes a qualifying run must still slow the set down.
+        checkR6SlowDown(for: store.activeSet, justRecorded: verdict)
         if verdict == .reset { feedback.stop(); return true }
         checkPulseCheck(for: store.activeSet)
         guard let before, let after = store.activeSet, after.id == before.id,
@@ -137,6 +141,25 @@ final class PracticeRuntime {
         }
     }
 
+    /// R6 (§11): demotes the tempo of the set actually in progress, not only a suggestion offered
+    /// once it ends — the Mac reference (`src/`) already demotes within a set; the iPad previously
+    /// only ever evaluated R6 in `computeAfterSet`/`nextStepLine`, after the set was already over, so
+    /// a player grinding at an unreachable tempo got no relief until they stopped (see "(C) Audit.md").
+    /// Only ever checked right after a Sloppy or Reset verdict: `evaluateR6SlowDown`'s own replay only
+    /// grows its "consecutive under-half-goal" window on one of those two, so a Clean or Again cannot
+    /// newly satisfy it — restricting this call to those two verdicts is what keeps a demotion firing
+    /// exactly once per *new* qualifying run, not on every later attempt that leaves that window
+    /// unchanged.
+    private func checkR6SlowDown(for set: ActiveSet?, justRecorded verdict: Verdict) {
+        guard verdict == .sloppy || verdict == .reset, let set, set.status == .running,
+              set.configuration.passageID != nil else { return }
+        let context = RuleContext(state: store.state, now: Date())
+        guard let decision = PracticeRulesEngine.evaluateR6SlowDown(set: set, context: context),
+              case let .tempoChange(newBPM) = decision.outcome, newBPM < set.currentBPM else { return }
+        try? store.recordRuleEvent(decision.asRuleEvent(overridden: false))
+        try? store.adjustActiveTempo(newBPM)
+    }
+
     /// R14 (§11): after any recorded, non-reset attempt, offers a pulse check at most once per
     /// *running set* — not once per attempt, since staying near performance tempo for many reps in
     /// the same set should not keep re-silencing the click every single rep; `pulseCheckSetID` is the
@@ -177,6 +200,20 @@ final class PracticeRuntime {
         }
     }
 
+    /// §11: "one-tap override, logged" — a player-initiated end to an in-flight check, restoring the
+    /// click immediately rather than waiting out its remaining silent bars. `RuleEvent`s are
+    /// append-only *with a unique id* (`validate(_:)` rejects two rows sharing one — `decision.id`
+    /// was already spent by `checkPulseCheck`'s own fire-time log), so this is a fresh event, not
+    /// `decision.asRuleEvent(overridden:)`: a second, distinct row for the same rule/passage/reason,
+    /// an accurate record of "fired, then dismissed" rather than a rewrite of the fact it fired at
+    /// all. A no-op when nothing is active.
+    func dismissPulseCheck() {
+        guard let decision = activePulseCheck else { return }
+        try? store.recordRuleEvent(RuleEvent(ruleID: decision.ruleID, pieceID: decision.pieceID, passageID: decision.passageID,
+                                              reasonText: decision.reason, overridden: true))
+        endPulseCheck()
+    }
+
     /// Idempotent: safe to call whether the check finished on its own (`startPulseCheck`'s timer) or
     /// the set moved on first (`syncPulseCheck`), or when nothing was in flight at all — always
     /// clears the metronome's dropout plan too (itself a cheap no-op when it is already `nil`, per
@@ -184,7 +221,13 @@ final class PracticeRuntime {
     /// backgrounded mid-check) can never linger past the next call.
     private func endPulseCheck() {
         pulseCheckTask?.cancel(); pulseCheckTask = nil
-        pulseCheckSetID = nil
+        // `pulseCheckSetID` deliberately survives this call — it is what `checkPulseCheck`'s own
+        // `pulseCheckSetID != set.id` guard uses to remember *which* set already had its one-per-
+        // running-set check (§11 R14's own contract), not only which set a check is *currently*
+        // showing for. Clearing it here (as this used to) let the same still-running set re-qualify
+        // the moment its own check ended — on this timer, or on `syncPulseCheck` ending it early for
+        // a pause — producing a second R14 event on one set (see "(C) Audit.md"). It is only ever
+        // reset forward, in `startPulseCheck`, to the set a *new* check actually starts for.
         activePulseCheck = nil
         metronome.applyDropoutPlan(nil)
     }

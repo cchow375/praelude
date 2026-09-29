@@ -26,7 +26,12 @@ final class PracticeLoopUITests: XCTestCase {
     /// list. (A direct on-score box tap exercises the same `selectPassage` call site; the list is
     /// used here because it does not depend on the synthetic fixture PDF's exact box geometry.)
     @MainActor private func choosePassage(_ app: XCUIApplication) {
-        app.buttons["passages"].press(forDuration: 0.15)
+        // The score (and its "passages" button) can still be mid-layout right after `openScore`'s own
+        // tap lands — every other button this suite presses waits for existence first; this one
+        // previously didn't, which is exactly the observed flake ("No matches found ... 'passages'").
+        let passages = app.buttons["passages"]
+        XCTAssertTrue(passages.waitForExistence(timeout: 15), app.debugDescription)
+        passages.press(forDuration: 0.15)
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "savedPassage_")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15), app.debugDescription)
         row.press(forDuration: 0.15)
@@ -50,6 +55,29 @@ final class PracticeLoopUITests: XCTestCase {
     private func tempoBPM(_ element: XCUIElement) -> Int? {
         guard let value = element.value as? String else { return nil }
         return Int(value.prefix { $0.isNumber })
+    }
+
+    // MARK: - Today's "Start session" (§15) must not skip R3's cold grade (blocker)
+
+    /// Today's one-tap "Start session" used to call `store.startSet` directly for a review/learning/
+    /// new item, bypassing `PracticeArmController` — the only writer of `coldGrades` — entirely. On
+    /// the seeded New passage (never graded) that put a set straight into `.running` with zero
+    /// attempts and no cold grade recorded, so R4 could never advance its schedule. See "(C) Audit.md".
+    @MainActor func testTodayStartSessionGoesThroughColdGradeForANewPassage() {
+        let app = launch()
+        let startSession = app.buttons["startSession"]
+        XCTAssertTrue(startSession.waitForExistence(timeout: 15), app.debugDescription)
+        startSession.press(forDuration: 0.15)
+        // Landing on the score, the never-graded passage's cold-grade prompt must show — never a
+        // running set with an unrecorded first attempt.
+        let coldClean = app.buttons["coldGrade_clean"]
+        XCTAssertTrue(coldClean.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertFalse(app.buttons["verdict_clean"].exists, "Starting from Today must not skip R3's cold grade.\n\(app.debugDescription)")
+        screenshot("loop-06-today-start-session-cold-grade", app: app)
+        coldClean.press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
+        ensureExpanded(app)
+        XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 15), app.debugDescription)
     }
 
     // MARK: - ≤2-tap start (through the cold-grade gate)
@@ -106,7 +134,7 @@ final class PracticeLoopUITests: XCTestCase {
         shaky.press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
         ensureExpanded(app)
-        XCTAssertTrue(app.staticTexts["0 of 5 clean"].exists,
+        XCTAssertTrue(app.staticTexts["0 of 5 clean"].waitForExistence(timeout: 15),
                       "A cold Shaky is recorded as the set's first attempt, but as Sloppy — it must not count toward the clean streak.\n\(app.debugDescription)")
     }
 
@@ -134,6 +162,99 @@ final class PracticeLoopUITests: XCTestCase {
         let afterTap = raised ?? 0
         plusFive.press(forDuration: 0.15)
         XCTAssertEqual(tempoBPM(tempo), afterTap + 5, app.debugDescription)
+    }
+
+    // MARK: - Cold grading while the click is already at a different tempo
+
+    /// The click is left running at some unrelated tempo (300 bpm, the metronome's own slider max),
+    /// then a never-graded passage (armed at 60 bpm) is cold-graded Clean. This used to throw "The
+    /// click was restored to your set tempo" on the set's own first attempt — a broken half-state
+    /// (cold grade and schedule already saved, but the attempt itself lost, and every later "Clean"
+    /// failing too) — because the metronome was only retuned *after* `PracticeArmController.start`
+    /// had already tried (and failed) to record through the mismatched click. See "(C) Audit.md".
+    @MainActor func testColdGradingWithTheClickAlreadyAtADifferentTempoStillRecordsTheFirstAttempt() {
+        let app = launch()
+        openScore(app)
+        app.buttons["openMetronome"].press(forDuration: 0.15)
+        let slider = app.sliders["sliderTempo"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 10), app.debugDescription)
+        slider.adjust(toNormalizedSliderPosition: 1.0) // 300 bpm — guaranteed to differ from the 60 bpm a never-practiced passage arms at.
+        app.buttons["toggleMetronome"].press(forDuration: 0.15)
+        XCTAssertEqual(app.buttons["toggleMetronome"].label, "Stop", "The click must actually be playing for this to reproduce the bug.\n\(app.debugDescription)")
+        screenshot("loop-09-metronome-forced-mismatch", app: app)
+        app.buttons["Done"].press(forDuration: 0.15)
+        choosePassage(app)
+        let coldClean = app.buttons["coldGrade_clean"]
+        XCTAssertTrue(coldClean.waitForExistence(timeout: 15), app.debugDescription)
+        coldClean.press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15),
+                      "Cold-grading must retune the click before recording, never leave the prompt stuck on a conflict.\n\(app.debugDescription)")
+        ensureExpanded(app)
+        XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 15),
+                      "The cold grade's own first attempt must actually be recorded, not lost to a tempo-mismatch throw.\n\(app.debugDescription)")
+        screenshot("loop-10-cold-grade-survives-tempo-mismatch", app: app)
+        // A follow-up voice-equivalent verdict (the regular touch path here) must keep working too —
+        // the original bug also left every later "Clean" failing for the rest of the set.
+        app.buttons["verdict_clean"].press(forDuration: 0.15)
+        XCTAssertTrue(app.staticTexts["2 of 5 clean"].waitForExistence(timeout: 15), app.debugDescription)
+    }
+
+    // MARK: - Tempo while running (§10a: "never a modal", even mid-set)
+
+    /// The HUD's own tempo dial used to be `locked` (no gesture, no ±5 buttons, 55% opacity) for the
+    /// whole time a set was running — see "(C) Audit.md".
+    @MainActor func testRunningSetTempoIsAdjustableViaTheHUDDial() {
+        let app = launch()
+        openScore(app)
+        choosePassage(app)
+        app.buttons["coldGrade_clean"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
+        ensureExpanded(app)
+        let tempo = app.staticTexts["tempoDialValue"]
+        XCTAssertTrue(tempo.waitForExistence(timeout: 15), app.debugDescription)
+        let before = tempoBPM(tempo)
+        XCTAssertNotNil(before, app.debugDescription)
+        let start = tempo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = tempo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: -22))
+        start.press(forDuration: 0.05, thenDragTo: end)
+        let dragged = tempoBPM(tempo)
+        XCTAssertNotNil(dragged, app.debugDescription)
+        XCTAssertGreaterThan(dragged ?? 0, before ?? 0,
+                             "Dragging the HUD's tempo numeral must raise the running set's own tempo.\n\(app.debugDescription)")
+        screenshot("loop-07-running-tempo-drag", app: app)
+        let plusFive = app.buttons["Increase tempo by 5"]
+        XCTAssertTrue(plusFive.waitForExistence(timeout: 15), app.debugDescription)
+        let afterDrag = dragged ?? 0
+        plusFive.press(forDuration: 0.15)
+        XCTAssertEqual(tempoBPM(tempo), afterDrag + 5, app.debugDescription)
+        // The set must still be running throughout — a tempo change is not a stop/reset.
+        XCTAssertTrue(app.buttons["verdict_clean"].exists, app.debugDescription)
+    }
+
+    // MARK: - Focus mode must not hide the practice dock during a running set
+
+    /// "Focus on score" used to hide the whole practice dock while a set was running — the verdict
+    /// fallback buttons, Undo, Stop and the metronome toggle, all unreachable — see "(C) Audit.md".
+    @MainActor func testFocusModeKeepsPracticeControlsReachableDuringARunningSet() {
+        let app = launch()
+        openScore(app)
+        choosePassage(app)
+        app.buttons["coldGrade_clean"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
+        app.buttons["Score options"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["Focus on score"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["Focus on score"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["Exit focus"].waitForExistence(timeout: 10), app.debugDescription)
+        screenshot("loop-08-focus-mode-dock", app: app)
+        for identifier in ["verdict_clean", "verdict_sloppy", "verdict_again", "undoRep", "stopSet", "toggleMetronomeHUD"] {
+            XCTAssertTrue(app.buttons[identifier].exists, "\(identifier) must stay reachable in focus mode.\n\(app.debugDescription)")
+        }
+        XCTAssertTrue(app.buttons["verdict_clean"].isHittable, app.debugDescription)
+        app.buttons["verdict_clean"].press(forDuration: 0.15)
+        ensureExpanded(app)
+        XCTAssertTrue(app.staticTexts["2 of 5 clean"].waitForExistence(timeout: 15), "A verdict must still record in focus mode.\n\(app.debugDescription)")
+        app.buttons["Exit focus"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     // MARK: - Verdict + Undo, always one tap during a set

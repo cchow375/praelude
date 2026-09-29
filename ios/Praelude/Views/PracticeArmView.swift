@@ -74,9 +74,12 @@ struct PracticeArmView: View {
                     }
                 } label: { quickChip(Self.goalLabel(configuration.wrappedValue.goal)) }
                     .accessibilityIdentifier("armGoal")
+                // §11 R5: the streak/plays target itself, not just the ± control — `.labelsHidden()`
+                // here previously hid this chip's whole label (its *only* visible text), leaving just
+                // "− +" with no indication of what was being adjusted. See "(C) Audit.md".
                 Stepper(value: targetCountBinding(configuration), in: 1...100) {
                     quickChip("\(configuration.wrappedValue.targetCount) \(configuration.wrappedValue.basis == .cleanStreak ? "clean" : "plays")")
-                }.labelsHidden().fixedSize().accessibilityIdentifier("armTargetCount")
+                }.fixedSize().accessibilityIdentifier("armTargetCount")
                 if configuration.wrappedValue.basis == .cleanStreak {
                     Toggle(isOn: ladderBinding) { quickChip("Ladder") }
                         .toggleStyle(.button).accessibilityIdentifier("armLadder")
@@ -127,7 +130,13 @@ struct PracticeArmView: View {
                 coldButton(.shaky, title: "Shaky", glyph: .verdictSloppy)
                 coldButton(.clean, title: "Clean", glyph: .verdictClean, primary: true)
             }
-            Button("More options", action: onOpenAdvanced).buttonStyle(.praeludeQuiet)
+            HStack(spacing: 12) {
+                Button("More options", action: onOpenAdvanced).buttonStyle(.praeludeQuiet)
+                Spacer(minLength: 0)
+                // §9: a way out besides picking a grade — see "(C) Audit.md".
+                Button("Skip grading") { arm.skipColdGrade() }
+                    .font(.caption).foregroundStyle(PraeludeColor.inkSecondary).accessibilityIdentifier("skipColdGrade")
+            }
         }
     }
 
@@ -184,11 +193,16 @@ struct PracticeArmView: View {
 
     private func start(grade: ColdGrade? = nil) {
         do {
-            guard try arm.start(grade: grade, store: store, runtime: runtime) else { return }
+            // Retune *before* `arm.start`, not after — mirrors `ScoreWorkspace.armStart`'s own fix
+            // (see its doc comment): a cold grade's first attempt is recorded *inside* `arm.start`
+            // itself, which refuses to record while the audible click is still at some other tempo.
+            // This is the touch path for the very same buttons that fix covers for voice — both had
+            // the identical ordering bug. See "(C) Audit.md".
             if let configuration = arm.configuration {
                 metronome.setTempo(configuration.startBPM)
                 if configuration.useMetronome { metronome.start() } else { metronome.stop() }
             }
+            guard try arm.start(grade: grade, store: store, runtime: runtime) else { return }
             onStarted()
         } catch { self.error = error.localizedDescription }
     }

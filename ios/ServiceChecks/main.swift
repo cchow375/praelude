@@ -21,7 +21,10 @@ import Foundation
             ("tempo 96.5", .setTempo(96.5)), ("set tempo 72", .setTempo(72)),
             ("metronome ninety six", .setTempo(96)), ("tempo one hundred and twenty four", .setTempo(124)),
             ("tempo three hundred", .setTempo(300)), ("tempo two hundred ninety-nine", .setTempo(299)),
-            ("tempo twenty", .setTempo(20)), ("tempo one hundred", .setTempo(100))
+            ("tempo twenty", .setTempo(20)), ("tempo one hundred", .setTempo(100)),
+            // "one twenty"/"two fifteen": the implicit-hundreds shorthand ("(C) Audit.md" — this
+            // previously failed to parse at all).
+            ("tempo one twenty", .setTempo(120)), ("tempo two fifteen", .setTempo(215))
         ]
         for (text, command) in valid { expect(VoiceCommand.parse(text) == command, "Accept \(text)") }
         let invalid = ["", "please clean", "clean and sloppy", "unclean", "again again", "undo two",
@@ -30,7 +33,7 @@ import Foundation
                        "missing", "shakily", "we missed the bus", "shaky ground",
                        "tempo", "tempo nan", "tempo infinity", "tempo +inf", "tempo -20", "tempo 19",
                        "tempo 301", "tempo 96 please", "tempo 1e2", "tempo ninety six three", "tempo hundred",
-                       "tempo one hundred and", "tempo three hundred one", "tempo one twenty", "tempo twenty zero"]
+                       "tempo one hundred and", "tempo three hundred one", "tempo twenty zero"]
         for text in invalid { expect(VoiceCommand.parse(text) == nil, "Reject \(text)") }
         for bpm in [20.0, 60, 73.5, 120, 299, 300] {
             for beats in [1, 3, 4, 7, 12] {

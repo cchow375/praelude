@@ -16,6 +16,66 @@ final class PracticeCoreTests: XCTestCase {
         return (store, directory)
     }
 
+    /// `adjustActiveTempo` (R6 in-set slow-down, and a direct gesture/voice tempo change while
+    /// running — "(C) Audit.md"): `currentBPM` is never independently writable, so this moves
+    /// `configuration.startBPM` instead and re-derives everything else through the same
+    /// `PracticeEngine.project` replay `record`/`undo` already use — `validate(_:)` requires the two
+    /// to always agree.
+    @MainActor func testAdjustActiveTempoMovesStartBPMAndKeepsTheLadderValid() async throws {
+        let (store, directory) = try fixture(target: 10, start: 100, end: 100)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // Lowering a ladder (cleanStreak) set leaves its original ceiling in place to climb back to.
+        try store.adjustActiveTempo(96)
+        XCTAssertEqual(store.activeSet?.currentBPM, 96)
+        XCTAssertEqual(store.activeSet?.configuration.startBPM, 96)
+        XCTAssertEqual(store.activeSet?.configuration.targetBPM, 100, "Lowering must not also lower the ceiling")
+        // Raising back past that ceiling raises it too, so it never falls behind the floor.
+        try store.adjustActiveTempo(110)
+        XCTAssertEqual(store.activeSet?.currentBPM, 110)
+        XCTAssertEqual(store.activeSet?.configuration.targetBPM, 110)
+        // Clamped to the engine's valid BPM range.
+        try store.adjustActiveTempo(400)
+        XCTAssertEqual(store.activeSet?.currentBPM, 300)
+        try store.adjustActiveTempo(5)
+        XCTAssertEqual(store.activeSet?.currentBPM, 20)
+    }
+
+    @MainActor func testAdjustActiveTempoKeepsATotalPlaysSetsFixedTempoInLockstep() async throws {
+        let (store, directory) = try fixture(target: 4, basis: .totalPlays, start: 80, end: 80)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // `PracticeEngine.validate` requires targetBPM == startBPM for a `.totalPlays` set; lowering
+        // only the start (leaving the old target behind) would violate that on the very next save.
+        try store.adjustActiveTempo(72)
+        XCTAssertEqual(store.activeSet?.configuration.startBPM, 72)
+        XCTAssertEqual(store.activeSet?.configuration.targetBPM, 72)
+        try store.adjustActiveTempo(90)
+        XCTAssertEqual(store.activeSet?.configuration.startBPM, 90)
+        XCTAssertEqual(store.activeSet?.configuration.targetBPM, 90)
+    }
+
+    @MainActor func testAdjustActiveTempoWorksWhilePausedAndRejectsAnEndedSet() async throws {
+        let (store, directory) = try fixture(target: 10, start: 100, end: 100)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try store.pause()
+        try store.adjustActiveTempo(90)
+        XCTAssertEqual(store.activeSet?.currentBPM, 90, "A paused set's tempo is still adjustable")
+        try store.resume()
+        try store.endSet()
+        XCTAssertThrowsError(try store.adjustActiveTempo(80), "No running or paused set left to adjust")
+    }
+
+    /// R6 (§11) end-to-end through the store: three resets in a row, each peaking under half the
+    /// goal, must be reflected in a re-derivable `currentBPM`, not merely a value that happens to
+    /// look right until the next save re-validates it.
+    @MainActor func testAdjustActiveTempoSurvivesAPersistReloadRoundTrip() async throws {
+        let (store, directory) = try fixture(target: 10, start: 100, end: 100)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try store.adjustActiveTempo(96)
+        let reopened = PracticeStore(directory: directory)
+        XCTAssertEqual(reopened.activeSet?.currentBPM, 96)
+        XCTAssertEqual(reopened.activeSet?.configuration.startBPM, 96)
+    }
+
     /// R5 (§11): "Again" is neutral — it neither counts toward nor resets the streak, for a plain
     /// streak set exactly as much as for a variant chain (see `testVariantAgainPreservesCurrentStreakAndCompletedStages`
     /// below, which already covered the stages case). Regression test for the documented mismatch

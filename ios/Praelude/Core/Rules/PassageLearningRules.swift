@@ -25,12 +25,27 @@ extension PracticeRulesEngine {
             return ColdGradeApplication(record: record, newLearningState: passage.learningState,
                                          newSchedule: passage.schedule, decisions: [r3])
         }
-        let (state, schedule, reason) = advanceSchedule(current: passage.learningState, schedule: passage.schedule,
-                                                          grade: grade, settings: context.settings,
-                                                          now: context.now, calendar: context.calendar)
+        let (state, rawSchedule, reason) = advanceSchedule(current: passage.learningState, schedule: passage.schedule,
+                                                             grade: grade, settings: context.settings,
+                                                             now: context.now, calendar: context.calendar)
+        let schedule = performanceCappedSchedule(rawSchedule, passage: passage, context: context)
         let r4 = Decision(ruleID: .r4SpacedReview, pieceID: passage.pieceID, passageID: passageID, reason: reason,
                            firedAt: context.now, outcome: .schedule(schedule, learningState: state))
         return ColdGradeApplication(record: record, newLearningState: state, newSchedule: schedule, decisions: [r3, r4])
+    }
+
+    /// R11: "cap review intervals" (its own reason text already promises this) must actually shorten
+    /// the schedule R4 just computed, not just be a separately reported decision alongside it — see
+    /// "(C) Audit.md": a Clean cold grade could otherwise climb the ladder straight past an
+    /// approaching performance date. Only ever *tightens* an interval R4 already chose to `cap` days;
+    /// a schedule already tighter than the cap (or a passage with no piece in the capped window at
+    /// all) is returned unchanged.
+    private static func performanceCappedSchedule(_ schedule: PassageSchedule, passage: Passage, context: RuleContext) -> PassageSchedule {
+        guard let capped = evaluateR11PerformanceDate(pieceID: passage.pieceID, context: context),
+              case let .performanceCaps(cap, _, _, _) = capped.outcome,
+              schedule.intervalDays > cap else { return schedule }
+        return PassageSchedule(dueDate: context.calendar.startOfDay(afterAdding: cap, to: context.now),
+                                intervalDays: cap, reviewStep: schedule.reviewStep)
     }
 
     // MARK: - R4 spaced review

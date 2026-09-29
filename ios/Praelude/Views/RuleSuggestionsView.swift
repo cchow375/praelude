@@ -15,8 +15,31 @@ struct NextStepAndSuggestionsView: View {
                 if let nextStep = arm.nextStep {
                     HStack(alignment: .top, spacing: 8) {
                         PraeludeMusicGlyph(symbol: .quarterNote, size: 14).foregroundStyle(PraeludeColor.inkTertiary).padding(.top, 2)
-                        Text(nextStep.reason).font(.subheadline.weight(.medium)).foregroundStyle(PraeludeColor.ink)
-                            .fixedSize(horizontal: false, vertical: true)
+                        if nextStep.outcome == .none {
+                            // A plain acknowledgement ("Nice work.", "Set complete.") — nothing to
+                            // accept or decline.
+                            Text(nextStep.reason).font(.subheadline.weight(.medium)).foregroundStyle(PraeludeColor.ink)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            // §11 "one-tap override, logged" still applies when a rule (R6-R13) is
+                            // urgent enough to *also* be §10c's single headline — it is still that
+                            // rule, not merely a status message. `PracticeArmController.computeAfterSet`
+                            // already excludes it from `suggestions` below (never duplicated there),
+                            // so this is the only place it can be accepted or dismissed at all. See
+                            // "(C) Audit.md".
+                            Button { onApply(nextStep) } label: {
+                                Text(nextStep.reason).font(.subheadline.weight(.medium)).foregroundStyle(PraeludeColor.ink)
+                                    .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }.buttonStyle(.plain)
+                            Button { onDismiss(nextStep) } label: {
+                                Image(systemName: "xmark").font(.caption.weight(.semibold))
+                                    .frame(width: 32, height: 32).contentShape(Rectangle())
+                            }
+                            .foregroundStyle(PraeludeColor.inkTertiary)
+                            .accessibilityLabel("Dismiss suggestion")
+                            .accessibilityIdentifier("dismissSuggestion_\(nextStep.ruleID.rawValue)")
+                        }
                     }.accessibilityIdentifier("nextStepLine")
                 }
                 ForEach(arm.suggestions) { decision in

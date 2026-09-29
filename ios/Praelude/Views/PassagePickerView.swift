@@ -214,6 +214,11 @@ struct PassageEditorView: View {
     @State private var lastMeasure: String
     @State private var showMeasures: Bool
     @State private var page: Int
+    /// §11 R7/R10/R14: nothing in the UI could ever set this — see "(C) Audit.md" — so those three
+    /// rules, and the performance-ready state of spaced review, could never actually fire on a
+    /// passage created here.
+    @State private var showPerformanceTempo: Bool
+    @State private var performanceTempoText: String
     @State private var errorMessage: String?
     let pageCount: Int
     private let baseline: Passage
@@ -225,13 +230,20 @@ struct PassageEditorView: View {
         _lastMeasure = State(initialValue: passage.endMeasure.map(String.init) ?? "")
         _showMeasures = State(initialValue: passage.startMeasure != nil)
         _page = State(initialValue: passage.page)
+        _showPerformanceTempo = State(initialValue: passage.performanceTempo != nil)
+        _performanceTempoText = State(initialValue: passage.performanceTempo.map { String(Int($0)) } ?? "")
         self.pageCount = pageCount; self.onSaved = onSaved
     }
     private var valid: Bool {
         let textValid = !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft.title.count <= 500 && !draft.focus.isEmpty && draft.focus.count <= 500
-        guard showMeasures else { return textValid }
-        guard let first = Int(firstMeasure), let last = Int(lastMeasure) else { return false }
-        return textValid && first > 0 && last >= first && last <= 100_000
+        guard textValid else { return false }
+        if showMeasures {
+            guard let first = Int(firstMeasure), let last = Int(lastMeasure), first > 0, last >= first, last <= 100_000 else { return false }
+        }
+        if showPerformanceTempo {
+            guard let tempo = Double(performanceTempoText), (20...300).contains(tempo) else { return false }
+        }
+        return true
     }
     var body: some View {
         Form {
@@ -248,6 +260,13 @@ struct PassageEditorView: View {
                     TextField("Last measure", text: $lastMeasure).keyboardType(.numberPad)
                 }
             } footer: { Text("Optional labels. Your boxes identify what you practice.") }
+            Section {
+                Toggle("Performance tempo", isOn: $showPerformanceTempo).praeludeToggleHaptic(showPerformanceTempo)
+                if showPerformanceTempo {
+                    TextField("Tempo (bpm)", text: $performanceTempoText)
+                        .keyboardType(.numberPad).accessibilityIdentifier("performanceTempoField")
+                }
+            } footer: { Text("The tempo you're aiming to perform this at. Drives speed-up suggestions, performance-ready tracking, and the pulse check.") }
             if let errorMessage { Section { ErrorMessage(message: errorMessage) } }
         }
         .navigationTitle("Passage details").navigationBarTitleDisplayMode(.inline)
@@ -258,6 +277,7 @@ struct PassageEditorView: View {
             draft.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
             draft.startMeasure = showMeasures ? Int(firstMeasure) : nil
             draft.endMeasure = showMeasures ? Int(lastMeasure) : nil
+            draft.performanceTempo = showPerformanceTempo ? Double(performanceTempoText) : nil
             draft.page = draft.regions.map(\.page).min() ?? page
             draft.updatedAt = Date()
             try store.savePassage(draft, replacing: baseline); onSaved()

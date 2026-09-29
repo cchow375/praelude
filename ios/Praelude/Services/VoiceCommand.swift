@@ -84,6 +84,16 @@ enum VoiceCommand: Equatable, Hashable, Sendable {
             guard let suffix = underHundred(remainder) else { return nil }
             return hundreds * 100 + suffix
         }
+        // "one twenty"/"two fifteen": the implicit-hundreds shorthand people use to read a 3-digit
+        // number in pairs, the same way a year like "nineteen forty-five" is spoken — a bare 1–9
+        // digit word directly followed by a 0–99 phrase, with no "hundred" in between. `units[words[0]]`
+        // only ever matches a single-digit word, and `tens[words[0]]` (what `underHundred` below keys
+        // off for its own two-word case, "twenty one") is always nil for one, so this can never
+        // intercept an ordinary two-word phrase already handled there. See "(C) Audit.md":
+        // "tempo one twenty" previously failed to parse at all.
+        if words.count >= 2, let hundreds = units[words[0]], let suffix = underHundred(Array(words.dropFirst())) {
+            return hundreds * 100 + suffix
+        }
         return underHundred(words)
     }
 }

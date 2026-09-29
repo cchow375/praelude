@@ -609,6 +609,33 @@ import Observation
             next.activeSet = set
         }
     }
+    /// R6 in-set slow-down, and a direct tempo gesture/voice command while a set is running or
+    /// paused (§10a: "tempo in one gesture... never a modal"). Unlike `record`, this never touches
+    /// attempts/streak.
+    ///
+    /// `currentBPM` is never writable on its own: `validate(_:)` requires it (and streak/totalPlays/
+    /// stageIndex/completedStages) to always exactly equal a fresh `PracticeEngine.project` replay of
+    /// `configuration` + `attempts` — the same invariant `record`/`undo` already rely on. So this
+    /// moves `configuration.startBPM` (the one tempo input that replay actually reads) to `bpm`
+    /// instead, and re-derives the rest from there, the same way any other set mutation does. A
+    /// `.totalPlays` basis set requires a single fixed tempo (`PracticeEngine.validate`), so its
+    /// `targetBPM` always moves in lockstep; a `.cleanStreak` ladder only ever has its `targetBPM`
+    /// raised to keep it reachable, never lowered — a demotion should still leave the original ceiling
+    /// in place to climb back toward.
+    public func adjustActiveTempo(_ bpm: Double) throws {
+        try transaction { next in
+            guard var set = next.activeSet, set.status == .running || set.status == .paused else {
+                throw PracticeError.conflict("There is no running set to change the tempo of.")
+            }
+            guard bpm.isFinite else { throw PracticeError.invalid("Choose a tempo from 20–300 BPM.") }
+            let clamped = min(max(bpm, 20), 300)
+            set.configuration.startBPM = clamped
+            if set.configuration.basis == .totalPlays || set.configuration.targetBPM < clamped {
+                set.configuration.targetBPM = clamped
+            }
+            next.activeSet = PracticeEngine.project(set)
+        }
+    }
     public func checkpoint() throws {
         guard state.activeSet?.status == .running else { return }
         let date = now()

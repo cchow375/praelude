@@ -49,6 +49,10 @@ import PencilKit
     /// actually create the passage (`ScoreMarkupState` never touches `PracticeStore`), then disarms.
     var quickBoxArmed = false
     var pendingQuickBox: PassageRegion?
+    /// §11 R8: "after Sloppy, optional tap where it broke." A single tap (not a drag), so it needs
+    /// none of `quickBoxArmed`'s own pan/preview machinery — `ScorePageOverlay` reads this the same
+    /// way it reads `armedStamp`, and `ScoreWorkspace` disarms it once the tap lands.
+    var breakPointArmed = false
     @ObservationIgnored var flushInk: () -> Bool = { true }
     @ObservationIgnored var undoInk: () -> Void = {}
     @ObservationIgnored var redoInk: () -> Void = {}

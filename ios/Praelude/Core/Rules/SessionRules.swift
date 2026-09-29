@@ -44,9 +44,16 @@ extension PracticeRulesEngine {
 
     /// §10a: "defaults from rules and the last session" — carries goal, completion basis, tempo step
     /// and hands/parts wording forward from the player's last set on this passage (a plain starting
-    /// point when there is none), applies R5's streak target for the passage's current learning
-    /// state, and applies R7's speed-up when it fires. "Goals without tempo default click off"
-    /// (§10b) falls straight out of `useMetronome: goal == .tempo`.
+    /// point when there is none), and applies R5's streak target for the passage's current learning
+    /// state. "Goals without tempo default click off" (§10b) falls straight out of
+    /// `useMetronome: goal == .tempo`.
+    ///
+    /// Deliberately does *not* also apply R7's speed-up: R7 is "one-tap override, logged" like every
+    /// other rule in §11, and `computeAfterSet`/`PracticeArmController.accept` already offer and stage
+    /// it correctly (into `pendingTempo`, which *is* folded in here — see `arm(...)`). Auto-applying it
+    /// a second time here, unconditionally and unlogged, bypassed the player's own accept/dismiss
+    /// entirely and let `r7MaxIncreasesPerDay` never see a single logged increase to count against —
+    /// see "(C) Audit.md".
     public static func defaultConfiguration(for passageID: UUID, context: RuleContext) -> PracticeConfiguration? {
         guard let passage = context.passages.first(where: { $0.id == passageID }), !passage.archived else { return nil }
         let lastSet = allSets(forPassage: passageID, context: context).last
@@ -55,14 +62,8 @@ extension PracticeRulesEngine {
         let targetCount = r5StreakTarget(for: passage.learningState, settings: context.settings)
         let tempoStep = lastSet?.configuration.tempoStep ?? .fixed(4)
         let hands = lastSet?.configuration.hands ?? "Both hands"
-        let carriedBPM = lastSet?.currentBPM ?? passage.performanceTempo ?? 60
-        var startBPM = carriedBPM
-        var targetBPM = lastSet?.configuration.targetBPM ?? passage.performanceTempo ?? carriedBPM
-        if let speedUp = evaluateR7SpeedUp(passageID: passageID, context: context),
-           case let .tempoChange(newBPM) = speedUp.outcome {
-            startBPM = newBPM
-            targetBPM = max(targetBPM, newBPM)
-        }
+        let startBPM = lastSet?.currentBPM ?? passage.performanceTempo ?? 60
+        let targetBPM = lastSet?.configuration.targetBPM ?? passage.performanceTempo ?? startBPM
         return PracticeConfiguration(pieceID: passage.pieceID, passageID: passageID, focus: passage.focus, goal: goal,
                                       basis: basis, targetCount: targetCount, startBPM: startBPM, targetBPM: targetBPM,
                                       tempoStep: tempoStep, hands: hands, useMetronome: goal == .tempo)

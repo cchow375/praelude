@@ -136,7 +136,8 @@ extension PracticeRulesEngine {
         }.count
         guard slowDownsToday >= context.settings.r12SlowDownsPerDay else { return nil }
         return Decision(ruleID: .r12VariantsWhenStuck, pieceID: passage.pieceID, passageID: passageID,
-                         reason: "Two slow-downs today. Try a variant chain.", firedAt: context.now, outcome: .suggestVariants)
+                         reason: "\(pluralize(context.settings.r12SlowDownsPerDay, "slow-down")) today. Try a variant chain.",
+                         firedAt: context.now, outcome: .suggestVariants)
     }
 
     // MARK: - R14 pulse check

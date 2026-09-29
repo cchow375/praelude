@@ -70,6 +70,16 @@ struct SettingsView: View {
             }
 
             Section {
+                NavigationLink {
+                    RuleSettingsView()
+                } label: {
+                    Label("Practice rules", systemImage: "slider.horizontal.3")
+                }
+            } footer: {
+                Text("The fifteen practice rules — turn any off, or adjust how quickly they fire.")
+            }
+
+            Section {
                 Button("Export backup", systemImage: "square.and.arrow.up", action: onExportBackup)
                 Button("Restore backup", systemImage: "arrow.counterclockwise", action: onImportBackup)
             } header: {
