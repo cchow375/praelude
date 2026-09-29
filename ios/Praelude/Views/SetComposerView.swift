@@ -52,6 +52,7 @@ struct SetComposerView: View {
                     Stepper(value: $targetCount, in: 1...100) {
                         LabeledContent(basis == .cleanStreak ? "Clean target" : "Total plays", value: "\(targetCount)")
                     }
+                    if let passageID = passage?.id { LastRecordingCard(passageID: passageID) }
                 }
 
                 Section {

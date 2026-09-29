@@ -16,6 +16,7 @@ final class RuntimeFeedbackTests: XCTestCase {
         let runtime: PracticeRuntime
         let feedback: FeedbackService
         let metronome: MetronomeService
+        let recording: RecordingService
         let defaults: UserDefaults
         let probe: WriteProbe
     }
@@ -43,13 +44,14 @@ final class RuntimeFeedbackTests: XCTestCase {
         try store.startSet(PracticeConfiguration(pieceID: piece.id, targetCount: targetCount, useMetronome: false))
         let metronome = MetronomeService(defaults: defaults)
         let speech = SpeechCommandService()
-        let runtime = PracticeRuntime(store: store, metronome: metronome, speech: speech, feedback: feedback)
+        let recording = RecordingService(defaults: defaults)
+        let runtime = PracticeRuntime(store: store, metronome: metronome, speech: speech, recording: recording, feedback: feedback)
         addTeardownBlock {
-            await MainActor.run { feedback.stop(); metronome.stop(); speech.stop() }
+            await MainActor.run { feedback.stop(); metronome.stop(); speech.stop(); recording.stopPlayback() }
             UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: directory)
         }
-        return Fixture(store: store, runtime: runtime, feedback: feedback, metronome: metronome, defaults: defaults, probe: probe)
+        return Fixture(store: store, runtime: runtime, feedback: feedback, metronome: metronome, recording: recording, defaults: defaults, probe: probe)
     }
 
     @MainActor
@@ -85,7 +87,7 @@ final class RuntimeFeedbackTests: XCTestCase {
         let reopened = PracticeStore(directory: fixture.store.directory)
         let freshFeedback = FeedbackService(defaults: fixture.defaults)
         let speech = SpeechCommandService()
-        let runtime = PracticeRuntime(store: reopened, metronome: fixture.metronome, speech: speech, feedback: freshFeedback)
+        let runtime = PracticeRuntime(store: reopened, metronome: fixture.metronome, speech: speech, recording: fixture.recording, feedback: freshFeedback)
         defer { freshFeedback.stop(); speech.stop() }
         XCTAssertEqual(reopened.activeSet?.status, .paused)
         XCTAssertNil(freshFeedback.latest, "Reading saved progress must not reward it again")
@@ -177,5 +179,53 @@ final class RuntimeFeedbackTests: XCTestCase {
         XCTAssertEqual(fallback.beatsPerBar, 4)
         XCTAssertFalse(fallback.isPlaying)
         XCTAssertEqual(fixture.defaults.data(forKey: "praelude.ios.metronome.v1"), original, "Reading unsupported settings must not overwrite them")
+    }
+
+    // MARK: - §13 recording lifecycle sync
+    //
+    // These deliberately never call `recording.startTake` with the preference *enabled*: that path
+    // exercises a real AVAudioRecorder, which the rest of this suite avoids for any audio-hardware
+    // service (see `SpeechCommandService` above — constructed and stopped, never actually started).
+    // The disabled/no-op path below is still a genuine integration test of the wiring: it fails if
+    // `PracticeRuntime.syncRecording` stops reading `recording.takesEnabled`/`store.activeSet`
+    // correctly, or if a future change makes it start recording despite the preference being off.
+
+    @MainActor
+    func testRecordingNeverStartsWhileTheTakesPreferenceIsOff() async throws {
+        let fixture = try fixture(targetCount: 1)
+        XCTAssertFalse(fixture.recording.takesEnabled, "Recording is opt-in; default is off")
+        fixture.runtime.syncRecording()
+        XCTAssertFalse(fixture.recording.isRecording)
+        _ = try fixture.runtime.record(.clean, eventID: UUID())
+        fixture.runtime.syncRecording()
+        XCTAssertFalse(fixture.recording.isRecording)
+        XCTAssertNil(fixture.recording.recordingSetID)
+        XCTAssertTrue(fixture.store.recordings.isEmpty)
+    }
+
+    @MainActor
+    func testTakesEnabledPersistsAcrossRelaunchLikeMetronomeSettings() async throws {
+        let fixture = try fixture()
+        fixture.recording.takesEnabled = true
+        let reopened = RecordingService(defaults: fixture.defaults)
+        XCTAssertTrue(reopened.takesEnabled)
+        fixture.recording.takesEnabled = false
+        XCTAssertFalse(RecordingService(defaults: fixture.defaults).takesEnabled)
+    }
+
+    @MainActor
+    func testSyncRecordingWithNoActiveSetIsHarmlessAndIdempotent() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Praelude-Runtime-\(UUID().uuidString)", isDirectory: true)
+        let store = PracticeStore(directory: directory)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "Praelude-Runtime-\(UUID().uuidString)"))
+        let metronome = MetronomeService(defaults: defaults)
+        let speech = SpeechCommandService()
+        let recording = RecordingService(defaults: defaults)
+        let runtime = PracticeRuntime(store: store, metronome: metronome, speech: speech, recording: recording)
+        defer { metronome.stop(); speech.stop(); try? FileManager.default.removeItem(at: directory) }
+        XCTAssertNil(store.activeSet)
+        runtime.syncRecording(); runtime.syncRecording(); runtime.syncRecording()
+        XCTAssertFalse(recording.isRecording)
+        XCTAssertNil(recording.recordingSetID)
     }
 }

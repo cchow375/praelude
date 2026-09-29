@@ -1,18 +1,43 @@
 import SwiftUI
 
+private enum MetronomeTool: String, CaseIterable, Identifiable { case metronome, tuner, drone; var id: String { rawValue } }
+
 struct MetronomeView: View {
     @Environment(MetronomeService.self) private var metronome
     @Environment(PracticeStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var tool = MetronomeTool.metronome
     private var lockedTempo: Bool { store.activeSet != nil && store.activeSet?.isComplete != true }
     private var beatName: String { switch metronome.denominator { case 2: "half note"; case 8: "eighth note"; default: "quarter note" } }
 
     var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Picker("Tool", selection: $tool) {
+                    Text("Metronome").tag(MetronomeTool.metronome)
+                    Text("Tuner").tag(MetronomeTool.tuner)
+                    Text("Drone").tag(MetronomeTool.drone)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal).padding(.top, 12).padding(.bottom, 4)
+                .accessibilityIdentifier("metronomeToolPicker")
+                switch tool {
+                case .metronome: metronomeForm
+                case .tuner: ScrollView { TunerView().padding(.horizontal).padding(.top, 12) }
+                case .drone: ScrollView { DroneView().padding(.horizontal).padding(.top, 12) }
+                }
+            }
+            .background(PraeludeColor.paper)
+            .navigationTitle("Metronome").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }.presentationDetents([.large]).presentationDragIndicator(.visible)
+    }
+
+    private var metronomeForm: some View {
         @Bindable var metronome = metronome
         @Bindable var feedback = FeedbackService.shared
-        NavigationStack {
-            Form {
+        return Form {
                 Section {
                     VStack(spacing: 20) {
                         VStack(spacing: 2) {
@@ -113,10 +138,6 @@ struct MetronomeView: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(PraeludeColor.paper)
-            .navigationTitle("Metronome").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        }.presentationDetents([.large]).presentationDragIndicator(.visible)
     }
 
     private func beatButton(_ index: Int) -> some View {

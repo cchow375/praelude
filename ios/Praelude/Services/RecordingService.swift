@@ -10,6 +10,9 @@ final class RecordingService {
     private(set) var isRecording = false
     private(set) var isPaused = false
     private(set) var isPlaying = false
+    /// Which saved recording `isPlaying` refers to — lets a UI with more than one listen-back
+    /// button (e.g. "latest" and "~a week ago") show Stop on only the one actually playing.
+    private(set) var nowPlayingID: UUID?
     private(set) var errorMessage: String?
     /// The set (if any) a take is currently open for — `RecordingLifecycle` compares this against
     /// the store's active set to decide the next action.
@@ -169,9 +172,11 @@ final class RecordingService {
             guard newPlayer.play() else { throw RecordingError.couldNotPlay }
             player = newPlayer
             isPlaying = true
+            nowPlayingID = recording.id
             watchPlaybackCompletion()
         } catch {
             player = nil
+            nowPlayingID = nil
             AudioSessionCoordinator.shared.release(.recording)
             errorMessage = "That recording could not be played: \(error.localizedDescription)"
         }
@@ -184,6 +189,7 @@ final class RecordingService {
         player?.stop()
         player = nil
         isPlaying = false
+        nowPlayingID = nil
         AudioSessionCoordinator.shared.release(.recording)
     }
 

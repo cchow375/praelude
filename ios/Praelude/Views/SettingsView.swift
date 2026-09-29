@@ -2,12 +2,20 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(PracticeStore.self) private var store
+    @Environment(RecordingService.self) private var recording
     @AppStorage("ios.feedback") private var feedbackEnabled = true
     @State private var errorMessage: String?
+    @State private var confirmCleanup = false
     let onExportBackup: () -> Void
     let onImportBackup: () -> Void
 
+    private var cleanupCandidates: Int { store.recordings.recordingsOlderThan(days: 30).count }
+    private var storageLabel: String {
+        ByteCountFormatter.string(fromByteCount: Int64(store.recordings.totalStorageBytes), countStyle: .file)
+    }
+
     var body: some View {
+        @Bindable var recording = recording
         Form {
             Section("Appearance") {
                 Picker("Appearance", selection: preference(\.theme)) {
@@ -33,6 +41,25 @@ struct SettingsView: View {
                 Text("Your data")
             } footer: {
                 Text("Practice is stored on this device. Save a backup somewhere you trust. Restoring a backup replaces this device’s practice library after you review it.")
+            }
+
+            Section {
+                Toggle("Record my takes", isOn: $recording.takesEnabled).praeludeToggleHaptic(recording.takesEnabled)
+                LabeledContent("Storage used", value: storageLabel)
+                Button("Delete recordings older than 30 days", role: .destructive) { confirmCleanup = true }
+                    .disabled(cleanupCandidates == 0)
+            } header: {
+                Text("Recordings")
+            } footer: {
+                Text("Optionally records each practice set as it runs. Files stay on this device only and are never graded or analyzed — only you can listen back.")
+            }
+            .confirmationDialog("Delete \(cleanupCandidates) recording\(cleanupCandidates == 1 ? "" : "s")?", isPresented: $confirmCleanup, titleVisibility: .visible) {
+                Button("Delete \(cleanupCandidates) recording\(cleanupCandidates == 1 ? "" : "s")", role: .destructive) {
+                    recording.cleanUpRecordings(olderThanDays: 30, in: store)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes recordings older than 30 days. This cannot be undone.")
             }
 
             Section("Using Praelude") {
