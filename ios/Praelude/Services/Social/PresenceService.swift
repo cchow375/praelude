@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import PraeludeCore
 import Realtime
 
 /// Live "practicing now" (spec §5a) over Supabase Realtime Presence, layered on top of the
@@ -86,7 +85,7 @@ public final class PresenceService {
             }
             if ownChannel == nil {
                 ownChannel = channel
-                await channel.subscribe()
+                try? await channel.subscribeWithError()
             }
             try? await channel.track(state)
         }
@@ -122,7 +121,7 @@ public final class PresenceService {
                 friendSubscriptions[id] = channel.onPresenceChange { [weak self] action in
                     Task { @MainActor in self?.apply(action, for: id) }
                 }
-                await channel.subscribe()
+                try? await channel.subscribeWithError()
             }
         }
     }

@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import PraeludeCore
 
 /// The two integration points spec §5a asks other feature tracks to fire into: sharing a milestone
 /// to the activity feed (session finished, streak milestone, passage performance-ready, new piece,

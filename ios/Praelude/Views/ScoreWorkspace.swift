@@ -14,6 +14,7 @@ struct ScoreWorkspace: View {
     @Environment(MetronomeService.self) private var metronome
     @Environment(SpeechCommandService.self) private var speech
     @Environment(PracticeRuntime.self) private var runtime
+    @Environment(SocialHooks.self) private var socialHooks
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -207,7 +208,7 @@ struct ScoreWorkspace: View {
             }
         }
         .confirmationDialog("End this practice session?", isPresented: $ending, titleVisibility: .visible) {
-            Button("End practice", role: .destructive) { perform { try store.endSession(); metronome.stop(); speech.stop() } }
+            Button("End practice", role: .destructive) { perform { try endSessionAndShare(); metronome.stop(); speech.stop() } }
             Button("Cancel", role: .cancel) {}
         } message: { Text("Your repetitions and time stay saved. Unfinished work remains in your history.") }
         .alert("Couldn’t complete that", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
@@ -382,7 +383,7 @@ struct ScoreWorkspace: View {
                             .accessibilityLabel("Undo last repetition").keyboardShortcut("z", modifiers: .command)
                     }
                     HStack(spacing: 12) {
-                        Button("Finish") { perform { try store.endSession(); metronome.stop() } }.buttonStyle(.praeludeQuiet)
+                        Button("Finish") { perform { try endSessionAndShare(); metronome.stop() } }.buttonStyle(.praeludeQuiet)
                         Button("Another set") {
                             perform { try store.endSet(); sheet = .setup }
                         }.buttonStyle(.praeludePrimary)
@@ -506,6 +507,16 @@ struct ScoreWorkspace: View {
     private func turnPage(_ direction: Int) { guard markup.flushInk() else { return }; page = min(max(1, piece?.pageCount ?? 1), max(1, page + direction * (twoPages && sizeClass == .regular ? 2 : 1))); savePage(page) }
     private func savePage(_ page: Int) { perform { try store.updateLastPage(pieceID: pieceID, page: page) } }
     private func perform(_ action: () throws -> Void) { do { try action() } catch { self.error = error.localizedDescription } }
+
+    /// `store.endSession()` plus the spec §5a "session finished" feed event — one place for both of
+    /// this screen's two "End practice"/"Finish" buttons, so the hook can't be added to one and
+    /// forgotten on the other. The just-ended session is `store.state.sessions.last` immediately
+    /// after `endSession()` returns (it stamps that session's own `endedAt`, not a new one).
+    private func endSessionAndShare() throws {
+        try store.endSession()
+        guard let piece, let session = store.state.sessions.last else { return }
+        socialHooks.shareMilestone(kind: .sessionFinished, pieceID: piece.id, detail: practiceDuration(session.activeSeconds))
+    }
     private func togglePause() {
         perform { if active?.status == .paused { try store.resume() } else { try store.pause() } }
     }

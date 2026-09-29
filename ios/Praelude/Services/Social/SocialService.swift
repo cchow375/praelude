@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import PostgREST
-import PraeludeCore
 
 /// The client for every spec §5 feature: friends, blocks, activity feed, notes, presence (fallback
 /// read/write — live updates are `PresenceService`), studios, invites, contacts, leaderboard, reports.

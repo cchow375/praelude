@@ -4,6 +4,7 @@ struct SettingsView: View {
     @Environment(PracticeStore.self) private var store
     @AppStorage("ios.feedback") private var feedbackEnabled = true
     @State private var errorMessage: String?
+    @State private var showDeveloperContact = false
     let onExportBackup: () -> Void
     let onImportBackup: () -> Void
 
@@ -15,6 +16,23 @@ struct SettingsView: View {
                 } label: {
                     Label("Account and sync", systemImage: "person.crop.circle")
                 }
+            }
+
+            Section {
+                NavigationLink {
+                    BlockedUsersView()
+                } label: {
+                    Label("Blocked accounts", systemImage: "hand.raised")
+                }
+                Button {
+                    showDeveloperContact = true
+                } label: {
+                    Label("Contact developer", systemImage: "envelope")
+                }
+            } header: {
+                Text("Friends and safety")
+            } footer: {
+                Text("Who sees your presence, streaks, pieces, and notes is set per field in Edit profile, above.")
             }
 
             Section("Appearance") {
@@ -75,6 +93,7 @@ struct SettingsView: View {
         .background(PraeludeColor.paper)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showDeveloperContact) { ReportSheet(targetType: .developerContact, targetID: nil) }
     }
 
     private func preference<Value>(_ keyPath: WritableKeyPath<Preferences, Value>) -> Binding<Value> {

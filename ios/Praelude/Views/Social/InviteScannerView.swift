@@ -1,4 +1,8 @@
-import AVFoundation
+// AVFoundation predates Swift's Sendable audits: AVCaptureSession's start/stopRunning are
+// documented as safe to call off the main thread (the whole reason to dispatch them to a
+// background queue below), but the SDK itself doesn't mark the type Sendable. @preconcurrency
+// trusts Apple's own documented contract instead of fighting the type checker over it.
+@preconcurrency import AVFoundation
 import SwiftUI
 
 /// Scans a friend's invite QR code (spec §5b). Plain `AVCaptureSession`/`AVCaptureMetadataOutput` —
@@ -96,12 +100,21 @@ private final class ScannerViewController: UIViewController, AVCaptureMetadataOu
         session.stopRunning()
     }
 
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        guard !didFire,
-              let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+    // `AVCaptureMetadataOutputObjectsDelegate` isn't itself main-actor-isolated, so a `UIViewController`
+    // subclass (implicitly @MainActor) conforming to it is flagged as a possible data race by Swift 6
+    // strict concurrency — even though `setMetadataObjectsDelegate(self, queue: .main)` above already
+    // guarantees this fires on the main queue. `nonisolated` + `MainActor.assumeIsolated` documents
+    // and cashes in that runtime guarantee instead of fighting the type checker over it.
+    nonisolated func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        // `AVMetadataObject` isn't `Sendable`, so the array itself must never cross into the
+        // MainActor closure below — only the plain `String` this extracts from it does.
+        guard let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
               object.type == .qr, let value = object.stringValue else { return }
-        didFire = true
-        session.stopRunning()
-        onCode?(value)
+        MainActor.assumeIsolated {
+            guard !didFire else { return }
+            didFire = true
+            session.stopRunning()
+            onCode?(value)
+        }
     }
 }

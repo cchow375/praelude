@@ -33,10 +33,15 @@ public final class AuthManager {
     // `deinit` runs nonisolated even on a @MainActor class (it may run from any thread), so under
     // Swift 6 strict concurrency it cannot touch a main-actor-isolated stored property. `Task<Void,
     // Never>?` is itself Sendable (Task is a Sendable reference and Optional of a Sendable type is
-    // Sendable), so plain `nonisolated` is enough to let `deinit` read and cancel it — the compiler
-    // flags `nonisolated(unsafe)` here as having no effect for exactly that reason, not because the
-    // plain form is unsafe.
-    private nonisolated var observeTask: Task<Void, Never>?
+    // Sendable), so `deinit` reading/cancelling it is genuinely race-free — but this toolchain
+    // (verified against an actual simulator build, not just reasoned about — this file is only ever
+    // reached that way; `swift test --package-path ios` builds just the Foundation-only Core
+    // package) rejects plain `nonisolated` on *any* mutable stored `var` outright ("'nonisolated'
+    // cannot be applied to mutable stored properties"), full stop — `nonisolated(unsafe)` is the one
+    // spelling this version of Swift accepts for that, not a further-relaxed alternative to it.
+    // `@ObservationIgnored` on top: this is pure internal bookkeeping no view ever reads, so it
+    // should not be part of `@Observable`'s tracked state regardless of which spelling compiles.
+    @ObservationIgnored private nonisolated(unsafe) var observeTask: Task<Void, Never>?
     public static let authCallbackURLScheme = "praelude"
     public static let authCallbackHost = "auth-callback"
 

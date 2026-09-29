@@ -1,5 +1,4 @@
 import Foundation
-import PraeludeCore
 
 // MARK: - Social (spec §5) wire-format DTOs
 //

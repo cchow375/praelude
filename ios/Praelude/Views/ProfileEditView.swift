@@ -13,12 +13,17 @@ struct ProfileEditView: View {
     @Environment(PracticeStore.self) private var store
     @Environment(AuthManager.self) private var auth
     @Environment(SyncCoordinator.self) private var syncCoordinator
+    @Environment(SocialHooks.self) private var hooks
     @Environment(\.dismiss) private var dismiss
 
     @State private var profile = Profile()
     @State private var extras = ProfileBackendFields()
     @State private var hasLoaded = false
     @State private var errorMessage: String?
+    /// The performance count as loaded, so `save()` can tell a genuinely new entry (spec §5a
+    /// "performance date set" feed event) apart from an edit to an existing one — only the former is
+    /// feed-worthy.
+    @State private var loadedPerformanceCount = 0
 
     @State private var photoItem: PhotosPickerItem?
     @State private var avatarImage: Image?
@@ -51,6 +56,7 @@ struct ProfileEditView: View {
             hasLoaded = true
             profile = store.state.profile
             extras = syncCoordinator.profileBackendFields
+            loadedPerformanceCount = extras.upcomingPerformances.count
         }
         .task(id: profile.photoRef) { await loadAvatarPreview() }
         .onChange(of: photoItem) { _, item in Task { await upload(item) } }
@@ -334,6 +340,13 @@ struct ProfileEditView: View {
             try store.updateProfile(profile)
             syncCoordinator.setProfileBackendFields(extras)
             syncCoordinator.pushProfile()
+            // Spec §5a activity feed: "performance date set" — only a genuinely new entry, not an
+            // edit to an existing date/title/location, matches that event's own name.
+            if extras.upcomingPerformances.count > loadedPerformanceCount, let newest = extras.upcomingPerformances.last {
+                let when = newest.date.formatted(date: .abbreviated, time: .omitted)
+                let detail = newest.title.map { "\($0) — \(when)" } ?? when
+                hooks.shareMilestone(kind: .performanceDateSet, detail: detail)
+            }
             dismiss()
         } catch { errorMessage = error.localizedDescription }
     }
