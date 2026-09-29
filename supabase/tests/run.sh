@@ -51,6 +51,7 @@ run_one() {
 run_one "$here/01_rls_policy_coverage.sql"
 run_one "$here/02_owner_isolation_and_sync_rpc.sql"
 run_one "$here/03_social_privacy_blocks_notes_storage.sql"
+run_one "$here/05_presence_and_note_privacy.sql"
 
 if [[ -n "${USER_C:-}" ]]; then
   echo "==> 04_account_deletion.sql (DESTRUCTIVE - permanently deletes USER_C's account)"

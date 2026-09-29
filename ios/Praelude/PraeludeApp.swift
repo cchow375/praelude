@@ -14,6 +14,7 @@ struct PraeludeApp: App {
     @State private var services: SupabaseServices
     @State private var auth: AuthManager
     @State private var syncCoordinator: SyncCoordinator
+    @State private var storage: ScoreAndRecordingStorage
     @State private var social: SocialService
     @State private var socialHooks: SocialHooks
     @State private var presence: PresenceService
@@ -58,9 +59,14 @@ struct PraeludeApp: App {
         // (AuthManager.onSignedOut's own doc comment). Wired here rather than via a View-level
         // onChange so it fires even if no view observing `auth.state` happens to be on screen.
         authValue.onSignedOut = { [weak coordinatorValue] in coordinatorValue?.resetLocalAccountState() }
+        // §4a: private-bucket file transfer riding on top of the metadata sync above (scores/
+        // recordings storage.objects policies — supabase/migrations/20260926220008_storage_buckets.sql).
+        let storageValue = ScoreAndRecordingStorage(services: servicesValue, auth: authValue)
+        coordinatorValue.setStorage(storageValue)
         _services = State(initialValue: servicesValue)
         _auth = State(initialValue: authValue)
         _syncCoordinator = State(initialValue: coordinatorValue)
+        _storage = State(initialValue: storageValue)
 
         // Social (spec §5). No offline queue of its own (supabase/(C) Sync Protocol.md §1) — see
         // SocialService's own doc comment — so nothing here needs the same guest-mode fallback
@@ -77,13 +83,23 @@ struct PraeludeApp: App {
             AppRootView()
                 .environment(store).environment(metronome).environment(speech).environment(runtime).environment(rewards)
                 .environment(tuner).environment(drone).environment(recording)
-                .environment(auth).environment(syncCoordinator)
+                .environment(auth).environment(syncCoordinator).environment(storage)
                 .environment(social).environment(socialHooks).environment(presence)
                 .preferredColorScheme(colorScheme)
                 .tint(PraeludeColor.ink)
                 .onChange(of: store.state.preferences.keepScreenAwake) { _, _ in runtime.updateScreenAwake() }
-                .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck() }
-                .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck() }
+                .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
+                .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
+                // Spec §4d/§9: the append-only rep log. Reacting to `attempts.count`/the undone-count
+                // (rather than wrapping every `PracticeStore.record`/`undo` call site — `record`/`undo`
+                // are already centralized in `PracticeRuntime`, but `startSet`/`pause`/`resume`/`endSet`
+                // are not, called directly from several Views/`PracticeArmController`) is the same
+                // "least invasive integration" `PracticeRuntime.syncRecording()`'s own doc comment
+                // already uses for this exact class of problem — see `SyncCoordinator.syncSet(_:)`.
+                .onChange(of: store.activeSet?.attempts.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
+                .onChange(of: store.activeSet?.attempts.filter { $0.undoneAt != nil }.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
+                .onChange(of: store.state.history.count) { _, _ in syncCoordinator.syncMostRecentFinishedSet() }
+                .onChange(of: store.state.recordings.count) { _, _ in syncCoordinator.syncNewestRecording() }
                 .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await syncCoordinator.syncAll() } } }
                 .task {
                     syncCoordinator.startObservingNetwork()
@@ -100,8 +116,11 @@ struct PraeludeApp: App {
             .environment(socialHooks)
             .preferredColorScheme(colorScheme)
             .tint(PraeludeColor.ink)
-            .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck() }
-            .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck() }
+            .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
+            .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
+            .onChange(of: store.activeSet?.attempts.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
+            .onChange(of: store.activeSet?.attempts.filter { $0.undoneAt != nil }.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
+            .onChange(of: store.state.history.count) { _, _ in syncCoordinator.syncMostRecentFinishedSet() }
         }
     }
     private var colorScheme: ColorScheme? {

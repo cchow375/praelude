@@ -251,6 +251,213 @@ import Observation
             }
         }
     }
+
+    // MARK: - §4d Sync: applying a pulled row (or a rejected push's "adopt this" reply)
+    //
+    // `applySyncedInkStroke` above was the one precedent for this shape before this pass. It matters
+    // that these are distinct methods from `save*`/`update*`, not a reuse of them: several `save*`
+    // methods (`saveInstrument`, `saveTag`, `saveFolder`, `saveSetlist`, `saveBookmark`,
+    // `savePageEdit`, `saveScoreLink`, `saveTextAnnotation`, `saveStampAnnotation`,
+    // `saveWarmupExercise`, `saveRecording`, `saveNotebookEntry`) and `updateRuleSettings`/
+    // `updateRewardsState`/`updateProfile` deliberately *self-stamp* `updatedAt` with this device's
+    // own clock (correct for a local edit — Schema3.md: an offline status/counter change must not
+    // silently lose to an older edit). Calling any of those from the pull path would silently
+    // overwrite the server's real `updated_at` with "whenever this device happened to pull it",
+    // permanently drifting this record's clock away from its true edit time — a later, genuinely
+    // newer edit from a third device could then lose a last-write-wins comparison it should have won,
+    // purely because this device's own pull inflated the timestamp it is compared against. Every
+    // method below instead stores the incoming record's fields (including its `updatedAt`) verbatim,
+    // exactly like `applySyncedInkStroke`/`updatePiece`/`savePassage` (Schema3.md: "trust the
+    // caller's struct") already do. `SyncCoordinator` makes the LWW "should this even apply" decision
+    // before calling any of these; none of them re-check it.
+
+    /// `Piece` is the one collection with a split `addPiece`/`updatePiece` pair (every other
+    /// collection's `save*` already upserts — see e.g. `saveTag` above) instead of one upsert-style
+    /// method: `updatePiece` throws "no longer in your library" for an id it does not already have,
+    /// and `addPiece` throws "already in your library" for one it does. Before this method existed,
+    /// `SyncCoordinator`'s pull path called `updatePiece` directly, which silently failed (`try?`
+    /// swallows the thrown error) for the ordinary case of a fresh device — or an existing device
+    /// that never had this specific piece — pulling a piece it has never seen before: exactly the
+    /// "reinstall/second device gets the whole library back" guarantee spec 4d promises, silently not
+    /// happening for pieces specifically. Fixed here, at the one call site (`applyPulledRow`) that
+    /// needs upsert semantics, rather than changing `addPiece`/`updatePiece`'s own long-standing
+    /// contracts (`updatePiece`'s own doc comment: local edits still make the deliberate choice to
+    /// fail loudly on an id that should already exist, e.g. a stale in-memory reference after a
+    /// delete elsewhere in this same launch - only the sync path needs "insert-or-update").
+    public func applySyncedPiece(_ piece: Piece) throws {
+        if state.pieces.contains(where: { $0.id == piece.id }) { try updatePiece(piece) } else { try addPiece(piece) }
+    }
+
+    public func applySyncedInstrument(_ instrument: Instrument) throws { try transaction { next in
+        if let index = next.instruments.firstIndex(where: { $0.id == instrument.id }) { next.instruments[index] = instrument }
+        else { next.instruments.append(instrument) }
+    } }
+    public func applySyncedRuleSettings(_ settings: RuleSettings) throws { try transaction { next in next.ruleSettings = settings } }
+    public func applySyncedRewardsState(_ rewardsState: RewardsState) throws { try transaction { next in next.rewardsState = rewardsState } }
+    public func applySyncedProfile(_ profile: Profile) throws { try transaction { next in next.profile = profile } }
+
+    public func applySyncedTag(_ tag: Tag) throws { try transaction { next in
+        if let index = next.tags.firstIndex(where: { $0.id == tag.id }) { next.tags[index] = tag } else { next.tags.append(tag) }
+    } }
+    public func applySyncedFolder(_ folder: Folder) throws { try transaction { next in
+        if let index = next.folders.firstIndex(where: { $0.id == folder.id }) { next.folders[index] = folder } else { next.folders.append(folder) }
+    } }
+    public func applySyncedSetlist(_ setlist: Setlist) throws { try transaction { next in
+        if let index = next.setlists.firstIndex(where: { $0.id == setlist.id }) { next.setlists[index] = setlist } else { next.setlists.append(setlist) }
+    } }
+    public func applySyncedBookmark(_ bookmark: Bookmark) throws { try transaction { next in
+        if let index = next.bookmarks.firstIndex(where: { $0.id == bookmark.id }) { next.bookmarks[index] = bookmark } else { next.bookmarks.append(bookmark) }
+    } }
+    public func applySyncedPageEdit(_ edit: PageEdit) throws { try transaction { next in
+        if let index = next.pageEdits.firstIndex(where: { $0.id == edit.id }) { next.pageEdits[index] = edit } else { next.pageEdits.append(edit) }
+    } }
+    public func applySyncedScoreLink(_ link: ScoreLink) throws { try transaction { next in
+        if let index = next.scoreLinks.firstIndex(where: { $0.id == link.id }) { next.scoreLinks[index] = link } else { next.scoreLinks.append(link) }
+    } }
+    public func applySyncedTextAnnotation(_ annotation: TextBoxAnnotation) throws { try transaction { next in
+        if let index = next.textAnnotations.firstIndex(where: { $0.id == annotation.id }) { next.textAnnotations[index] = annotation }
+        else { next.textAnnotations.append(annotation) }
+    } }
+    public func applySyncedStampAnnotation(_ stamp: StampAnnotation) throws { try transaction { next in
+        if let index = next.stampAnnotations.firstIndex(where: { $0.id == stamp.id }) { next.stampAnnotations[index] = stamp }
+        else { next.stampAnnotations.append(stamp) }
+    } }
+    public func applySyncedWarmupExercise(_ exercise: WarmupExercise) throws { try transaction { next in
+        if let index = next.warmupExercises.firstIndex(where: { $0.id == exercise.id }) { next.warmupExercises[index] = exercise }
+        else { next.warmupExercises.append(exercise) }
+    } }
+    public func applySyncedRecording(_ recording: AudioRecording) throws { try transaction { next in
+        if let index = next.recordings.firstIndex(where: { $0.id == recording.id }) { next.recordings[index] = recording }
+        else { next.recordings.append(recording) }
+    } }
+    public func applySyncedNotebookEntry(_ entry: NotebookEntry) throws { try transaction { next in
+        if let index = next.notebookEntries.firstIndex(where: { $0.id == entry.id }) { next.notebookEntries[index] = entry }
+        else { next.notebookEntries.append(entry) }
+    } }
+
+    /// A practice set pulled from another device (or the server's "adopt this" reply to a rejected
+    /// push). `SetSyncRow.coreValue` (`SyncDTO2.swift`) cannot know this device's own attempt history
+    /// for that set id, so it is spliced back in here from whichever local copy already holds it —
+    /// never dropped, never duplicated (the splice source is either `history` or the live
+    /// `activeSet`; `applySyncedAttempt` below is the only other writer of either array, and is
+    /// itself id-deduplicated).
+    /// True upsert (unlike `applySyncedSet` just below, this one is simple: `PracticeSession`'s own
+    /// `attempts`/`activeSeconds`/`completedSets` are entirely derived by `projectSessions`, called
+    /// automatically at the end of every `transaction { ... }` — including this one — so whatever
+    /// this method itself sets for those three fields never matters; only `pieceID`/`focus`/
+    /// `startedAt`/`endedAt` are real, non-derived data). `sets.session_id` is a hard FK
+    /// (`references public.practice_sessions (id)`), so a set pulled/applied before its own session
+    /// exists locally fails `validate`'s `sessionIDs.contains(set.sessionID)` check — apply this
+    /// before `applySyncedSet` for the same session, the same ordering `SyncCoordinator.syncSet(_:)`
+    /// already guarantees on push.
+    public func applySyncedSession(_ session: PracticeSession) throws { try transaction { next in
+        if let index = next.sessions.firstIndex(where: { $0.id == session.id }) { next.sessions[index] = session }
+        else { next.sessions.append(session) }
+    } }
+
+    /// `validate(_:)` requires every set's cached progress fields (`currentBPM`/`streak`/
+    /// `totalPlays`/`stageIndex`/`completedStages`/completed-ness) to always equal
+    /// `PracticeEngine.project(set)` replayed over its own `attempts` — the same invariant
+    /// `record()`/`undo()` already maintain locally by calling `project` themselves after every
+    /// mutation. A cross-device merge can change `.attempts` (union two devices' reps, or mark one
+    /// undone) without going through either of those, so every method below re-runs `project` itself
+    /// before storing, on the *final*, already-spliced attempts array — never trusting a remote
+    /// device's own cached fields (computed against its own, possibly different, view of `.attempts`)
+    /// or leaving a stale local cache behind. `project` is pure and total (never throws), so this is
+    /// always safe to call unconditionally, matching `record()`/`undo()`'s own unconditional calls.
+    public func applySyncedSet(_ incoming: ActiveSet) throws {
+        try transaction { next in
+            var incoming = incoming
+            if next.activeSet?.id == incoming.id {
+                incoming.attempts = next.activeSet?.attempts ?? []
+                next.activeSet = PracticeEngine.project(incoming)
+            } else if let index = next.history.firstIndex(where: { $0.id == incoming.id }) {
+                incoming.attempts = next.history[index].attempts
+                next.history[index] = PracticeEngine.project(incoming)
+            } else if incoming.status == .completed || incoming.status == .ended {
+                // Never seen locally before, and already finished on whichever device ran it —
+                // `validate(_:)` requires every `history` entry to be finished, so this is always
+                // safe to file there.
+                next.history.append(PracticeEngine.project(incoming))
+            } else if next.activeSet == nil {
+                // Never seen locally before and still live (running/paused) on another device, and
+                // this device has no live set of its own right now: mirrors the same in-progress
+                // session across devices (e.g. "started on the iPad, picked up the iPhone mid-set").
+                next.activeSet = PracticeEngine.project(incoming)
+            }
+            // else: this device already has its own different live set. A genuine same-account,
+            // simultaneous-device conflict (rare — the same person cannot really practice two things
+            // at once, but two sockets can each think they own "the" active set for a moment). Not
+            // solved here: applying the pulled snapshot would either silently replace this device's
+            // own in-progress session or violate the "history is always finished" invariant, so this
+            // one pulled row is skipped for now rather than forcing either. Never a rep-loss risk
+            // either way — the reps themselves sync through the separate, append-only `attempts`
+            // table regardless of what happens to this specific `sets` snapshot.
+        }
+    }
+
+    /// One rep pulled from another device. Finds the set it belongs to (active or history) and
+    /// appends it only if not already present by id — `sync_append`'s own `on conflict (id) do
+    /// nothing` is the server-side half of this idempotency; this is the client-side half, since
+    /// Core's storage (an array nested inside the owning `ActiveSet`) has no unique-index of its own
+    /// to lean on. A set this device has not pulled/pushed yet is a no-op, not an error: `pullTables`
+    /// (`SyncCoordinator`) lists `sets` ahead of `attempts` every pass, so in practice the set already
+    /// exists locally by the time its attempts are applied within the same `syncAll()`.
+    public func applySyncedAttempt(_ attempt: Attempt, setID: UUID) throws {
+        try transaction { next in
+            if next.activeSet?.id == setID {
+                guard let activeSet = next.activeSet, !activeSet.attempts.contains(where: { $0.id == attempt.id }) else { return }
+                var updated = activeSet; updated.attempts.append(attempt)
+                next.activeSet = PracticeEngine.project(updated)
+            } else if let index = next.history.firstIndex(where: { $0.id == setID }),
+                      !next.history[index].attempts.contains(where: { $0.id == attempt.id }) {
+                var updated = next.history[index]; updated.attempts.append(attempt)
+                next.history[index] = PracticeEngine.project(updated)
+            }
+        }
+    }
+
+    /// The one legitimate post-insert edit on an append-only attempt (spec 9 Undo), applied locally
+    /// the same way `sync_undo_attempt` applies it server-side: a no-op if already undone or if the
+    /// attempt is not found locally yet.
+    public func applySyncedUndoAttempt(attemptID: UUID, undoneAt: Date) throws {
+        try transaction { next in
+            if var activeSet = next.activeSet, let index = activeSet.attempts.firstIndex(where: { $0.id == attemptID }), activeSet.attempts[index].undoneAt == nil {
+                activeSet.attempts[index].undoneAt = undoneAt
+                next.activeSet = PracticeEngine.project(activeSet)
+                return
+            }
+            for historyIndex in next.history.indices {
+                var set = next.history[historyIndex]
+                if let index = set.attempts.firstIndex(where: { $0.id == attemptID }), set.attempts[index].undoneAt == nil {
+                    set.attempts[index].undoneAt = undoneAt
+                    next.history[historyIndex] = PracticeEngine.project(set)
+                    return
+                }
+            }
+        }
+    }
+
+    // Append-only logs: id-deduplicated union merge (Schema3.md: "replicas merge by set union").
+    public func applySyncedRuleEvent(_ event: RuleEvent) throws { try transaction { next in
+        guard !next.ruleEvents.contains(where: { $0.id == event.id }) else { return }; next.ruleEvents.append(event)
+    } }
+    public func applySyncedRewardLedgerEntry(_ entry: RewardLedgerEntry) throws { try transaction { next in
+        guard !next.rewardLedger.contains(where: { $0.id == entry.id }) else { return }; next.rewardLedger.append(entry)
+    } }
+    public func applySyncedBadge(_ badge: Badge) throws { try transaction { next in
+        guard !next.badges.contains(where: { $0.id == badge.id }) else { return }; next.badges.append(badge)
+    } }
+    public func applySyncedMilestoneEvent(_ event: MilestoneEvent) throws { try transaction { next in
+        guard !next.milestoneEvents.contains(where: { $0.id == event.id }) else { return }; next.milestoneEvents.append(event)
+    } }
+    public func applySyncedColdGrade(_ record: ColdGradeRecord) throws { try transaction { next in
+        guard !next.coldGrades.contains(where: { $0.id == record.id }) else { return }; next.coldGrades.append(record)
+    } }
+    public func applySyncedBreakPointTap(_ tap: BreakPointTap) throws { try transaction { next in
+        guard !next.breakPointTaps.contains(where: { $0.id == tap.id }) else { return }; next.breakPointTaps.append(tap)
+    } }
+
     public func requireReplaceableScore(pieceID: UUID) throws { try Self.requireReplaceableScore(pieceID: pieceID, in: state) }
     private static func requireReplaceableScore(pieceID: UUID, in state: LibraryState) throws {
         let snapshots = (state.history + [state.activeSet].compactMap { $0 }).compactMap { $0.configuration.passageSnapshot }

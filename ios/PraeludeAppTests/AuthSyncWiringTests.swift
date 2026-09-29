@@ -23,7 +23,7 @@ private struct NeverCalledTransport: SyncTransport {
     func undoAttempt(attemptID: UUID, undoneAt: Date) async throws -> SyncRPCResult {
         XCTFail("undoAttempt must not be called while signed out"); throw SyncError.transport("unexpected call")
     }
-    func fetch(table: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
+    func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
         XCTFail("fetch must not be called while signed out"); throw SyncError.transport("unexpected call")
     }
 }

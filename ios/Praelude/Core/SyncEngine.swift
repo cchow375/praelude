@@ -13,8 +13,11 @@ public protocol SyncTransport: Sendable {
     func append(table: String, row: [String: SyncJSON]) async throws -> SyncRPCResult
     func updateLastPage(pieceID: UUID, lastPage: Int, at: Date) async throws -> SyncRPCResult
     func undoAttempt(attemptID: UUID, undoneAt: Date) async throws -> SyncRPCResult
-    /// Every one of the caller's own rows in `table` with `updated_at > since` (`nil` pulls everything).
-    func fetch(table: String, updatedSince: Date?) async throws -> [[String: SyncJSON]]
+    /// Every one of the caller's own rows in `table` with `field > since` (`nil` pulls everything).
+    /// `field` is `"updated_at"` for an ordinary `sync_tables` member; `SyncEngine.pull`'s
+    /// `cursorField` passes an append-only table's own event-date column instead (that family has no
+    /// `updated_at` column to filter on at all).
+    func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]]
 }
 
 public struct SyncRPCResult: Equatable, Sendable {
@@ -227,18 +230,27 @@ public final class SyncEngine {
 
     /// Fetches every row changed in `table` since this device's last cursor for it, hands each to
     /// `applyRow` (LWW-merging into local storage is the caller's job — see `SyncCoordinator`), then
-    /// advances the cursor to the latest `updated_at` actually seen, so a partial failure mid-table
-    /// re-pulls from the old cursor next time rather than skipping rows.
-    public func pull(table: String, applyRow: (_ row: [String: SyncJSON]) -> Void) async throws {
-        let rows = try await transport.fetch(table: table, updatedSince: state.cursors[table])
-        var latest = state.cursors[table]
+    /// advances the cursor to the latest value of `cursorField` actually seen, so a partial failure
+    /// mid-table re-pulls from the old cursor next time rather than skipping rows.
+    ///
+    /// `cursorField` defaults to `"updated_at"` (every whole-row-LWW `sync_tables` member has one).
+    /// An `append_only_tables` member has no `updated_at`/`deleted_at` at all (Schema3.md: "adding
+    /// those to a log would be dead weight") but every one of them does have its own event-date
+    /// column (`attempts.date`, `rule_events.fired_at`, `badges.earned_at`, ...) — pass that column
+    /// name here so pulling a log still advances a real cursor instead of either re-fetching every
+    /// row ever appended on every sync, or (worse) never establishing one and silently pulling
+    /// nothing past the first page.
+    public func pull(table: String, cursorField: String = "updated_at", applyRow: (_ row: [String: SyncJSON]) -> Void) async throws {
+        let cursorKey = cursorField == "updated_at" ? table : "\(table)#\(cursorField)"
+        let rows = try await transport.fetch(table: table, field: cursorField, updatedSince: state.cursors[cursorKey])
+        var latest = state.cursors[cursorKey]
         for row in rows {
             applyRow(row)
-            if let updatedAt = row["updated_at"]?.stringValue.flatMap(SyncCoding.iso8601Formatter.date(from:)), latest == nil || updatedAt > latest! {
-                latest = updatedAt
+            if let value = row[cursorField]?.stringValue.flatMap(SyncCoding.iso8601Formatter.date(from:)), latest == nil || value > latest! {
+                latest = value
             }
         }
-        if let latest { state.cursors[table] = latest; try persistState() }
+        if let latest { state.cursors[cursorKey] = latest; try persistState() }
     }
 
     public func updateProfileBackendFields(_ fields: ProfileBackendFields) throws {

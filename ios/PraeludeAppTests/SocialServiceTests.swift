@@ -144,5 +144,5 @@ private struct NeverCalledSocialTransport: SyncTransport {
     func append(table: String, row: [String: SyncJSON]) async throws -> SyncRPCResult { XCTFail("append must not be called"); throw SyncError.transport("unexpected") }
     func updateLastPage(pieceID: UUID, lastPage: Int, at: Date) async throws -> SyncRPCResult { XCTFail("updateLastPage must not be called"); throw SyncError.transport("unexpected") }
     func undoAttempt(attemptID: UUID, undoneAt: Date) async throws -> SyncRPCResult { XCTFail("undoAttempt must not be called"); throw SyncError.transport("unexpected") }
-    func fetch(table: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] { XCTFail("fetch must not be called"); throw SyncError.transport("unexpected") }
+    func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] { XCTFail("fetch must not be called"); throw SyncError.transport("unexpected") }
 }

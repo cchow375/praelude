@@ -23,26 +23,30 @@ the DB password) or `supabase link --password`.
 
 ## What's in each migration
 
-| File                                                 | Contents                                                                                                                                                                   |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `20260926220001_extensions_and_helpers`              | Enums used across later files, `set_updated_at()`, the offensive-word filter (`blocked_words`/`contains_blocked_word`), the `sync_tables`/`append_only_tables` allow-lists |
-| `20260926220002_profiles`                            | `profiles` (spec §4c), per-field privacy, the minor-clamping safety trigger, auto-provisioning on signup                                                                   |
-| `20260926220003_library_sync_tables`                 | Every schema3 collection except the append-only logs, `instruments` (§6), the `_setup_owner_table` procedure                                                               |
-| `20260926220004_logs_sync_tables`                    | The append-only logs, `_setup_append_only_table`                                                                                                                           |
-| `20260926220005_sync_rpc`                            | `sync_upsert`/`sync_append`/`sync_update_last_page`/`sync_undo_attempt`                                                                                                    |
-| `20260926220006_social`                              | Corrections to 1–5 (below), then all of spec §5: friendships, blocks, profile cards, activity feed, notes, presence, studios, invites, contact discovery                   |
-| `20260926220007_moderation_and_leaderboard`          | `reports` (the moderation queue), `leaderboard_friends()`                                                                                                                  |
-| `20260926220008_storage_buckets`                     | The four buckets and their `storage.objects` policies                                                                                                                      |
-| `20260926220009_account_deletion`                    | `delete_my_account()`, and un-cascading a studio away from its members                                                                                                     |
-| `20260926220010_grants_and_indexes`                  | anon lockdown, closing a stats leak, indexing every FK (as it existed at that point)                                                                                       |
-| `20260926220011_advisor_fixes`                       | Full remediation of a `supabase db advisors` run: see below                                                                                                                |
-| `20260926220012_more_indexes`                        | The FK indexes advisors found that `010` predated                                                                                                                          |
-| `20260926220013_fix_respond_friend_request`          | Enum-cast bug fix — see "Corrections found while writing the tests" below                                                                                                  |
-| `20260926220014_grant_friend_block_helpers`          | Superseded by `018` (see correction 5 below) — kept as-is, not edited, matching how `011` corrects `010` rather than rewriting it                                          |
-| `20260926220015_fix_enforce_owned_piece_passage`     | `notes` insert crash fix — see below                                                                                                                                       |
-| `20260926220016_grant_studio_membership_helpers`     | `is_studio_member`/`is_studio_owner` grants — see below                                                                                                                    |
-| `20260926220017_fix_delete_my_account_storage`       | `delete_my_account()` storage fix + new client contract — see below                                                                                                        |
-| `20260926220018_revert_unneeded_friend_block_grants` | Reverts part of `014`, fixes a `search_path` finding — see below                                                                                                           |
+| File                                                   | Contents                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260926220001_extensions_and_helpers`                | Enums used across later files, `set_updated_at()`, the offensive-word filter (`blocked_words`/`contains_blocked_word`), the `sync_tables`/`append_only_tables` allow-lists                                                                                                            |
+| `20260926220002_profiles`                              | `profiles` (spec §4c), per-field privacy, the minor-clamping safety trigger, auto-provisioning on signup                                                                                                                                                                              |
+| `20260926220003_library_sync_tables`                   | Every schema3 collection except the append-only logs, `instruments` (§6), the `_setup_owner_table` procedure                                                                                                                                                                          |
+| `20260926220004_logs_sync_tables`                      | The append-only logs, `_setup_append_only_table`                                                                                                                                                                                                                                      |
+| `20260926220005_sync_rpc`                              | `sync_upsert`/`sync_append`/`sync_update_last_page`/`sync_undo_attempt`                                                                                                                                                                                                               |
+| `20260926220006_social`                                | Corrections to 1–5 (below), then all of spec §5: friendships, blocks, profile cards, activity feed, notes, presence, studios, invites, contact discovery                                                                                                                              |
+| `20260926220007_moderation_and_leaderboard`            | `reports` (the moderation queue), `leaderboard_friends()`                                                                                                                                                                                                                             |
+| `20260926220008_storage_buckets`                       | The four buckets and their `storage.objects` policies                                                                                                                                                                                                                                 |
+| `20260926220009_account_deletion`                      | `delete_my_account()`, and un-cascading a studio away from its members                                                                                                                                                                                                                |
+| `20260926220010_grants_and_indexes`                    | anon lockdown, closing a stats leak, indexing every FK (as it existed at that point)                                                                                                                                                                                                  |
+| `20260926220011_advisor_fixes`                         | Full remediation of a `supabase db advisors` run: see below                                                                                                                                                                                                                           |
+| `20260926220012_more_indexes`                          | The FK indexes advisors found that `010` predated                                                                                                                                                                                                                                     |
+| `20260926220013_fix_respond_friend_request`            | Enum-cast bug fix — see "Corrections found while writing the tests" below                                                                                                                                                                                                             |
+| `20260926220014_grant_friend_block_helpers`            | Superseded by `018` (see correction 5 below) — kept as-is, not edited, matching how `011` corrects `010` rather than rewriting it                                                                                                                                                     |
+| `20260926220015_fix_enforce_owned_piece_passage`       | `notes` insert crash fix — see below                                                                                                                                                                                                                                                  |
+| `20260926220016_grant_studio_membership_helpers`       | `is_studio_member`/`is_studio_owner` grants — see below                                                                                                                                                                                                                               |
+| `20260926220017_fix_delete_my_account_storage`         | `delete_my_account()` storage fix + new client contract — see below                                                                                                                                                                                                                   |
+| `20260926220018_revert_unneeded_friend_block_grants`   | Reverts part of `014`, fixes a `search_path` finding — see below                                                                                                                                                                                                                      |
+| `20260926220019_fix_note_target_privacy`               | `_can_view_social_target`'s `note` branch now honors `privacy_notes` (`friend_notes()` already did) - closes a gap where a friend could still reply to/react to/comment on/see media for a note whose owner had set `privacy_notes = 'onlyMe'`                                        |
+| `20260926220020_milestone_events_add_piece_passage`    | Adds `piece_id`/`passage_id` to `milestone_events` - the original table was two Core-side columns short (`MilestoneEvent.pieceID`/`passageID`), caught before this pass's client wiring of that table ever depended on it                                                             |
+| `20260926220021_presence_realtime_authorization`       | Server-enforced "practicing now" boundary: `realtime.messages` RLS (Supabase Realtime Authorization) restricted to the topic's own owner or an eligible friend (`can_receive_presence`/`_presence_topic_owner`), plus `friend_presence_piece_title()` - see "Presence", revised below |
+| `20260926220022_advisor_fixes_presence_and_milestones` | `supabase db advisors` run after `020`/`021`: `auth_rls_initplan` on `presence_topic_insert_own` (wrap `auth.uid()` in `select`), `unindexed_foreign_keys` on the two new `milestone_events` columns                                                                                  |
 
 ## Corrections found in review (in `20260926220006`, before anything depended on them)
 
@@ -147,14 +151,37 @@ for whichever fields happen to default to `'public'` (name, username, photo).
 ## Presence: table + Realtime, not table alone
 
 `public.presence` (spec §5a "practicing now") is a **fallback / last-known-state** store, written by
-`set_presence()`. The live blinking-dot behavior is meant to run over **Supabase Realtime Presence**
-on a per-user channel (e.g. `presence:practicing`, tracking `{owner_id, is_practicing, piece_id}`) —
-that's what makes it feel instant, and it needs no schema of its own. `friend_presence()` reads the
-table for whoever isn't currently on the Realtime channel (they backgrounded the app, their socket
-dropped, etc.), and already treats a stale `is_practicing = true` older than two minutes as false, so
-a force-quit without a final `set_presence(false)` doesn't show someone as "practicing" forever. The
-iOS integration track owns wiring up the Realtime side; this track built the fallback and the shape
-the client should reconcile against.
+`set_presence()`. The live blinking-dot behavior runs over **Supabase Realtime Presence** on a
+per-user channel (`presence:<owner_id>`, tracking `{isPracticing, pieceID}` — `PresenceService.swift`)
+— that's what makes it feel instant, and it needs no schema of its own beyond `realtime.messages`'
+own authorization policies (below). `friend_presence()` reads the table for whoever isn't currently on
+the Realtime channel (they backgrounded the app, their socket dropped, etc.), and already treats a
+stale `is_practicing = true` older than two minutes as false, so a force-quit without a final
+`set_presence(false)` doesn't show someone as "practicing" forever.
+
+**Revised in `20260926220021`: the Realtime side is now server-enforced, not client-side-only.**
+The iOS client marks both its own and every friend's presence channel `isPrivate = true` (Supabase
+Realtime Authorization), which routes every subscribe/track attempt through two new
+`realtime.messages` RLS policies: `presence_topic_select_own_or_friend` (receive) calls
+`can_receive_presence(owner_id)` — the same self-or-accepted-non-blocked-friend-with-visible-
+`privacy_presence` predicate `friend_presence()` already used, factored into a shared, `authenticated`-
+executable `SECURITY DEFINER` function per this file's own "Design" section — and
+`presence_topic_insert_own` (track/publish) restricts to the topic's own owner, so nothing can
+announce fake presence on someone else's topic either. `_presence_topic_owner()` parses the app's one
+topic convention (`presence:<uuid>`) out of `realtime.topic()`. Before this, any authenticated socket
+could subscribe to any `presence:<uuid>` topic it could guess or learn — documented as a known,
+deliberate gap by `PresenceService.swift`'s own doc comment at the time; closed here, not merely
+re-documented.
+
+**Piece-title exposure is a further, separate gate.** `friend_presence()`/the live channel payload
+both expose only a raw `piece_id` (harmless on its own — `pieces`' RLS is owner-only, so a friend
+can't look it up directly). `friend_presence_piece_title(p_owner_id, p_piece_id)` is the
+privacy-checked way to resolve it to a title: it requires `can_receive_presence(p_owner_id)` **and**
+`privacy_currently_working_on` (the same field that already gates `currently_working_on_piece_ids` in
+`get_profile_card()`) to both allow it, and verifies `p_piece_id` actually belongs to `p_owner_id`
+before returning anything — a mismatched id returns `null`, never another piece's real title. Returns
+`null` rather than raising, on any denial, so client code can always fall back to a generic
+"Practicing" label instead of treating a privacy denial as an error.
 
 ## Contact discovery: a known limitation, not an oversight
 
@@ -252,21 +279,27 @@ what the terminal shows.
 supabase db advisors --linked --project-ref zotswpjyvmhnxdyibnnz --type all --level info
 ```
 
-Run after `20260926220018` (and after `supabase/tests` had already found and driven five real fixes
-that this lint-style pass could never have caught on its own — see above): 56 findings remain, all
-expected/by design —
+Run after `20260926220018`: 56 findings, all expected/by design (see the git history of this doc for
+that exact breakdown). **Re-run after `20260926220022`** (this pass's own migrations: `019`–`022`,
+closing the two real findings they introduced along the way — `auth_rls_initplan` on
+`presence_topic_insert_own`, `unindexed_foreign_keys` on `milestone_events`' two new columns, both
+fixed in `022` itself, not just documented): 60 findings remain, all expected/by design —
 
-- `unused_index` (16, INFO): every index in this schema is new, on tables with next to no query
-  traffic yet (a handful of rolled-back test rows). Nothing to remove; re-check once real traffic
-  exists.
+- `unused_index` (18, INFO): every index in this schema is new, on tables with next to no query
+  traffic yet (a handful of rolled-back test rows) — 16 from before this pass, plus the two new
+  `milestone_events` FK indexes `022` added. Nothing to remove; re-check once real traffic exists.
 - `rls_enabled_no_policy` (3, INFO): the intentional `sync_tables`/`append_only_tables`/
   `blocked_words` lockdown (RLS on, zero policies, so only a migration running as `postgres` can touch
-  them — see correction 1 above for why that matters).
-- `authenticated_security_definer_function_executable` (35, WARN): this schema's entire public RPC
+  them — see correction 1 above for why that matters). `realtime.messages` is not in this list: it now
+  has two real policies (`021`), which is the point.
+- `authenticated_security_definer_function_executable` (37, WARN): this schema's entire public RPC
   surface. Each one is `SECURITY DEFINER` specifically so it can do a controlled cross-user
   read/write RLS alone can't express (see "Design" below); being `authenticated`-executable is the
   point, not an oversight, and every one either self-scopes via `auth.uid()` internally or validates
   its explicit target parameter (friendship/block/ownership) before returning or mutating anything.
+  35 from before this pass, plus `can_receive_presence`/`friend_presence_piece_title` (`021`) — both
+  the same "only ever answers about the caller's own visibility of one target" shape as
+  `can_view_activity_event`, not a cross-user leak.
 - `auth_db_connections_absolute` (1, INFO): a generic platform suggestion (percentage- vs
   absolute-based Auth server connection allocation) unrelated to this schema; left as a project-level
   ops decision, out of scope for this track.
@@ -286,11 +319,12 @@ into `auth.users` directly — that would skip `handle_new_auth_user` and risk t
 shape the app never actually produces). See `supabase/tests/run.sh`'s own header for exact setup
 steps (creating the throwaway users, the `email_sent` rate limit gotcha) and usage.
 
-| File                                         | Proves                                                                                                                                                                                                                 | Destructive?      |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `01_rls_policy_coverage.sql`                 | Every owner-scoped table has exactly the right three policies and no delete policy; storage buckets aren't public; the authenticated-grant contract for every internal helper (see correction 5)                       | No (read-only)    |
-| `02_owner_isolation_and_sync_rpc.sql`        | Direct SELECT/UPDATE/DELETE and `sync_upsert`'s ownership guard all actually hold at runtime (`tags`, `pieces`, `ink_strokes`)                                                                                         | No (rolled back)  |
-| `03_social_privacy_blocks_notes_storage.sql` | Profile privacy tiers + the private-account clamp, friend requests, blocks, avatar visibility, leaderboard opt-out, notes' 24h expiry, private replies, all four storage buckets' policies, reports, studio membership | No (rolled back)  |
-| `04_account_deletion.sql`                    | `delete_my_account()` refuses to run with leftover storage (rolled back), then really deletes an account end-to-end and touches nothing belonging to anyone else                                                       | **Yes** — commits |
+| File                                         | Proves                                                                                                                                                                                                                                                                                                                                                         | Destructive?      |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `01_rls_policy_coverage.sql`                 | Every owner-scoped table has exactly the right three policies and no delete policy; storage buckets aren't public; the authenticated-grant contract for every internal helper (see correction 5)                                                                                                                                                               | No (read-only)    |
+| `02_owner_isolation_and_sync_rpc.sql`        | Direct SELECT/UPDATE/DELETE and `sync_upsert`'s ownership guard all actually hold at runtime (`tags`, `pieces`, `ink_strokes`)                                                                                                                                                                                                                                 | No (rolled back)  |
+| `03_social_privacy_blocks_notes_storage.sql` | Profile privacy tiers + the private-account clamp, friend requests, blocks, avatar visibility, leaderboard opt-out, notes' 24h expiry, private replies, all four storage buckets' policies, reports, studio membership                                                                                                                                         | No (rolled back)  |
+| `04_account_deletion.sql`                    | `delete_my_account()` refuses to run with leftover storage (rolled back), then really deletes an account end-to-end and touches nothing belonging to anyone else                                                                                                                                                                                               | **Yes** — commits |
+| `05_presence_and_note_privacy.sql`           | `20260926220019`/`20260926220021`: `privacy_notes` honored by note replies (and, via the same shared function, reactions/comments/note-media); `can_receive_presence`/`_presence_topic_owner`/`friend_presence_piece_title` — self, friend, tightened-privacy, blocked, stranger, and real-ownership-checked cases; the two `realtime.messages` policies' text | No (rolled back)  |
 
 Re-run the whole suite after any migration that touches RLS, a grant, or one of these RPCs.

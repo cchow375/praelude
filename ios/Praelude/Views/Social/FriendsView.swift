@@ -13,6 +13,12 @@ struct FriendsView: View {
     @State private var notes: [NoteRow] = []
     @State private var friendCards: [UUID: ProfileCard] = [:]
     @State private var practicingFriends: [ProfileCard] = []
+    /// Resolved via `friend_presence_piece_title()` (spec §5a/§5c: "expose the piece title to
+    /// friends only when the owner's pieces privacy allows"), never trusted from the raw `piece_id`
+    /// alone — a friend absent from this dictionary either has no piece attached to their presence
+    /// row, or the owner's `privacy_currently_working_on` does not allow showing it; both look the
+    /// same to this View on purpose (a generic "Practicing" caption, no title).
+    @State private var practicingPieceTitles: [UUID: String] = [:]
     @State private var loading = true
     @State private var openEvent: ActivityEvent?
     @State private var openNote: NoteRow?
@@ -66,6 +72,9 @@ struct FriendsView: View {
                                         }
                                         Text((card.displayNameOrUsernameOrFallback).components(separatedBy: " ").first ?? "")
                                             .font(.caption2).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
+                                        if let title = practicingPieceTitles[card.id] {
+                                            Text(title).font(.caption2).foregroundStyle(PraeludeColor.inkTertiary).lineLimit(1).frame(maxWidth: 72)
+                                        }
                                     }
                                 }
                             }.padding(.horizontal, 16)
@@ -153,5 +162,17 @@ struct FriendsView: View {
             .union(presence.livePracticing.filter(\.value).map(\.key))
         practicingFriends = fetchedFriends.filter { practicingIDs.contains($0.id) }
         loading = false
+
+        // Best-effort, one privacy-gated lookup per practicing friend with a known piece — never
+        // blocks the rest of the screen (see this task's own doc comment on `practicingPieceTitles`).
+        let piecesByOwner = Dictionary(uniqueKeysWithValues: fetchedPresence.compactMap { row in row.pieceID.map { (row.ownerID, $0) } })
+        for ownerID in practicingIDs {
+            guard let pieceID = piecesByOwner[ownerID] else { continue }
+            Task {
+                if let title = await social.friendPresencePieceTitle(owner: ownerID, pieceID: pieceID) {
+                    practicingPieceTitles[ownerID] = title
+                }
+            }
+        }
     }
 }

@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct AddPieceView: View {
     @Environment(PracticeStore.self) private var store
     @Environment(SyncCoordinator.self) private var syncCoordinator
+    @Environment(ScoreAndRecordingStorage.self) private var storage
     @Environment(SocialHooks.self) private var hooks
     @Environment(\.dismiss) private var dismiss
     let importedURL: URL?
@@ -153,7 +154,14 @@ struct AddPieceView: View {
             // regardless of §5, and `SocialHooks.shareMilestone` below specifically needs this piece
             // to exist server-side first — `post_activity_event`'s ownership trigger rejects a
             // piece_id nothing has pushed yet.
-            if let piece = store.state.pieces.first(where: { $0.id == id }) { syncCoordinator.pushPiece(piece) }
+            if let piece = store.state.pieces.first(where: { $0.id == id }) {
+                syncCoordinator.pushPiece(piece)
+                // §4a: upload the PDF itself to the private "scores" bucket so a second device (or
+                // this one after reinstall) can download it on demand — see ScoreAndRecordingStorage.
+                if let fileName = piece.pdfFileName, let localURL = NativeLibraryFiles(store: store).scoreURL(for: piece) {
+                    Task { await storage.uploadScorePDF(pieceID: id, fileName: fileName, localURL: localURL) }
+                }
+            }
             hooks.shareMilestone(kind: .newPiece, pieceID: id, detail: title)
             dismiss(); onAdded(id)
         } catch { self.error = error.localizedDescription }

@@ -13,34 +13,59 @@ final class FakeSyncServer: @unchecked Sendable {
     private var tables: [String: [String: [String: SyncJSON]]] = [:]
     private var appended: Set<String> = []
     var isReachable = true
+    /// Table name -> (its own foreign-key column, the table it must already exist in). Mirrors the
+    /// two hard FKs the real schema has among sync-engine-reachable tables (both from
+    /// `20260926220003_library_sync_tables.sql`/`20260926220004_logs_sync_tables.sql`):
+    /// `attempts.set_id references public.sets(id)` and `sets.session_id references
+    /// public.practice_sessions(id)` — everything else in this schema is either owner-scoped with no
+    /// cross-table FK reachable through these RPCs, or a soft/array reference Core only checks at the
+    /// app layer (see "(C) Sync Protocol.md" §1's own note on `tag_ids`/`folder_ids`). Real
+    /// `sync_upsert`/`sync_append` would fail the INSERT/UPDATE outright ("insert or update ...
+    /// violates foreign key constraint") when the referenced row is missing; this fake throws the
+    /// same class of error (a thrown `SyncError`, not a `{applied:false}` result) so `SyncEngine.drain`
+    /// treats it exactly like the real transport would — stuck at that entry, nothing after it in the
+    /// queue attempted, nothing silently dropped.
+    private static let foreignKeys: [String: (column: String, references: String)] = [
+        "attempts": (column: "set_id", references: "sets"),
+        "sets": (column: "session_id", references: "practice_sessions")
+    ]
+    private func checkForeignKey(table: String, row: [String: SyncJSON]) throws {
+        guard let fk = Self.foreignKeys[table] else { return }
+        guard let referencedID = row[fk.column]?.stringValue, tables[fk.references]?[referencedID] != nil else {
+            throw SyncError.transport("insert or update on table \"\(table)\" violates foreign key constraint (\(fk.column) -> \(fk.references))")
+        }
+    }
 
-    func upsert(table: String, row: [String: SyncJSON]) -> SyncRPCResult {
+    func upsert(table: String, row: [String: SyncJSON]) throws -> SyncRPCResult {
         guard let id = row["id"]?.stringValue else { return SyncRPCResult(applied: false, row: nil) }
-        let incoming = Self.date(row)
-        if let existing = tables[table]?[id], let incoming, let existingDate = Self.date(existing), existingDate >= incoming {
+        try checkForeignKey(table: table, row: row)
+        let incoming = Self.date(row, field: "updated_at")
+        if let existing = tables[table]?[id], let incoming, let existingDate = Self.date(existing, field: "updated_at"), existingDate >= incoming {
             return SyncRPCResult(applied: false, row: existing)
         }
         tables[table, default: [:]][id] = row
         return SyncRPCResult(applied: true, row: row)
     }
-    func append(table: String, row: [String: SyncJSON]) -> SyncRPCResult {
+    func append(table: String, row: [String: SyncJSON]) throws -> SyncRPCResult {
         guard let id = row["id"]?.stringValue else { return SyncRPCResult(applied: false, row: nil) }
+        try checkForeignKey(table: table, row: row)
         let key = "\(table)#\(id)"
         guard !appended.contains(key) else { return SyncRPCResult(applied: false, row: nil) }
         appended.insert(key)
         tables[table, default: [:]][id] = row
         return SyncRPCResult(applied: true, row: row)
     }
-    func fetch(table: String, updatedSince: Date?) -> [[String: SyncJSON]] {
+    func fetch(table: String, field: String, updatedSince: Date?) -> [[String: SyncJSON]] {
         (tables[table] ?? [:]).values.filter { row in
             guard let updatedSince else { return true }
-            guard let updatedAt = Self.date(row) else { return true }
-            return updatedAt > updatedSince
-        }.sorted { ($0["updated_at"]?.stringValue ?? "") < ($1["updated_at"]?.stringValue ?? "") }
+            guard let value = Self.date(row, field: field) else { return true }
+            return value > updatedSince
+        }.sorted { ($0[field]?.stringValue ?? "") < ($1[field]?.stringValue ?? "") }
     }
     func row(table: String, id: String) -> [String: SyncJSON]? { tables[table]?[id] }
-    private static func date(_ row: [String: SyncJSON]) -> Date? {
-        row["updated_at"]?.stringValue.flatMap(SyncCoding.iso8601Formatter.date(from:))
+    func count(table: String) -> Int { tables[table]?.count ?? 0 }
+    private static func date(_ row: [String: SyncJSON], field: String) -> Date? {
+        row[field]?.stringValue.flatMap(SyncCoding.iso8601Formatter.date(from:))
     }
 }
 
@@ -48,11 +73,11 @@ struct FakeSyncTransport: SyncTransport {
     let server: FakeSyncServer
     func upsert(table: String, row: [String: SyncJSON]) async throws -> SyncRPCResult {
         guard server.isReachable else { throw SyncError.transport("offline") }
-        return server.upsert(table: table, row: row)
+        return try server.upsert(table: table, row: row)
     }
     func append(table: String, row: [String: SyncJSON]) async throws -> SyncRPCResult {
         guard server.isReachable else { throw SyncError.transport("offline") }
-        return server.append(table: table, row: row)
+        return try server.append(table: table, row: row)
     }
     func updateLastPage(pieceID: UUID, lastPage: Int, at: Date) async throws -> SyncRPCResult {
         guard server.isReachable else { throw SyncError.transport("offline") }
@@ -62,9 +87,9 @@ struct FakeSyncTransport: SyncTransport {
         guard server.isReachable else { throw SyncError.transport("offline") }
         return SyncRPCResult(applied: true, row: nil)
     }
-    func fetch(table: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
+    func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
         guard server.isReachable else { throw SyncError.transport("offline") }
-        return server.fetch(table: table, updatedSince: updatedSince)
+        return server.fetch(table: table, field: field, updatedSince: updatedSince)
     }
 }
 
@@ -200,11 +225,14 @@ final class SyncEngineTests: XCTestCase {
         let server = FakeSyncServer()
         let transport = FakeSyncTransport(server: server)
         let id = UUID()
-        let attemptRow: [String: SyncJSON] = ["id": .string(id.uuidString), "verdict": .string("clean")]
-        let first = try await transport.append(table: "attempts", row: attemptRow)
+        // A table with no FK of its own (see FakeSyncServer.foreignKeys) — "attempts" specifically is
+        // covered by testAttemptAppendFailsWithoutItsSetPushedFirstAndSucceedsOnceItIs below, since
+        // that FK is exactly the ordering contract this pass exists to prove.
+        let badgeRow: [String: SyncJSON] = ["id": .string(id.uuidString), "key": .string("thirty_days_on_time")]
+        let first = try await transport.append(table: "badges", row: badgeRow)
         XCTAssertTrue(first.applied)
         // A dropped-response retry sends the identical payload again — must not error or double-record.
-        let retry = try await transport.append(table: "attempts", row: attemptRow)
+        let retry = try await transport.append(table: "badges", row: badgeRow)
         XCTAssertFalse(retry.applied)
         XCTAssertNil(retry.row)
     }

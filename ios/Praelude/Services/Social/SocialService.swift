@@ -227,6 +227,18 @@ public final class SocialService {
     public func friendPresence() async -> [PresenceRow] {
         await run { _ in try await services.postgrest().rpc("friend_presence").execute().value } ?? []
     }
+    /// Resolves a `piece_id` learned from `friendPresence()`'s table read or the live Realtime
+    /// presence payload (`LivePresenceState.pieceID`) into a title — server-gated on top of "can I
+    /// see this person is practicing at all" by `privacy_currently_working_on` too
+    /// (`friend_presence_piece_title()`, `supabase/migrations/20260926220021_presence_realtime_
+    /// authorization.sql`). `nil` (never a thrown error surfaced to the caller) whenever either gate
+    /// fails or the id pair does not actually belong together — callers show a generic "practicing"
+    /// state instead of a title in that case, never treat `nil` as a failure to retry.
+    public func friendPresencePieceTitle(owner ownerID: UUID, pieceID: UUID) async -> String? {
+        await run { _ in
+            try await services.postgrest().rpc("friend_presence_piece_title", params: PresencePieceTitleParams(p_owner_id: ownerID, p_piece_id: pieceID)).execute().value
+        } ?? nil
+    }
 
     // MARK: Studios / groups (§5b)
 
@@ -331,6 +343,7 @@ private struct FeedParams: Encodable { let p_since: Date; let p_limit: Int }
 private struct PostEventParams: Encodable { let p_kind: String; let p_piece_id: UUID?; let p_passage_id: UUID?; let p_detail: String }
 private struct TargetEventParam: Encodable { let p_event_id: UUID }
 private struct PresenceParams: Encodable { let p_is_practicing: Bool; let p_piece_id: UUID? }
+private struct PresencePieceTitleParams: Encodable { let p_owner_id: UUID; let p_piece_id: UUID }
 private struct StudioNameParam: Encodable { let p_name: String }
 private struct StudioMemberParam: Encodable { let p_studio: UUID; let p_member: UUID }
 private struct CodeParam: Encodable { let p_code: String }

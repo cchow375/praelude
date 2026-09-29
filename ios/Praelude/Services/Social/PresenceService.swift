@@ -7,19 +7,21 @@ import Realtime
 /// (`supabase/(C) Backend.md`, "Presence: table + Realtime, not table alone" — that doc explicitly
 /// leaves the exact channel shape to "the iOS integration track").
 ///
-/// **Channel topology, and why**: one topic per user, `"presence:<userID>"`. Realtime has no RLS of
-/// its own in this project (no `realtime.messages` authorization policy exists in
-/// `supabase/migrations/`), so nothing server-side stops an authenticated socket from subscribing to
-/// an arbitrary topic — a shared single "practicing" topic would broadcast every signed-in user's
-/// presence to every other signed-in user, friend or not, which spec §5c ("conservative defaults",
-/// "Settings for who sees presence") rules out. Scoping to one topic per user id means a viewer can
-/// only ever see someone's presence by already knowing their id, which this app only ever surfaces
-/// through an already privacy-gated read (`friend_cards()`/`get_profile_card()`), and this service is
-/// only ever asked to subscribe to a caller-supplied friend id list — never a global feed. This is a
-/// client-side access boundary, not a server-enforced one; a determined party who already obtained a
-/// friend's id some other way could still subscribe to their raw presence topic. Documented here as a
-/// deliberate v1 scope call, the same way `supabase/(C) Backend.md` documents the contact-hash join's
-/// own privacy limitation, not something missed.
+/// **Channel topology, and why**: one topic per user, `"presence:<userID>"`. Every channel this
+/// service opens sets `config.isPrivate = true` (Supabase Realtime Authorization —
+/// https://supabase.com/docs/guides/realtime/authorization, linked from `RealtimeChannelConfig.
+/// isPrivate`'s own doc comment in the SDK), which routes every subscribe/track attempt through the
+/// `realtime.messages` RLS policies `supabase/migrations/20260926220021_presence_realtime_
+/// authorization.sql` adds: `presence_topic_select_own_or_friend` (receive) checks
+/// `can_receive_presence()` — the owner themself, or a non-blocked accepted friend whose
+/// `privacy_presence` allows it, exactly mirroring `friend_presence()`'s own table-fallback predicate
+/// — and `presence_topic_insert_own` (track/publish) restricts to the topic's own owner, so nothing
+/// can announce fake presence on someone else's topic either. This used to be a client-side-only
+/// boundary (a viewer could only reach a topic by already knowing the friend's id, from an
+/// already-gated read) with **no server enforcement at all** — fixed in the migration above; see its
+/// own header for exactly what was, and was not, independently re-verified about how Realtime
+/// evaluates these policies. Piece-title exposure on top of "is this person practicing" is a further,
+/// separate privacy gate — see `SocialService.friendPresencePieceTitle(owner:pieceID:)`.
 ///
 /// **Degrades gracefully offline**: every entry point is wrapped so a connection failure (no network,
 /// Realtime unreachable) never throws into a caller or leaves `livePracticing` in a stuck state —
@@ -82,6 +84,7 @@ public final class PresenceService {
             guard let client = await connectedClient(), let me = social.myUserID else { return }
             let channel = ownChannel ?? client.channel("presence:\(me.uuidString)") { config in
                 config.presence = PresenceJoinConfig(key: me.uuidString)
+                config.isPrivate = true
             }
             if ownChannel == nil {
                 ownChannel = channel
@@ -116,6 +119,7 @@ public final class PresenceService {
             for id in toAdd where friendChannels[id] == nil {
                 let channel = client.channel("presence:\(id.uuidString)") { config in
                     config.presence = PresenceJoinConfig(key: id.uuidString)
+                    config.isPrivate = true
                 }
                 friendChannels[id] = channel
                 friendSubscriptions[id] = channel.onPresenceChange { [weak self] action in

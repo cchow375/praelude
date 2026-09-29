@@ -25,14 +25,16 @@ public struct PostgRESTSyncTransport: SyncTransport {
             p_id: attemptID, p_undone_at: SyncCoding.iso8601Formatter.string(from: undoneAt)))
     }
 
-    /// Every one of the caller's own rows in `table` with `updated_at > since`. RLS already scopes
+    /// Every one of the caller's own rows in `table` with `field > since`. RLS already scopes
     /// every table to `auth.uid()` (see "(C) Sync Protocol.md" §2 — "the owner_id filter is for
     /// query-planning, not security"), so this deliberately does not add its own `owner_id` filter.
-    public func fetch(table: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
+    /// `field` is `"updated_at"` for an ordinary table; `SyncEngine.pull`'s `cursorField` passes an
+    /// append-only log's own event-date column instead (that family has no `updated_at` at all).
+    public func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
         do {
             let postgrest = try await services.postgrest()
             var query = postgrest.from(table).select()
-            if let updatedSince { query = query.gt("updated_at", value: SyncCoding.iso8601Formatter.string(from: updatedSince)) }
+            if let updatedSince { query = query.gt(field, value: SyncCoding.iso8601Formatter.string(from: updatedSince)) }
             let response: [SyncJSON] = try await query.execute().value
             return response.compactMap(\.objectValue)
         } catch let error as SyncError {
