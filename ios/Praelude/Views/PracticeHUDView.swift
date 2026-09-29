@@ -37,6 +37,9 @@ struct PracticeHUDView: View {
     /// so the button can show/disable itself without the HUD needing that type.
     var quickSubPassageArmed = false
     var onQuickSubPassage: () -> Void = {}
+    /// R14 (§11): non-nil while the metronome is mid-pulse-check for this set. The verdict buttons
+    /// stay exactly as they are during one — the player's own judgement is still what counts.
+    var activePulseCheck: Decision?
 
     private var ladderRung: (rung: Int, total: Int)? {
         PracticeUXHelpers.ladderRung(startBPM: active.configuration.startBPM, targetBPM: active.configuration.targetBPM,
@@ -49,6 +52,7 @@ struct PracticeHUDView: View {
                 completedSection
             } else {
                 if collapsed { collapsedStrip } else { expandedReadout }
+                if let activePulseCheck { pulseCheckBanner(activePulseCheck) }
                 controlsRow
             }
             micRow
@@ -131,6 +135,16 @@ struct PracticeHUDView: View {
                 verdictButton(.clean, title: "Clean", glyph: .verdictClean, key: "1", primary: true)
             }.disabled(active.status != .running).opacity(active.status == .running ? 1 : 0.45)
         }
+    }
+
+    private func pulseCheckBanner(_ decision: Decision) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(PraeludeColor.live).frame(width: 6, height: 6)
+            Text(decision.reason).font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine).accessibilityIdentifier("pulseCheckBanner")
     }
 
     private func verdictButton(_ verdict: Verdict, title: String, glyph: PraeludeGlyph, key: KeyEquivalent, primary: Bool) -> some View {

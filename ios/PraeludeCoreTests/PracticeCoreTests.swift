@@ -16,13 +16,21 @@ final class PracticeCoreTests: XCTestCase {
         return (store, directory)
     }
 
-    @MainActor func testPlainStreakResetsOnBothSetbacks() async throws {
-        let (store, directory) = try fixture()
+    /// R5 (§11): "Again" is neutral — it neither counts toward nor resets the streak, for a plain
+    /// streak set exactly as much as for a variant chain (see `testVariantAgainPreservesCurrentStreakAndCompletedStages`
+    /// below, which already covered the stages case). Regression test for the documented mismatch
+    /// between `PracticeEngine.project` and `PracticeRulesEngine.r5StreakEffect`/R6's own attempt
+    /// replay, both of which already treated Again as neutral unconditionally ("(C) Rules Engine.md",
+    /// R5 section) — a target of 10 (rather than the fixture's default 3) keeps this five-attempt
+    /// sequence well short of completing the set, so the streak assertions below reflect only the
+    /// verdict-by-verdict replay, never an early completion's own streak reset.
+    @MainActor func testPlainStreakStaysNeutralOnAgainButResetsOnSloppy() async throws {
+        let (store, directory) = try fixture(target: 10)
         defer { try? FileManager.default.removeItem(at: directory) }
         try store.record(.clean); try store.record(.clean); try store.record(.again)
-        XCTAssertEqual(store.activeSet?.streak, 0)
+        XCTAssertEqual(store.activeSet?.streak, 2, "Again must neither increment nor reset the streak")
         try store.record(.clean); try store.record(.sloppy)
-        XCTAssertEqual(store.activeSet?.streak, 0)
+        XCTAssertEqual(store.activeSet?.streak, 0, "Sloppy still resets the streak")
         XCTAssertEqual(store.activeSet?.totalPlays, 5)
         XCTAssertEqual(store.progress.totalAttempts, 5)
         XCTAssertEqual(store.progress.cleanAttempts, 3)

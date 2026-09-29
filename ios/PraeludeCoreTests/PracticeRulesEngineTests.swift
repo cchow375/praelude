@@ -628,6 +628,33 @@ final class PracticeRulesEngineTests: XCTestCase {
         XCTAssertEqual(singular.reason, "Near tempo. Metronome drops out for 1 bar.")
     }
 
+    /// The explicit plan-shape conversion `MetronomeService.applyDropoutPlan` actually consumes
+    /// (`PracticeRuntime.checkPulseCheck` is the real caller; this is the pure half of that wiring).
+    func testPulseCheckPlanConvertsToMetronomeDropoutPlan() {
+        let plan = PulseCheckPlan(leadInBars: 4, silentBars: 2, recoveryBars: 2)
+        XCTAssertEqual(plan.totalBars, 8)
+        XCTAssertEqual(plan.metronomeDropoutPlan, MetronomeDropoutPlan(barsOn: 4, barsOff: 2))
+
+        // A non-default r14DropoutBars (the one editable field, per §11) carries straight through as
+        // the cycle's off bars, independent of lead-in/recovery.
+        let widerDropout = PulseCheckPlan(leadInBars: 4, silentBars: 5, recoveryBars: 2)
+        XCTAssertEqual(widerDropout.totalBars, 11)
+        XCTAssertEqual(widerDropout.metronomeDropoutPlan, MetronomeDropoutPlan(barsOn: 4, barsOff: 5))
+    }
+
+    /// `MetronomeDropoutPlan.isValid` requires both `barsOn`/`barsOff` in `1...64`
+    /// (`MetronomeTimingTests.testDropoutPlanValidity`); the conversion must never build an invalid
+    /// cycle even from a misconfigured (zero, negative, or absurdly large) `RuleSettings.r14DropoutBars`
+    /// or engine constant, since `PracticeRuntime` passes the result straight to
+    /// `MetronomeService.applyDropoutPlan` without any validity check of its own.
+    func testPulseCheckPlanConversionClampsToAValidDropoutPlan() {
+        XCTAssertTrue(PulseCheckPlan(leadInBars: 4, silentBars: 0, recoveryBars: 2).metronomeDropoutPlan.isValid)
+        XCTAssertEqual(PulseCheckPlan(leadInBars: 4, silentBars: 0, recoveryBars: 2).metronomeDropoutPlan, MetronomeDropoutPlan(barsOn: 4, barsOff: 1))
+        XCTAssertTrue(PulseCheckPlan(leadInBars: 0, silentBars: 2, recoveryBars: 2).metronomeDropoutPlan.isValid)
+        XCTAssertEqual(PulseCheckPlan(leadInBars: -3, silentBars: 2, recoveryBars: 2).metronomeDropoutPlan, MetronomeDropoutPlan(barsOn: 1, barsOff: 2))
+        XCTAssertEqual(PulseCheckPlan(leadInBars: 4, silentBars: 500, recoveryBars: 2).metronomeDropoutPlan, MetronomeDropoutPlan(barsOn: 4, barsOff: 64))
+    }
+
     // MARK: - §10a default set configuration
 
     func test10aDefaultConfigurationCarriesForwardAndFoldsInRules() throws {

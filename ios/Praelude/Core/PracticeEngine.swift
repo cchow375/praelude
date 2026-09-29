@@ -41,7 +41,12 @@ public enum PracticeEngine {
             switch attempt.verdict {
             case .clean: set.streak += 1
             case .sloppy: set.streak = 0
-            case .again: if configuration.stages.isEmpty { set.streak = 0 }
+            // R5 (§11): "Again" is neutral for every set shape, not only a variant chain — it
+            // neither counts toward nor resets the streak, matching `r5StreakEffect`'s own
+            // `.neutral` vocabulary in Core/Rules and R6's already-correct attempt replay (see
+            // "(C) Rules Engine.md"'s R5 section, "Known pre-existing mismatch, left alone" — this
+            // is that reconciliation).
+            case .again: break
             case .reset: break
             }
             guard set.streak >= set.requiredCount else { continue }

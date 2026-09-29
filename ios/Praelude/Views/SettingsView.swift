@@ -35,14 +35,6 @@ struct SettingsView: View {
             }
 
             Section {
-                NavigationLink {
-                    AccountView()
-                } label: {
-                    Label("Account and sync", systemImage: "person.crop.circle")
-                }
-            }
-
-            Section {
                 Toggle("Reward sounds", isOn: $soundEnabled).praeludeToggleHaptic(soundEnabled)
                     .onChange(of: soundEnabled) { _, value in RewardSoundService.shared.isEnabled = value }
                 if soundEnabled {
@@ -58,23 +50,6 @@ struct SettingsView: View {
                 Text("Rewards")
             } footer: {
                 Text("Musical, in-tune tones for milestones and badges — never anything that could be mistaken for the metronome click.")
-            }
-
-            Section {
-                NavigationLink {
-                    BlockedUsersView()
-                } label: {
-                    Label("Blocked accounts", systemImage: "hand.raised")
-                }
-                Button {
-                    showDeveloperContact = true
-                } label: {
-                    Label("Contact developer", systemImage: "envelope")
-                }
-            } header: {
-                Text("Friends and safety")
-            } footer: {
-                Text("Who sees your presence, streaks, pieces, and notes is set per field in Edit profile, above.")
             }
 
             Section("Appearance") {
@@ -101,6 +76,31 @@ struct SettingsView: View {
                 Text("Your data")
             } footer: {
                 Text("Practice is stored on this device. Save a backup somewhere you trust. Restoring a backup replaces this device’s practice library after you review it.")
+            }
+
+            Section {
+                NavigationLink {
+                    AccountView()
+                } label: {
+                    Label("Account and sync", systemImage: "person.crop.circle")
+                }
+            }
+
+            Section {
+                NavigationLink {
+                    BlockedUsersView()
+                } label: {
+                    Label("Blocked accounts", systemImage: "hand.raised")
+                }
+                Button {
+                    showDeveloperContact = true
+                } label: {
+                    Label("Contact developer", systemImage: "envelope")
+                }
+            } header: {
+                Text("Friends and safety")
+            } footer: {
+                Text("Who sees your presence, streaks, pieces, and notes is set per field in Edit profile, above.")
             }
 
             Section {

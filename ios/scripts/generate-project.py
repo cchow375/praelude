@@ -281,6 +281,18 @@ common = {
     # it is a different link phase. Turning the debug-dylib optimization off makes `test` link the
     # ordinary way, matching plain `build`.
     "ENABLE_DEBUG_DYLIB": "NO",
+    # supabase-swift's `Helpers` target (PostgrestError, ObservationToken, AnyJSON, ...) is an
+    # internal dependency of Auth/PostgREST/Storage/Realtime, never one of the package's own
+    # declared library products (only Auth/Functions/PostgREST/Realtime/Storage/Supabase are, per
+    # its Package.swift) — so unlike those four, it cannot be added as a `packageProductDependencies`
+    # entry. Xcode still builds it as its own `PackageFrameworks/Helpers.framework` (each package
+    # target gets its own framework under Xcode's SPM integration), and the app binary's own final
+    # link needs its symbols resolved directly, not merely by the four products that import it —
+    # verified with an actual `xcodebuild test` full app-binary link, which surfaced this even though
+    # `scripts/check.sh`'s own generic-destination `build` action does not exercise the same link
+    # step. `FRAMEWORK_SEARCH_PATHS` already includes `PackageFrameworks` (Xcode adds it once any
+    # package product is linked), so this only needs to ask the linker to actually use it.
+    "OTHER_LDFLAGS": "$(inherited) -framework Helpers",
 }
 project_configs = configs("project", common, signing_config)
 app_config = configs(

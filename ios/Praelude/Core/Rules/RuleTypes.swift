@@ -124,6 +124,26 @@ public struct PulseCheckPlan: Equatable, Sendable {
     public var leadInBars: Int
     public var silentBars: Int
     public var recoveryBars: Int
+    public init(leadInBars: Int, silentBars: Int, recoveryBars: Int) {
+        self.leadInBars = leadInBars; self.silentBars = silentBars; self.recoveryBars = recoveryBars
+    }
+    /// How long a caller needs to keep this pulse check "in progress" before it is over.
+    public var totalBars: Int { leadInBars + silentBars + recoveryBars }
+
+    /// The explicit, one-directional conversion into the shape `MetronomeService.applyDropoutPlan`
+    /// actually consumes (`Core/MetronomeTiming.swift`'s own repeating on/off cycle — see its doc
+    /// comment: "this type just describes the on/off cycle... a future track decides when to apply
+    /// it", which is this rule). `leadInBars` and `recoveryBars` are audibly identical to each other
+    /// (both are just "the click plays"), so the cycle only needs to encode `barsOn: leadInBars` and
+    /// `barsOff: silentBars` — a caller bounds this to *one* check, not a repeating cycle, by clearing
+    /// the plan again once `totalBars` bars have elapsed (see `PracticeRuntime.checkPulseCheck`),
+    /// which is also what makes `recoveryBars` matter even though it never appears on the right of
+    /// this conversion. Clamped to `MetronomeDropoutPlan`'s own `1...64` validity range so a
+    /// misconfigured zero bar count (from a custom, non-default `RuleSettings.r14DropoutBars`) can
+    /// never build an "always silent"/"never silent" cycle the metronome would reject outright.
+    public var metronomeDropoutPlan: MetronomeDropoutPlan {
+        MetronomeDropoutPlan(barsOn: min(64, max(1, leadInBars)), barsOff: min(64, max(1, silentBars)))
+    }
 }
 
 /// R15: one line of a built session.

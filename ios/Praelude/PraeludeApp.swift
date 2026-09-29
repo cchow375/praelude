@@ -82,8 +82,8 @@ struct PraeludeApp: App {
                 .preferredColorScheme(colorScheme)
                 .tint(PraeludeColor.ink)
                 .onChange(of: store.state.preferences.keepScreenAwake) { _, _ in runtime.updateScreenAwake() }
-                .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording() }
-                .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording() }
+                .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck() }
+                .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck() }
                 .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await syncCoordinator.syncAll() } } }
                 .task {
                     syncCoordinator.startObservingNetwork()
@@ -100,8 +100,8 @@ struct PraeludeApp: App {
             .environment(socialHooks)
             .preferredColorScheme(colorScheme)
             .tint(PraeludeColor.ink)
-            .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording() }
-            .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording() }
+            .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck() }
+            .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck() }
         }
     }
     private var colorScheme: ColorScheme? {

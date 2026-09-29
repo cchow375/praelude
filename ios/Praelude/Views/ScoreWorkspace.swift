@@ -496,7 +496,8 @@ struct ScoreWorkspace: View {
                     onApplySuggestion: applySuggestion, onDismissSuggestion: { arm.dismiss($0, store: store) },
                     // §8: draw one box without stopping the set — a new sub-passage, not a mode
                     // change, so the dock/HUD/music never move.
-                    quickSubPassageArmed: markup.quickBoxArmed, onQuickSubPassage: { markup.quickBoxArmed = true }
+                    quickSubPassageArmed: markup.quickBoxArmed, onQuickSubPassage: { markup.quickBoxArmed = true },
+                    activePulseCheck: runtime.activePulseCheck
                 )
             } else if let other = store.activeSet, !other.isComplete {
                 Text("A set is open for \(store.state.pieces.first { $0.id == other.configuration.pieceID }?.title ?? "another piece").")
