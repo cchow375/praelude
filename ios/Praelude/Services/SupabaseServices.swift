@@ -17,13 +17,17 @@ public final class SupabaseServices {
     private let restURL: URL
     private let storageURL: URL
 
-    public init() {
+    /// `localStorage` defaults to the real Keychain-backed store every actual launch of this app
+    /// uses; `(C) sync-smoke.sh`'s test overrides it with an isolated in-memory store per simulated
+    /// "device" so two sign-ins to the same account in one test process never share (or clobber)
+    /// each other's session, the way two *actual* devices never do either.
+    public init(localStorage: any AuthLocalStorage = AuthClient.Configuration.defaultLocalStorage) {
         apiKeyHeader = ["apikey": SupabaseConfig.publishableKey]
         auth = AuthClient(configuration: AuthClient.Configuration(
             url: SupabaseConfig.projectURL.appendingPathComponent("auth/v1"),
             headers: apiKeyHeader,
             redirectToURL: URL(string: "praelude://auth-callback"),
-            localStorage: AuthClient.Configuration.defaultLocalStorage
+            localStorage: localStorage
         ))
         restURL = SupabaseConfig.projectURL.appendingPathComponent("rest/v1")
         storageURL = SupabaseConfig.projectURL.appendingPathComponent("storage/v1")
