@@ -93,6 +93,95 @@ final class ScoreMarkupTests: XCTestCase {
         XCTAssertNil(overlay.hitTest(point, with: nil), "Damaged saved ink must never accept replacement strokes")
     }
 
+    /// §7 stamp/text placement and §8 quick-sub-passage must each claim taps the same way `.selecting`
+    /// already does (reaching the overlay, not PDFKit navigation, and disabling the ink canvas), but
+    /// a *drag* must never fall through into box-drawing while a placement tool is armed — that would
+    /// silently create an unwanted passage box instead of doing nothing while the person taps to place
+    /// a stamp.
+    @MainActor func testStampAndTextPlacementAndQuickBoxClaimTapsButPlacementNeverClaimsDrags() async throws {
+        let state = ScoreMarkupState()
+        let overlay = ScorePageOverlay(page: 1, markup: state)
+        overlay.frame = CGRect(x: 0, y: 0, width: 612, height: 792)
+        overlay.layoutIfNeeded(); overlay.refresh()
+        let point = CGPoint(x: 100, y: 100)
+
+        state.mode = .writing; state.tool.kind = .stamp; overlay.refresh()
+        XCTAssertTrue(overlay.hitTest(point, with: nil) === overlay, "An armed stamp tool must claim taps for placement, not PDFKit")
+        XCTAssertFalse(overlay.canvas.isUserInteractionEnabled, "Ink must not draw while placing a stamp")
+        XCTAssertTrue(overlay.gestureRecognizerShouldBegin(overlay.selectionTap), "Tap must be live for stamp placement/selection")
+        XCTAssertFalse(overlay.gestureRecognizerShouldBegin(overlay.selectionPan), "A drag while placing a stamp must not fall through to box-drawing")
+
+        state.tool.kind = .text; overlay.refresh()
+        XCTAssertTrue(overlay.hitTest(point, with: nil) === overlay, "An armed text tool must claim taps for placement, not PDFKit")
+        XCTAssertTrue(overlay.gestureRecognizerShouldBegin(overlay.selectionTap))
+        XCTAssertFalse(overlay.gestureRecognizerShouldBegin(overlay.selectionPan))
+
+        state.mode = .reading; state.tool.kind = .pen; state.quickBoxArmed = true; overlay.refresh()
+        XCTAssertTrue(overlay.hitTest(point, with: nil) === overlay, "An armed quick box must claim the drag that draws it")
+        XCTAssertFalse(overlay.canvas.isUserInteractionEnabled)
+        XCTAssertTrue(overlay.gestureRecognizerShouldBegin(overlay.selectionPan), "Quick box is drawn by dragging, unlike stamp/text placement")
+
+        state.quickBoxArmed = false; overlay.refresh()
+        XCTAssertNil(overlay.hitTest(point, with: nil), "Disarming must return the page to plain reading navigation")
+    }
+
+    /// Drives the same point-based logic `tap(_:)` calls (see `ScorePageOverlay.handleTap(at:)`) —
+    /// placing a stamp, then tapping it again to select rather than place a second one, then
+    /// confirming a tap outside the active layer cannot select at all.
+    @MainActor func testStampTapPlacesThenSelectsOnSecondTapButOnlyOnTheActiveLayer() throws {
+        let state = ScoreMarkupState()
+        let overlay = ScorePageOverlay(page: 1, markup: state)
+        overlay.frame = CGRect(x: 0, y: 0, width: 600, height: 800)
+        overlay.layoutIfNeeded()
+        state.mode = .writing; state.tool.kind = .stamp; state.armedStamp = (.circle, nil); state.activeLayer = .mine
+        overlay.refresh()
+        var placed: (Int, NormalizedRect)?
+        overlay.onPlaceStamp = { placed = ($0, $1) }
+        let point = CGPoint(x: 100, y: 120)
+        overlay.handleTap(at: point)
+        let placedResult = try XCTUnwrap(placed)
+        XCTAssertEqual(placedResult.0, 1)
+        // The real placement (ScoreWorkspace.placeStamp) would now call store.saveStampAnnotation;
+        // simulate that here so the *second* tap has something to hit.
+        let stamp = StampAnnotation(pieceID: UUID(), page: 1, position: placedResult.1, kind: .circle, layer: .mine)
+        overlay.displayedStamps = [stamp]
+        state.armedStamp = nil
+        overlay.refresh()
+        placed = nil
+        overlay.handleTap(at: point)
+        XCTAssertNil(placed, "A second tap on the same spot must select the existing stamp, not place another")
+        XCTAssertEqual(state.selectedStampID, stamp.id)
+
+        state.selectedStampID = nil; state.activeLayer = .teacher; overlay.refresh()
+        overlay.handleTap(at: point)
+        XCTAssertNil(state.selectedStampID, "A stamp outside the active layer must never become selected")
+    }
+    /// The same point-based logic `tap(_:)` calls for text: an armed text tool places a new box on
+    /// empty space and opens the editor immediately (`onPlaceTextBox`); tapping an *existing* box
+    /// re-opens it for editing (`onEditTextBox`) instead of placing another.
+    @MainActor func testTextTapPlacesThenReopensAnExistingBoxForEditing() throws {
+        let state = ScoreMarkupState()
+        let overlay = ScorePageOverlay(page: 1, markup: state)
+        overlay.frame = CGRect(x: 0, y: 0, width: 600, height: 800)
+        overlay.layoutIfNeeded()
+        state.mode = .writing; state.tool.kind = .text
+        overlay.refresh()
+        var placed: (Int, NormalizedRect)?
+        overlay.onPlaceTextBox = { placed = ($0, $1) }
+        let point = CGPoint(x: 200, y: 300)
+        overlay.handleTap(at: point)
+        let region = try XCTUnwrap(placed?.1)
+        let box = TextBoxAnnotation(pieceID: UUID(), page: 1, region: region, text: "Breathe here")
+        overlay.displayedTextBoxes = [box]
+        overlay.refresh()
+        var edited: TextBoxAnnotation?
+        overlay.onEditTextBox = { edited = $0 }
+        placed = nil
+        overlay.handleTap(at: point)
+        XCTAssertNil(placed, "A tap on an existing text box must reopen it, not place another")
+        XCTAssertEqual(edited?.id, box.id)
+    }
+
     @MainActor private func makePage() throws -> PDFPage {
         let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792)).pdfData { renderer in
             renderer.beginPage()

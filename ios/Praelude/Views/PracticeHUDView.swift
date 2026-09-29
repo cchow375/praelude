@@ -32,6 +32,11 @@ struct PracticeHUDView: View {
     var onVoiceOff: () -> Void
     var onApplySuggestion: (Decision) -> Void
     var onDismissSuggestion: (Decision) -> Void
+    /// §8: draw one box without stopping the set — a new sub-passage, not a mode change, so the
+    /// dock/HUD/music never move. `quickSubPassageArmed` mirrors `ScoreMarkupState.quickBoxArmed`
+    /// so the button can show/disable itself without the HUD needing that type.
+    var quickSubPassageArmed = false
+    var onQuickSubPassage: () -> Void = {}
 
     private var ladderRung: (rung: Int, total: Int)? {
         PracticeUXHelpers.ladderRung(startBPM: active.configuration.startBPM, targetBPM: active.configuration.targetBPM,
@@ -114,6 +119,10 @@ struct PracticeHUDView: View {
                 .accessibilityLabel(metronomeOn ? "Stop metronome" : "Start metronome").accessibilityIdentifier("toggleMetronomeHUD")
             Button(action: onStop) { Image(systemName: "stop.fill") }
                 .buttonStyle(.praeludeEdgeControl).accessibilityLabel("Stop this set").accessibilityIdentifier("stopSet")
+            Button(action: onQuickSubPassage) { PraeludeIcon(glyph: .passageBox, size: 20) }
+                .buttonStyle(.praeludeEdgeControl)
+                .accessibilityLabel("Mark a spot without stopping").accessibilityIdentifier("quickSubPassage")
+                .disabled(active.status != .running || quickSubPassageArmed)
             Spacer(minLength: 4)
             let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 8))
             layout {

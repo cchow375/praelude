@@ -17,12 +17,24 @@ public struct InkStroke: Identifiable, Codable, Equatable, Sendable {
     public var page: Int
     public var layer: InkLayer
     public var data: Data
+    /// A caller-computed content key, distinct from `data` (§7 annotate track). `data` is whatever
+    /// PencilKit's own `PKDrawing.dataRepresentation()` produced for this row, which the app layer
+    /// has confirmed is **not** stable across independent re-serializations of identical stroke
+    /// content (constructing a fresh `PKDrawing` from the same `PKStroke` embeds a new random value
+    /// every time, even though re-encoding one unchanged, already-constructed drawing is stable).
+    /// `fingerprint`, when present, is a manually-extracted, deterministic encoding of the stroke's
+    /// own geometry that the app layer computes instead — `PracticeStore.replaceInk` diffs and
+    /// derives a new row's id from `fingerprint ?? data`, so an app-layer caller that can compute one
+    /// gets real content-stable identity, while a caller that cannot (the whole-page compatibility
+    /// shim, `saveDrawing`) keeps exactly its original behavior with `fingerprint == nil`.
+    public var fingerprint: Data?
     public var createdAt: Date
     public var updatedAt: Date
     public var deletedAt: Date?
-    public init(id: UUID = UUID(), pieceID: UUID, page: Int, layer: InkLayer = .mine, data: Data,
+    public init(id: UUID = UUID(), pieceID: UUID, page: Int, layer: InkLayer = .mine, data: Data, fingerprint: Data? = nil,
                 createdAt: Date = Date(), updatedAt: Date = Date(), deletedAt: Date? = nil) {
         self.id = id; self.pieceID = pieceID; self.page = page; self.layer = layer; self.data = data
+        self.fingerprint = fingerprint
         self.createdAt = createdAt; self.updatedAt = updatedAt; self.deletedAt = deletedAt
     }
 }

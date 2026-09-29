@@ -145,34 +145,68 @@ import Observation
         state.inkStrokes.filter { $0.pieceID == pieceID && $0.page == page && $0.deletedAt == nil && (layer == nil || $0.layer == layer) }
             .sorted { $0.createdAt < $1.createdAt }
     }
-    /// Replaces one page/layer's ink with exactly the given strokes (§4d/§7). Diffs by content
-    /// against the rows already stored for that page/layer: a blob that already exists keeps its
-    /// id/createdAt (so an untouched stroke never looks "updated" to a future sync engine), a blob
-    /// no longer present is tombstoned, and a new blob becomes a new row — so replicas can merge
-    /// annotations by stroke instead of by whole page. Native callers validate PencilKit encoding
-    /// before calling this Foundation-only boundary.
+    /// One new ink row to write via `replaceInk`. `fingerprint` is what identity/diffing is based on
+    /// when present (see `InkStroke.fingerprint`); `nil` falls back to `data` itself, exactly
+    /// matching this method's original (pre-fingerprint) behavior.
+    public struct InkStrokeInput: Sendable {
+        public var data: Data
+        public var fingerprint: Data?
+        public init(data: Data, fingerprint: Data? = nil) { self.data = data; self.fingerprint = fingerprint }
+    }
+    /// Compatibility overload: every stroke's own bytes are its identity, exactly as before this
+    /// type existed. This is what the whole-page shim (`saveDrawing`) still calls, unchanged.
     public func replaceInk(pieceID: UUID, page: Int, layer: InkLayer, strokes: [Data]) throws {
+        try replaceInk(pieceID: pieceID, page: page, layer: layer, strokes: strokes.map { InkStrokeInput(data: $0) })
+    }
+    /// Replaces one page/layer's ink with exactly the given strokes (§4d/§7). Diffs by content
+    /// (`fingerprint ?? data`) against the rows already stored for that page/layer: a stroke whose
+    /// key already exists keeps its id/createdAt (so an untouched stroke never looks "updated" to a
+    /// future sync engine), a key no longer present is tombstoned, and a new key becomes a new row —
+    /// so replicas can merge annotations by stroke instead of by whole page. A caller that can
+    /// compute a real content fingerprint (see `InkPerStroke.fingerprint`) gets identity that
+    /// survives PencilKit re-serializing the same stroke to different bytes; the whole-page overload
+    /// above does not need to, since it always re-diffs its single row against its own prior save.
+    /// Native callers validate PencilKit encoding before calling this Foundation-only boundary.
+    public func replaceInk(pieceID: UUID, page: Int, layer: InkLayer, strokes: [InkStrokeInput]) throws {
         let date = now()
         try transaction { next in
             guard let piece = next.pieces.first(where: { $0.id == pieceID }), piece.pdfFileName != nil,
                   page >= 1, page <= piece.pageCount else { throw PracticeError.invalid("Choose an existing score page before saving ink.") }
             for stroke in strokes {
-                guard !stroke.isEmpty, stroke.count <= Self.maximumDrawingBytes else {
+                guard !stroke.data.isEmpty, stroke.data.count <= Self.maximumDrawingBytes else {
                     throw PracticeError.invalid("This page has reached the supported 8 MB of ink.")
                 }
             }
-            var remainingNew = strokes
+            // Ordinal = position in the caller's own array, before any filtering below, so splitting
+            // the same drawing the same way on two devices assigns the same ordinal — and therefore
+            // the same stable id (see `InkStroke.stableID`) — to the same stroke on both.
+            var remainingNew: [(ordinal: Int, input: InkStrokeInput)] = strokes.enumerated().map { (ordinal: $0.offset, input: $0.element) }
             for index in next.inkStrokes.indices
             where next.inkStrokes[index].pieceID == pieceID && next.inkStrokes[index].page == page
                 && next.inkStrokes[index].layer == layer && next.inkStrokes[index].deletedAt == nil {
-                if let match = remainingNew.firstIndex(of: next.inkStrokes[index].data) {
+                let existingKey = next.inkStrokes[index].fingerprint ?? next.inkStrokes[index].data
+                if let match = remainingNew.firstIndex(where: { ($0.input.fingerprint ?? $0.input.data) == existingKey }) {
                     remainingNew.remove(at: match)
                 } else {
                     next.inkStrokes[index].deletedAt = date; next.inkStrokes[index].updatedAt = date
                 }
             }
-            for data in remainingNew {
-                next.inkStrokes.append(InkStroke(pieceID: pieceID, page: page, layer: layer, data: data, createdAt: date, updatedAt: date))
+            for (ordinal, input) in remainingNew {
+                let key = input.fingerprint ?? input.data
+                let id = InkStroke.stableID(pieceID: pieceID, page: page, layer: layer, data: key, ordinal: ordinal)
+                // Several new rows can land in the same flush (e.g. splitting a legacy multi-stroke
+                // page blob into per-stroke rows for the first time). A shared `date` would make their
+                // draw order (see `inkStrokes`' `createdAt` sort) depend on however `Set`/dictionary
+                // iteration happens to break the tie — not deterministic, and not necessarily the
+                // z-order the strokes were actually drawn in. Spacing new rows a microsecond apart by
+                // their ordinal (their position in the caller's full current array) keeps that order
+                // exact without changing the model: two strokes overlapping (e.g. a highlighter under
+                // a correction) always redraw in their original relative order, on every device that
+                // performs the same split. Real previously-kept rows are never touched here, so this
+                // never perturbs an already-stable `createdAt`.
+                let stamp = date.addingTimeInterval(Double(ordinal) * 0.000_001)
+                next.inkStrokes.append(InkStroke(id: id, pieceID: pieceID, page: page, layer: layer, data: input.data,
+                                                 fingerprint: input.fingerprint, createdAt: stamp, updatedAt: stamp))
             }
         }
     }
@@ -197,13 +231,94 @@ import Observation
             throw PracticeError.conflict("This score has ink or marked passages. Import the new PDF as a separate piece to preserve those marks and practice history.")
         }
     }
+    /// §8: deleting archives rather than erases. The row stays — with `archived` and the sync
+    /// tombstone `deletedAt` both set — so its history stays reachable and a future sync engine
+    /// sees a real tombstone instead of a row that silently vanished from one replica. Every
+    /// passage-listing View is expected to filter `archived` (`PassagePickerView`, `ScoreWorkspace`).
+    /// As before archiving existed, a finished set's own `passageSnapshot` already preserves
+    /// everything needed to show what was practiced, so history's *live* navigation reference is
+    /// still unlinked — it should not invite jumping back into an archived passage.
     public func deletePassage(_ id: UUID) throws {
+        let date = now()
         try transaction { next in
             guard next.activeSet?.configuration.passageID != id else { throw PracticeError.conflict("End the current set before removing its passage.") }
-            // Keep the original passage snapshot in history; unlink only its navigation reference.
-            next.passages.removeAll { $0.id == id }
-            for index in next.history.indices where next.history[index].configuration.passageID == id { next.history[index].configuration.passageID = nil }
+            guard let index = next.passages.firstIndex(where: { $0.id == id }) else { throw PracticeError.invalid("This passage is no longer in your library.") }
+            next.passages[index].archived = true
+            next.passages[index].deletedAt = date
+            next.passages[index].updatedAt = date
+            for historyIndex in next.history.indices where next.history[historyIndex].configuration.passageID == id {
+                next.history[historyIndex].configuration.passageID = nil
+            }
         }
+    }
+    /// §8: moves the given regions out of `id`'s passage into a brand-new passage. The original
+    /// keeps every other region, its learning history and its schedule; the new passage starts
+    /// fresh (§4d "never lose user data" is about practice evidence, and the split-off boxes have
+    /// none yet). Region ids move with their regions, so the library-wide "every mark id is unique"
+    /// invariant (`validate`) holds without regenerating them.
+    @discardableResult public func splitPassage(_ id: UUID, movingRegionIDs: Set<UUID>, newTitle: String) throws -> Passage {
+        let date = now()
+        var created: Passage!
+        try transaction { next in
+            guard let index = next.passages.firstIndex(where: { $0.id == id && !$0.archived }) else {
+                throw PracticeError.invalid("This passage is no longer in your library.")
+            }
+            var original = next.passages[index]
+            let moving = original.regions.filter { movingRegionIDs.contains($0.id) }
+            guard !moving.isEmpty, moving.count < original.regions.count else {
+                throw PracticeError.invalid("Choose at least one box to split off, and leave at least one behind.")
+            }
+            original.regions.removeAll { movingRegionIDs.contains($0.id) }
+            original.page = original.regions.map(\.page).min() ?? original.page
+            original.updatedAt = date
+            next.passages[index] = original
+            let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            let split = Passage(pieceID: original.pieceID, title: trimmed.isEmpty ? "\(original.title) (split)" : trimmed,
+                                page: moving.map(\.page).min() ?? original.page, focus: original.focus, regions: moving,
+                                color: original.color, parentPassageID: original.id,
+                                createdAt: date, updatedAt: date)
+            next.passages.append(split)
+            created = split
+        }
+        return created
+    }
+    /// §8/R2 "join the seams": folds `secondaryIDs` into `primary`. `primary` keeps its own id,
+    /// title, learning state and schedule — it is the survivor a caller keeps navigating to. Every
+    /// secondary passage's regions move (not copy) into `primary`, so the global mark-id-uniqueness
+    /// invariant holds, and each secondary is archived (never hard-deleted) with its id recorded in
+    /// `joinedFromPassageIDs` for provenance and future undo.
+    @discardableResult public func mergePassages(primary: UUID, into secondaryIDs: [UUID]) throws -> Passage {
+        let date = now()
+        var merged: Passage!
+        try transaction { next in
+            guard !secondaryIDs.isEmpty, !secondaryIDs.contains(primary) else {
+                throw PracticeError.invalid("Choose at least one other passage to merge in.")
+            }
+            guard let primaryIndex = next.passages.firstIndex(where: { $0.id == primary && !$0.archived }) else {
+                throw PracticeError.invalid("This passage is no longer in your library.")
+            }
+            var result = next.passages[primaryIndex]
+            for secondaryID in secondaryIDs {
+                guard let secondaryIndex = next.passages.firstIndex(where: { $0.id == secondaryID && !$0.archived }),
+                      next.passages[secondaryIndex].pieceID == result.pieceID else {
+                    throw PracticeError.invalid("Choose passages from the same piece to merge.")
+                }
+                var secondary = next.passages[secondaryIndex]
+                result.regions.append(contentsOf: secondary.regions)
+                for provenanceID in secondary.joinedFromPassageIDs + [secondary.id]
+                where !result.joinedFromPassageIDs.contains(provenanceID) {
+                    result.joinedFromPassageIDs.append(provenanceID)
+                }
+                secondary.regions = []
+                secondary.archived = true; secondary.deletedAt = date; secondary.updatedAt = date
+                next.passages[secondaryIndex] = secondary
+            }
+            result.page = result.regions.map(\.page).min() ?? result.page
+            result.updatedAt = date
+            next.passages[primaryIndex] = result
+            merged = result
+        }
+        return merged
     }
 
     public func startSet(_ configuration: PracticeConfiguration) throws {
@@ -703,8 +818,9 @@ import Observation
         for stroke in state.inkStrokes {
             let piece = state.pieces.first { $0.id == stroke.pieceID }
             try require(piece?.pdfFileName != nil && stroke.page >= 1 && stroke.page <= (piece?.pageCount ?? 0), "A stroke references a missing score page.")
-            try require(!stroke.data.isEmpty && stroke.data.count <= maximumDrawingBytes && date(stroke.createdAt) && date(stroke.updatedAt) && stroke.deletedAt.map(date) != false,
-                        "A stroke is empty, exceeds the supported 8 MB size, or has an invalid date.")
+            try require(!stroke.data.isEmpty && stroke.data.count <= maximumDrawingBytes && (stroke.fingerprint?.count ?? 0) <= 8192
+                        && date(stroke.createdAt) && date(stroke.updatedAt) && stroke.deletedAt.map(date) != false,
+                        "A stroke is empty, exceeds the supported 8 MB size, or has an invalid fingerprint or date.")
             inkBytes += stroke.data.count
             try require(inkBytes <= maximumTotalDrawingBytes, "The library has reached its supported 32 MB of ink. Export a backup before continuing.")
         }
@@ -830,7 +946,8 @@ import Observation
         try require(unique(state.stampAnnotations.map(\.id)) && state.stampAnnotations.count <= 50000, "The library contains duplicate or too many stamps.")
         for stamp in state.stampAnnotations {
             let piece = state.pieces.first { $0.id == stamp.pieceID }
-            try require(piece != nil && stamp.page >= 1 && stamp.page <= max(1, piece?.pageCount ?? 0) && stamp.position.isValid, "A stamp references a missing piece/page or has an invalid position.")
+            try require(piece != nil && stamp.page >= 1 && stamp.page <= max(1, piece?.pageCount ?? 0) && stamp.position.isValid
+                        && text(stamp.label ?? "", maximum: 20, blank: true), "A stamp references a missing piece/page or has an invalid position or label.")
         }
         let passageIDs = Set(state.passages.map(\.id))
         for passage in state.passages {

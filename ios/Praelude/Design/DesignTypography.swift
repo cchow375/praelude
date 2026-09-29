@@ -47,6 +47,27 @@ struct PraeludeMusicGlyph: View {
         case quarterNote = "\u{E1D5}"
         case eighthNote = "\u{E1D7}"
         case gClef = "\u{E040}"
+        // MARK: Music stamps (§7 annotate track). Every codepoint below is the standard, stable
+        // SMuFL assignment (unchanged since the spec's v1.0) and was independently confirmed present
+        // (non-`.notdef`) in the bundled `Bravura.otf`'s cmap before use here, the same verification
+        // method "(C) Design System.md" already documents for `gClef`/`noteQuarterUp`.
+        case fingering0 = "\u{ED10}"
+        case fingering1 = "\u{ED11}"
+        case fingering2 = "\u{ED12}"
+        case fingering3 = "\u{ED13}"
+        case fingering4 = "\u{ED14}"
+        case fingering5 = "\u{ED15}"
+        /// Dynamics are built by placing these letterform glyphs side by side (e.g. `mf` =
+        /// `dynamicMezzo` + `dynamicForte`) — SMuFL has no single combined glyph per dynamic marking.
+        case dynamicPiano = "\u{E520}"
+        case dynamicMezzo = "\u{E521}"
+        case dynamicForte = "\u{E522}"
+        case breathMarkComma = "\u{E4CE}"
+        case stringsDownBow = "\u{E610}"
+        case stringsUpBow = "\u{E612}"
+        case accidentalFlat = "\u{E260}"
+        case accidentalNatural = "\u{E261}"
+        case accidentalSharp = "\u{E262}"
     }
     var symbol: Symbol
     var size: CGFloat
