@@ -270,9 +270,11 @@ max_frequency = "5s"
 # [auth.sms.test_otp]
 # 4152127777 = "123456"
 
-# Spec calls for email+password and magic link only; SMS/phone auth is out of scope.
-[auth.sms.twilio]
-enabled = false
+# [auth.sms.twilio] is deliberately left undeclared, not set to `enabled = false` - see
+# supabase/(C) Backend.md "Auth configuration" for why (a real Twilio account is already configured on
+# the hosted project; `config push` only touches keys this file declares, and this CLI version can't
+# encode "off" for the active SMS provider anyway - it would need the Dashboard). phone/SMS signup
+# itself is fully blocked above regardless (enable_signup = false), which is what actually matters.
 
 # Configure logged in session timeouts.
 # [auth.sessions]
