@@ -17,6 +17,9 @@ struct PracticeHUDView: View {
     var speech: SpeechCommandService
     var voiceOwnerID: UUID
     var flashedCommand: VoiceCommand?
+    /// A fresh id per confirmation, even for the same repeated word, so the flash below re-triggers
+    /// its transition every time rather than only on the first of a run of identical commands.
+    var flashedCommandID: UUID?
     var onVerdict: (Verdict) -> Void
     var onUndo: () -> Void
     var onTogglePause: () -> Void
@@ -46,7 +49,7 @@ struct PracticeHUDView: View {
             micRow
             if let failure = flashLabel {
                 Text(failure).font(.caption.weight(.semibold)).foregroundStyle(PraeludeColor.live)
-                    .transition(.opacity).accessibilityIdentifier("voiceFlash")
+                    .transition(.opacity).id(flashedCommandID).accessibilityIdentifier("voiceFlash")
             }
         }
         .animation(reduceMotion ? nil : PraeludeMotion.tap, value: collapsed)

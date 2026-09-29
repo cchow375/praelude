@@ -381,6 +381,7 @@ struct ScoreWorkspace: View {
                 PracticeHUDView(
                     active: active, passageTitle: active.currentStage?.name ?? active.configuration.focus, arm: arm,
                     speech: speech, voiceOwnerID: voiceOwnerID, flashedCommand: VoiceConfirmationPlayer.shared.lastCommand,
+                    flashedCommandID: VoiceConfirmationPlayer.shared.lastCommandID,
                     onVerdict: record, onUndo: { perform { try runtime.undo() } }, onTogglePause: togglePause,
                     onStop: stopPractice, onFinishSession: { perform { try store.endSession(); metronome.stop() } },
                     onAnotherSet: { perform { try store.endSet(); rearm() } },
@@ -543,6 +544,9 @@ struct ScoreWorkspace: View {
                 metronome.setTempo(configuration.startBPM)
                 if configuration.useMetronome { metronome.start() } else { metronome.stop() }
             }
+            // A cold grade is the set's first recorded attempt too (§9/R3) — it deserves the same
+            // auto page-turn treatment as every later verdict, not just attempt #2 onward.
+            if grade != nil { advancePassagePageIfNeeded() }
         }
     }
     private func stopPractice() {
