@@ -30,7 +30,12 @@ public final class AuthManager {
 
     private let services: SupabaseServices
     private let store: PracticeStore
-    private var observeTask: Task<Void, Never>?
+    // `deinit` runs nonisolated even on a @MainActor class (it may run from any thread), so under
+    // Swift 6 strict concurrency it cannot touch a main-actor-isolated stored property. `Task.cancel`
+    // is documented safe to call from any context, and this property is otherwise only ever touched
+    // from `init` (before any other access is possible) and this type's own main-actor methods, so
+    // `nonisolated(unsafe)` is a correct escape hatch here, not a real data race.
+    private nonisolated(unsafe) var observeTask: Task<Void, Never>?
     public static let authCallbackURLScheme = "praelude"
     public static let authCallbackHost = "auth-callback"
 
