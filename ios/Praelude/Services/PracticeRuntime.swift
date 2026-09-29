@@ -8,19 +8,25 @@ final class PracticeRuntime {
     @ObservationIgnored private let store: PracticeStore
     @ObservationIgnored private let metronome: MetronomeService
     @ObservationIgnored private let speech: SpeechCommandService
+    @ObservationIgnored private let recording: RecordingService
     @ObservationIgnored private let notifications = AudioNotificationBag()
     @ObservationIgnored private var scoreOwners: Set<UUID> = []
     @ObservationIgnored private var checkpointTimer: Timer?
 
-    init(store: PracticeStore, metronome: MetronomeService, speech: SpeechCommandService, feedback: FeedbackService = .shared) {
+    init(store: PracticeStore, metronome: MetronomeService, speech: SpeechCommandService,
+         recording: RecordingService, feedback: FeedbackService = .shared) {
         self.store = store
         self.metronome = metronome
         self.speech = speech
+        self.recording = recording
         self.feedback = feedback
         feedback.prime(existingAttemptIDs: (store.state.history + [store.activeSet].compactMap { $0 }).flatMap(\.attempts).map(\.id))
         observe(UIApplication.didEnterBackgroundNotification) { [weak self] in
             guard let self else { return }
-            self.metronome.stop()
+            // The metronome owns its own backgrounding decision (§13 "keep running when locked");
+            // stopping it here unconditionally would silence that preference. Speech recognition
+            // and reward feedback have no such preference, so they always stop.
+            if !self.metronome.keepRunningWhenLocked { self.metronome.stop() }
             self.speech.stop()
             self.feedback.stop()
             // PracticeStore retains a failed durable mutation in errorMessage; never silently
@@ -41,10 +47,12 @@ final class PracticeRuntime {
                     do { try self.store.checkpoint() } catch { /* Store already exposes the failure. */ }
                 }
                 self.updateScreenAwake()
+                self.syncRecording() // Cheap, idempotent safety net alongside the `.onChange`-driven calls.
             }
         }
         checkpointTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+        syncRecording() // Covers relaunching mid-set (a paused set is restored active on launch).
     }
 
     /// The ledger commits first. Only its newly saved event may trigger transient feedback.
@@ -96,6 +104,27 @@ final class PracticeRuntime {
     func scoreDisappeared(ownerID: UUID) {
         scoreOwners.remove(ownerID)
         updateScreenAwake()
+    }
+
+    /// Drives `RecordingService` from `RecordingLifecycle`'s pure decision (§13 "optional per-set
+    /// recording"). Called from the `.onChange`s on `store.activeSet` at the app root — active-set
+    /// mutations happen through `PracticeStore` methods Views call directly (`startSet`/`pause`/
+    /// `resume`/`endSet`/`endSession`), not through this runtime, so reacting to the resulting
+    /// state (rather than wrapping every call site) is both the least invasive integration and the
+    /// one place already used for this kind of cross-cutting sync (see `updateScreenAwake`).
+    func syncRecording() {
+        let action = RecordingLifecycle.action(
+            enabled: recording.takesEnabled, activeSetID: store.activeSet?.id, activeSetStatus: store.activeSet?.status,
+            passageID: store.activeSet?.configuration.passageID, recordingSetID: recording.recordingSetID, isPaused: recording.isPaused
+        )
+        switch action {
+        case .start(let setID, let passageID): recording.startTake(passageID: passageID, setID: setID, in: store)
+        case .pause: recording.pauseTake()
+        case .resume: recording.resumeTake()
+        case .finish: recording.finishTake(in: store)
+        case .discard: recording.discardTake(in: store)
+        case .none: break
+        }
     }
 
     func updateScreenAwake() {

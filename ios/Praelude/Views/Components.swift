@@ -71,6 +71,59 @@ func practiceDuration(_ seconds: TimeInterval) -> String {
     return remainder == 0 ? "\(hours) hr" : "\(hours) hr \(remainder) min"
 }
 
+/// "Tap passage to hear last recording" (§13): the latest take for a passage, plus one to compare
+/// against from about a week ago when one exists. Never shown if the passage has no recordings —
+/// recording is opt-in, and most passages will have none.
+struct LastRecordingCard: View {
+    @Environment(RecordingService.self) private var recording
+    @Environment(PracticeStore.self) private var store
+    let passageID: UUID
+
+    private var latest: AudioRecording? { store.recordings.latestRecording(forPassage: passageID) }
+    private var compare: AudioRecording? { store.recordings.recording(forPassage: passageID, nearestDaysAgo: 7) }
+
+    var body: some View {
+        if let latest {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Recordings").font(.subheadline.weight(.medium)).foregroundStyle(PraeludeColor.inkSecondary)
+                takeRow(latest, label: "Latest", caption: relativeLabel(latest.date))
+                if let compare {
+                    takeRow(compare, label: "~A week ago", caption: relativeLabel(compare.date))
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func takeRow(_ take: AudioRecording, label: String, caption: String) -> some View {
+        let isThisPlaying = recording.isPlaying && recording.nowPlayingID == take.id
+        return Button {
+            if isThisPlaying { recording.stopPlayback() } else { recording.play(take, in: store) }
+        } label: {
+            HStack {
+                Image(systemName: isThisPlaying ? "stop.circle.fill" : "play.circle.fill")
+                    .font(.title3).foregroundStyle(PraeludeColor.ink).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(label).font(.subheadline)
+                    Text(caption).font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
+                }
+                Spacer()
+                Text(practiceDuration(take.duration)).font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
+            }
+            .frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(label) recording, \(caption), \(practiceDuration(take.duration))")
+        .accessibilityHint(isThisPlaying ? "Stop playback" : "Play recording")
+    }
+
+    private func relativeLabel(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
 struct ErrorMessage: View {
     let message: String
 

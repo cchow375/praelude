@@ -21,9 +21,10 @@ final class PracticeArmControllerTests: XCTestCase {
         let metronome = MetronomeService(defaults: defaults)
         let speech = SpeechCommandService()
         let feedback = FeedbackService(defaults: defaults)
-        let runtime = PracticeRuntime(store: store, metronome: metronome, speech: speech, feedback: feedback)
+        let recording = RecordingService(defaults: defaults)
+        let runtime = PracticeRuntime(store: store, metronome: metronome, speech: speech, recording: recording, feedback: feedback)
         addTeardownBlock {
-            await MainActor.run { feedback.stop(); metronome.stop(); speech.stop() }
+            await MainActor.run { feedback.stop(); metronome.stop(); speech.stop(); recording.stopPlayback() }
             UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: directory)
         }

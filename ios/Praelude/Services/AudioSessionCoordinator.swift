@@ -5,7 +5,10 @@ import Foundation
 @MainActor
 final class AudioSessionCoordinator {
     static let shared = AudioSessionCoordinator()
-    enum Client: Hashable { case metronome, speech, feedback, reward }
+    /// `.tuner` and `.recording` both need microphone input, exactly like `.speech`; `.drone` and
+    /// `.reward` are playback-only, like `.metronome`/`.feedback`. Any mix of these may be active
+    /// together — a drone or the metronome must keep playing while the tuner listens or a take records.
+    enum Client: Hashable { case metronome, speech, feedback, reward, tuner, drone, recording }
 
     private var clients: Set<Client> = []
     private var configurationObservers: [(willChange: () -> Void, didChange: () -> Void)] = []
@@ -34,8 +37,9 @@ final class AudioSessionCoordinator {
             try session.setActive(false, options: .notifyOthersOnDeactivation)
             return
         }
-        let category: AVAudioSession.Category = proposed.contains(.speech) ? .playAndRecord : .playback
-        let options: AVAudioSession.CategoryOptions = proposed.contains(.speech)
+        let needsInput = proposed.contains(.speech) || proposed.contains(.tuner) || proposed.contains(.recording)
+        let category: AVAudioSession.Category = needsInput ? .playAndRecord : .playback
+        let options: AVAudioSession.CategoryOptions = needsInput
             ? [.defaultToSpeaker, .mixWithOthers, .allowBluetoothHFP]
             : [.mixWithOthers]
         let changesFormat = session.category != category || session.categoryOptions != options
@@ -54,14 +58,31 @@ final class AudioNotificationBag: @unchecked Sendable {
     deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
 }
 
+/// Shared `NotificationCenter` wiring for the audio services (`MetronomeService` keeps its own
+/// copy, predating this helper): registers on `.main`, copies the notification into a `Sendable`
+/// context, then re-enters the caller's `@MainActor` closure via `assumeIsolated` (valid because
+/// the observer itself always fires on `.main`).
+@MainActor
+func observeAudioNotification(_ name: Notification.Name, into bag: AudioNotificationBag,
+                               action: @escaping @MainActor @Sendable (AudioNotificationContext) -> Void) {
+    bag.tokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { notification in
+        let context = AudioNotificationContext(notification)
+        MainActor.assumeIsolated { action(context) }
+    })
+}
+
 /// Copy values before entering main-actor isolation; Notification itself is not Sendable.
 struct AudioNotificationContext: Sendable {
     let interruptionType: UInt?
+    /// Only meaningful alongside `interruptionType == .ended`: whether the system says it is safe
+    /// to resume (`AVAudioSession.InterruptionOptions.shouldResume`).
+    let interruptionOptions: UInt?
     let routeReason: UInt?
     let sourceID: ObjectIdentifier?
 
     init(_ notification: Notification) {
         interruptionType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+        interruptionOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
         routeReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
         sourceID = notification.object.map { ObjectIdentifier($0 as AnyObject) }
     }

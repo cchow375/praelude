@@ -17,6 +17,7 @@ import Observation
     public var sessions: [PracticeSession] { state.sessions }
     public var activeSet: ActiveSet? { state.activeSet }
     public var preferences: Preferences { state.preferences }
+    public var recordings: [AudioRecording] { state.recordings }
     public static let maximumDrawingBytes = 8 * 1024 * 1024
     public static let maximumTotalDrawingBytes = 32 * 1024 * 1024
 

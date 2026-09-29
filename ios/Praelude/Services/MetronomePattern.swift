@@ -1,7 +1,7 @@
 import Foundation
 
 enum MetronomeSound: String, Codable, CaseIterable, Sendable {
-    case wood, click, bell
+    case wood, click, bell, glass
     var title: String { rawValue.capitalized }
 }
 
@@ -21,11 +21,39 @@ struct MetronomeSettings: Codable, Equatable, Sendable {
     var sound = MetronomeSound.wood
     var volume = 0.7
     var haptics = false
+    /// Bars of plain click played once, unlooped, before the music starts (0 = off). Added after
+    /// `v1` first shipped, so decoding defaults it rather than requiring the key (see `init(from:)`).
+    var countInBars = 0
+    /// When on, the click keeps playing after the app backgrounds or the screen locks. Added after
+    /// `v1` first shipped, so decoding defaults it rather than requiring the key.
+    var keepRunningWhenLocked = false
 
     var isValid: Bool {
         version == 1 && bpm.isFinite && (20...300).contains(bpm) && (1...12).contains(beatsPerBar)
             && [2, 4, 8].contains(denominator) && (1...4).contains(subdivision)
             && accents.count == beatsPerBar && volume.isFinite && (0...1).contains(volume)
+            && (0...4).contains(countInBars)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version, bpm, beatsPerBar, denominator, subdivision, accents, sound, volume, haptics,
+             countInBars, keepRunningWhenLocked
+    }
+    init() {}
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        bpm = try values.decode(Double.self, forKey: .bpm)
+        beatsPerBar = try values.decode(Int.self, forKey: .beatsPerBar)
+        denominator = try values.decode(Int.self, forKey: .denominator)
+        subdivision = try values.decode(Int.self, forKey: .subdivision)
+        accents = try values.decode([BeatAccent].self, forKey: .accents)
+        sound = try values.decode(MetronomeSound.self, forKey: .sound)
+        volume = try values.decode(Double.self, forKey: .volume)
+        haptics = try values.decode(Bool.self, forKey: .haptics)
+        // Absent from any settings blob persisted before count-in/background-audio shipped.
+        countInBars = try values.decodeIfPresent(Int.self, forKey: .countInBars) ?? 0
+        keepRunningWhenLocked = try values.decodeIfPresent(Bool.self, forKey: .keepRunningWhenLocked) ?? false
     }
     static func accents(for beats: Int, denominator: Int) -> [BeatAccent] {
         guard (1...12).contains(beats) else { return [] }
@@ -97,9 +125,9 @@ struct MetronomePattern {
             guard accent != .muted else { continue }
             let mainBeat = pulse.isMultiple(of: subdivision)
             let strong = mainBeat && accent == .accented
-            let amplitude = strong ? 0.56 : (mainBeat ? 0.36 : 0.16)
+            let amplitude = (strong ? 0.56 : (mainBeat ? 0.36 : 0.16)) * (sound == .glass ? 1.3 : 1)
             let frequency = strong ? 1_650.0 : (mainBeat ? 1_150.0 : 870.0)
-            let duration = sound == .bell ? 0.045 : 0.026
+            let duration = sound == .bell ? 0.045 : (sound == .glass ? 0.018 : 0.026)
             let count = min(Int(sampleRate * duration), frameCount - start)
             var noiseState = UInt64(pulse + 1) &* 2_654_435_761
             for frame in 0..<max(0, count) {
@@ -116,6 +144,11 @@ struct MetronomePattern {
                     wave = (sin(2 * .pi * frequency * time) + noise * 0.4) * exp(-time * 280)
                 case .bell:
                     wave = (sin(2 * .pi * frequency * time) + 0.18 * sin(2 * .pi * frequency * 2.76 * time)) * exp(-time * 95)
+                case .glass:
+                    // Brighter and shorter than the other three: a higher-harmonic tone plus a
+                    // strong noise "chiff" at onset, decaying fast — cuts through a loud acoustic
+                    // instrument's low-mid energy instead of blending under it (§13).
+                    wave = (sin(2 * .pi * frequency * 2.4 * time) * 0.55 + noise * 0.6) * exp(-time * 520)
                 }
                 samples[start + frame] += Float(amplitude * attack * endFade * wave)
             }

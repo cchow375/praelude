@@ -6,6 +6,9 @@ struct PraeludeApp: App {
     @State private var store: PracticeStore
     @State private var metronome: MetronomeService
     @State private var speech: SpeechCommandService
+    @State private var tuner: TunerService
+    @State private var drone: DroneService
+    @State private var recording: RecordingService
     @State private var runtime: PracticeRuntime
     @State private var rewards: RewardsRuntime
     @Environment(\.scenePhase) private var scenePhase
@@ -27,19 +30,26 @@ struct PraeludeApp: App {
         #endif
         let click = MetronomeService()
         let voice = SpeechCommandService()
+        let take = RecordingService()
         _store = State(initialValue: value)
         _metronome = State(initialValue: click)
         _speech = State(initialValue: voice)
-        _runtime = State(initialValue: PracticeRuntime(store: value, metronome: click, speech: voice))
+        _tuner = State(initialValue: TunerService())
+        _drone = State(initialValue: DroneService())
+        _recording = State(initialValue: take)
+        _runtime = State(initialValue: PracticeRuntime(store: value, metronome: click, speech: voice, recording: take))
         _rewards = State(initialValue: RewardsRuntime(store: value))
     }
     var body: some Scene {
         WindowGroup {
             AppRootView()
                 .environment(store).environment(metronome).environment(speech).environment(runtime).environment(rewards)
+                .environment(tuner).environment(drone).environment(recording)
                 .preferredColorScheme(colorScheme)
                 .tint(PraeludeColor.ink)
                 .onChange(of: store.state.preferences.keepScreenAwake) { _, _ in runtime.updateScreenAwake() }
+                .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording() }
+                .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording() }
         }
         WindowGroup("Score", for: UUID.self) { $pieceID in
             NavigationStack {
@@ -47,8 +57,11 @@ struct PraeludeApp: App {
                 else { ContentUnavailableView("Choose a score", systemImage: "music.note.list") }
             }
             .environment(store).environment(metronome).environment(speech).environment(runtime).environment(rewards)
+            .environment(tuner).environment(drone).environment(recording)
             .preferredColorScheme(colorScheme)
             .tint(PraeludeColor.ink)
+            .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording() }
+            .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording() }
         }
     }
     private var colorScheme: ColorScheme? {
