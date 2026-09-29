@@ -44,6 +44,40 @@ final class SocialSupportTests: XCTestCase {
         XCTAssertFalse(AgeBracket.adult.isMinor)
     }
 
+    // MARK: ProfileBackendFields.applyingAgeGate — the actual signup-time decision AccountView fires.
+
+    func testAdultGateLeavesPrivacyDefaultsUntouched() {
+        let result = ProfileBackendFields().applyingAgeGate(.adult)
+        XCTAssertEqual(result.ageBracket, "18plus")
+        XCTAssertFalse(result.isPrivateAccount)
+        XCTAssertFalse(result.leaderboardOptOut)
+    }
+    func testMinorGatesForcePrivateAccountAndLeaderboardOptOut() {
+        for bracket in [AgeBracket.under13, .teen] {
+            let result = ProfileBackendFields().applyingAgeGate(bracket)
+            XCTAssertTrue(result.isPrivateAccount, "\(bracket) must start private")
+            XCTAssertTrue(result.leaderboardOptOut, "\(bracket) must start opted out of leaderboards")
+        }
+    }
+    func testAgeGateNeverLoosensAnAlreadyStricterSetting() {
+        // A person who had already set isPrivateAccount before somehow re-running the gate (e.g. a
+        // retry) must never have it flipped back to false by an adult bracket.
+        var already = ProfileBackendFields()
+        already.isPrivateAccount = true
+        let result = already.applyingAgeGate(.adult)
+        XCTAssertTrue(result.isPrivateAccount, "applyingAgeGate must never loosen an existing stricter setting")
+    }
+    func testAgeGatePreservesEveryOtherFieldUntouched() {
+        var fields = ProfileBackendFields()
+        fields.privacyPresence = .onlyMe
+        fields.privacyNotes = .publicVisibility
+        fields.upcomingPerformances = [BackendPerformance(date: Date())]
+        let result = fields.applyingAgeGate(.teen)
+        XCTAssertEqual(result.privacyPresence, .onlyMe)
+        XCTAssertEqual(result.privacyNotes, .publicVisibility)
+        XCTAssertEqual(result.upcomingPerformances, fields.upcomingPerformances)
+    }
+
     // MARK: PresenceFreshness — mirrors friend_presence()'s ">2 minutes is stale" rule.
 
     func testFreshPresenceIsNotStale() {

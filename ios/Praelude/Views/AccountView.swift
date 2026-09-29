@@ -63,17 +63,10 @@ struct AccountView: View {
         }
     }
 
-    /// Spec §5c: "stricter defaults for minors if public" — a minor's account starts private (so its
-    /// otherwise-Public-by-default fields — name, username, photo — clamp to friends-only, the same
-    /// mechanism `ProfileEditView`'s own privacy section and `get_profile_card`'s server-side clamp
-    /// already implement) and opted out of leaderboards. Every other field keeps its ordinary
-    /// Friends-by-default privacy either way — this only changes what "private account" + age start
-    /// as, never a field this person can't immediately go change in Edit profile.
+    /// See `ProfileBackendFields.applyingAgeGate` (Core) for exactly which fields this changes and
+    /// why — kept there, not inline here, so the decision itself is unit-testable without a View.
     private func applyAgeGate(_ bracket: AgeBracket) {
-        var extras = syncCoordinator.profileBackendFields
-        extras.ageBracket = bracket.rawValue
-        if bracket.isMinor { extras.isPrivateAccount = true; extras.leaderboardOptOut = true }
-        syncCoordinator.setProfileBackendFields(extras)
+        syncCoordinator.setProfileBackendFields(syncCoordinator.profileBackendFields.applyingAgeGate(bracket))
         syncCoordinator.pushProfile()
     }
 

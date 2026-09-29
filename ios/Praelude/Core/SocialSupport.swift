@@ -81,6 +81,27 @@ public enum AgeBracket: String, Codable, CaseIterable, Sendable {
     }
 }
 
+extension ProfileBackendFields {
+    /// Spec §5c: "age gate at signup with stricter defaults for minors if public" — a minor's
+    /// account starts private (so the otherwise-Public-by-default fields, name/username/photo,
+    /// clamp to friends-only via the same mechanism `ProfileVisibility.isVisible`/the server's
+    /// `_profile_field_visible` already implement) and opted out of leaderboards. Every per-field
+    /// privacy tier (`Profile.privacy`, `privacyPresence`, `privacyNotes`) keeps its ordinary
+    /// default regardless of age — this only changes what "private account" and "leaderboard
+    /// opt-out" start as, both freely editable afterward in `ProfileEditView`. `AccountView`'s
+    /// signup flow is the one call site; kept here, not inline there, so it is unit-testable without
+    /// driving a View.
+    public func applyingAgeGate(_ bracket: AgeBracket) -> ProfileBackendFields {
+        var result = self
+        result.ageBracket = bracket.rawValue
+        if bracket.isMinor {
+            result.isPrivateAccount = true
+            result.leaderboardOptOut = true
+        }
+        return result
+    }
+}
+
 // MARK: Presence freshness (spec §5a "practicing now")
 
 /// Mirrors `friend_presence()`'s own staleness rule (`supabase/(C) Backend.md`, "Presence: table +
