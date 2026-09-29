@@ -59,6 +59,9 @@ public struct RuleSettings: Codable, Equatable, Sendable {
     // R8 split weak spot after clustered break-point taps.
     public var r8Enabled = true
     public var r8TapsToOfferSplit = 3
+    /// Two taps "cluster" (§11 R8) when their normalized-page centers are within this distance of
+    /// one another — see "(C) Rules Engine.md" for the full clustering definition.
+    public var r8ClusterRadius = 0.06
     // R9 stop grinding: park the passage after time or sets without progress.
     public var r9Enabled = true
     public var r9Minutes = 10
@@ -83,6 +86,69 @@ public struct RuleSettings: Codable, Equatable, Sendable {
     // R15 session builder: caps new passages introduced in one session.
     public var r15Enabled = true
     public var r15MaxNewPerSession = 3
+    /// Minutes budgeted per warmup/review/learning/new item when R15 fits items into the available
+    /// time; a run-through budgets a multiple of this (see "(C) Rules Engine.md").
+    public var r15EstimatedMinutesPerItem = 3
     public var updatedAt: Date = Date()
     public init() {}
+
+    // MARK: - Codable
+    //
+    // A hand-written `init(from:)` (schema3's own convention — see `Piece`/`Passage`/`LibraryState` in
+    // Models.swift) rather than the synthesized one: Swift's synthesized `Decodable` requires every
+    // key to be present, so a plain `= true`/`= 3` default is invisible to it. Without this, a future
+    // build adding a field here — exactly what `r8ClusterRadius`/`r15EstimatedMinutesPerItem` just did —
+    // would fail to decode any `library.json` written before that field existed, which is the one thing
+    // this codebase must never do (see "never lose user data" in Schema3.md). `encode(to:)` stays
+    // synthesized; only decoding needs the fallback.
+    private enum CodingKeys: String, CodingKey {
+        case r1Enabled, r1MaxMeasures, r1MaxSystems, r2Enabled, r3Enabled, r4Enabled, r4CleanIntervalsDays,
+             r4ShakyIntervalDays, r5Enabled, r5LearningStreak, r5ReviewStreak, r6Enabled, r6ResetsBeforeStepDown,
+             r6StepDownPercent, r7Enabled, r7MaxIncreasesPerDay, r8Enabled, r8TapsToOfferSplit, r8ClusterRadius,
+             r9Enabled, r9Minutes, r9Sets, r10Enabled, r10DistinctDays, r10RequiresFirstInSession, r11Enabled,
+             r11FinalWeekDays, r11FinalTwoWeeksDays, r12Enabled, r12SlowDownsPerDay, r13Enabled, r13ConsecutiveMissed,
+             r14Enabled, r14DropoutBars, r15Enabled, r15MaxNewPerSession, r15EstimatedMinutesPerItem, updatedAt
+    }
+    public init(from decoder: Decoder) throws {
+        let v = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = RuleSettings()
+        r1Enabled = try v.decodeIfPresent(Bool.self, forKey: .r1Enabled) ?? defaults.r1Enabled
+        r1MaxMeasures = try v.decodeIfPresent(Int.self, forKey: .r1MaxMeasures) ?? defaults.r1MaxMeasures
+        r1MaxSystems = try v.decodeIfPresent(Double.self, forKey: .r1MaxSystems) ?? defaults.r1MaxSystems
+        r2Enabled = try v.decodeIfPresent(Bool.self, forKey: .r2Enabled) ?? defaults.r2Enabled
+        r3Enabled = try v.decodeIfPresent(Bool.self, forKey: .r3Enabled) ?? defaults.r3Enabled
+        r4Enabled = try v.decodeIfPresent(Bool.self, forKey: .r4Enabled) ?? defaults.r4Enabled
+        r4CleanIntervalsDays = try v.decodeIfPresent([Int].self, forKey: .r4CleanIntervalsDays) ?? defaults.r4CleanIntervalsDays
+        r4ShakyIntervalDays = try v.decodeIfPresent(Int.self, forKey: .r4ShakyIntervalDays) ?? defaults.r4ShakyIntervalDays
+        r5Enabled = try v.decodeIfPresent(Bool.self, forKey: .r5Enabled) ?? defaults.r5Enabled
+        r5LearningStreak = try v.decodeIfPresent(Int.self, forKey: .r5LearningStreak) ?? defaults.r5LearningStreak
+        r5ReviewStreak = try v.decodeIfPresent(Int.self, forKey: .r5ReviewStreak) ?? defaults.r5ReviewStreak
+        r6Enabled = try v.decodeIfPresent(Bool.self, forKey: .r6Enabled) ?? defaults.r6Enabled
+        r6ResetsBeforeStepDown = try v.decodeIfPresent(Int.self, forKey: .r6ResetsBeforeStepDown) ?? defaults.r6ResetsBeforeStepDown
+        r6StepDownPercent = try v.decodeIfPresent(Double.self, forKey: .r6StepDownPercent) ?? defaults.r6StepDownPercent
+        r7Enabled = try v.decodeIfPresent(Bool.self, forKey: .r7Enabled) ?? defaults.r7Enabled
+        r7MaxIncreasesPerDay = try v.decodeIfPresent(Int.self, forKey: .r7MaxIncreasesPerDay) ?? defaults.r7MaxIncreasesPerDay
+        r8Enabled = try v.decodeIfPresent(Bool.self, forKey: .r8Enabled) ?? defaults.r8Enabled
+        r8TapsToOfferSplit = try v.decodeIfPresent(Int.self, forKey: .r8TapsToOfferSplit) ?? defaults.r8TapsToOfferSplit
+        r8ClusterRadius = try v.decodeIfPresent(Double.self, forKey: .r8ClusterRadius) ?? defaults.r8ClusterRadius
+        r9Enabled = try v.decodeIfPresent(Bool.self, forKey: .r9Enabled) ?? defaults.r9Enabled
+        r9Minutes = try v.decodeIfPresent(Int.self, forKey: .r9Minutes) ?? defaults.r9Minutes
+        r9Sets = try v.decodeIfPresent(Int.self, forKey: .r9Sets) ?? defaults.r9Sets
+        r10Enabled = try v.decodeIfPresent(Bool.self, forKey: .r10Enabled) ?? defaults.r10Enabled
+        r10DistinctDays = try v.decodeIfPresent(Int.self, forKey: .r10DistinctDays) ?? defaults.r10DistinctDays
+        r10RequiresFirstInSession = try v.decodeIfPresent(Bool.self, forKey: .r10RequiresFirstInSession) ?? defaults.r10RequiresFirstInSession
+        r11Enabled = try v.decodeIfPresent(Bool.self, forKey: .r11Enabled) ?? defaults.r11Enabled
+        r11FinalWeekDays = try v.decodeIfPresent(Int.self, forKey: .r11FinalWeekDays) ?? defaults.r11FinalWeekDays
+        r11FinalTwoWeeksDays = try v.decodeIfPresent(Int.self, forKey: .r11FinalTwoWeeksDays) ?? defaults.r11FinalTwoWeeksDays
+        r12Enabled = try v.decodeIfPresent(Bool.self, forKey: .r12Enabled) ?? defaults.r12Enabled
+        r12SlowDownsPerDay = try v.decodeIfPresent(Int.self, forKey: .r12SlowDownsPerDay) ?? defaults.r12SlowDownsPerDay
+        r13Enabled = try v.decodeIfPresent(Bool.self, forKey: .r13Enabled) ?? defaults.r13Enabled
+        r13ConsecutiveMissed = try v.decodeIfPresent(Int.self, forKey: .r13ConsecutiveMissed) ?? defaults.r13ConsecutiveMissed
+        r14Enabled = try v.decodeIfPresent(Bool.self, forKey: .r14Enabled) ?? defaults.r14Enabled
+        r14DropoutBars = try v.decodeIfPresent(Int.self, forKey: .r14DropoutBars) ?? defaults.r14DropoutBars
+        r15Enabled = try v.decodeIfPresent(Bool.self, forKey: .r15Enabled) ?? defaults.r15Enabled
+        r15MaxNewPerSession = try v.decodeIfPresent(Int.self, forKey: .r15MaxNewPerSession) ?? defaults.r15MaxNewPerSession
+        r15EstimatedMinutesPerItem = try v.decodeIfPresent(Int.self, forKey: .r15EstimatedMinutesPerItem) ?? defaults.r15EstimatedMinutesPerItem
+        updatedAt = try v.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .praeludeEpochSentinel
+    }
 }
