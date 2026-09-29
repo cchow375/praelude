@@ -8,6 +8,13 @@ struct NotesStrip: View {
     let cards: [UUID: ProfileCard]
     let onCompose: () -> Void
     let onOpen: (NoteRow) -> Void
+    @Environment(SocialService.self) private var social
+
+    /// See `ActivityFeedRow.authorName`'s own doc comment — a note the caller posted has no entry in
+    /// `cards` either, for the same reason.
+    private func name(for note: NoteRow) -> String {
+        note.ownerID == social.myUserID ? "You" : (cards[note.ownerID]?.displayNameOrUsernameOrFallback ?? "Musician")
+    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -25,8 +32,8 @@ struct NotesStrip: View {
                     Button { onOpen(note) } label: {
                         VStack(spacing: 6) {
                             noteBubble(note.text)
-                            AvatarView(photoPath: cards[note.ownerID]?.photoPath, fallbackText: cards[note.ownerID]?.displayNameOrUsernameOrFallback ?? "?", size: 52)
-                            Text((cards[note.ownerID]?.displayNameOrUsernameOrFallback ?? "Musician").components(separatedBy: " ").first ?? "")
+                            AvatarView(photoPath: cards[note.ownerID]?.photoPath, fallbackText: name(for: note), size: 52)
+                            Text(name(for: note).components(separatedBy: " ").first ?? "")
                                 .font(.caption2).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
                         }
                     }.buttonStyle(.plain)
@@ -98,10 +105,14 @@ struct NoteDetailSheet: View {
     let note: NoteRow
     let authorCard: ProfileCard?
     @Environment(SocialService.self) private var social
+    @Environment(PracticeStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var replies: [NoteReplyRow] = []
     @State private var draft = ""
     @State private var sending = false
+    @State private var showReport = false
+    private var isSelf: Bool { note.ownerID == social.myUserID }
+    private var authorName: String { isSelf ? "You" : (authorCard?.displayNameOrUsernameOrFallback ?? "Praelude musician") }
 
     var body: some View {
         NavigationStack {
@@ -109,9 +120,9 @@ struct NoteDetailSheet: View {
                 List {
                     Section {
                         HStack(alignment: .top, spacing: 10) {
-                            AvatarView(photoPath: authorCard?.photoPath, fallbackText: authorCard?.displayNameOrUsernameOrFallback ?? "?", size: 40)
+                            AvatarView(photoPath: isSelf ? store.state.profile.photoRef : authorCard?.photoPath, fallbackText: authorName, size: 40)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(authorCard?.displayNameOrUsernameOrFallback ?? "Praelude musician").fontWeight(.semibold)
+                                Text(authorName).fontWeight(.semibold)
                                 Text(note.text)
                                 if let title = note.pieceTitle { Text(title).font(.caption).foregroundStyle(PraeludeColor.inkSecondary) }
                             }
@@ -127,6 +138,9 @@ struct NoteDetailSheet: View {
                             }
                         }
                     }
+                    if !isSelf {
+                        Section { Button("Report this note", role: .destructive) { showReport = true } }
+                    }
                 }
                 .scrollContentBackground(.hidden)
                 HStack {
@@ -140,6 +154,7 @@ struct NoteDetailSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }
         .task { replies = await social.replies(toNote: note.id) }
+        .sheet(isPresented: $showReport) { ReportSheet(targetType: .note, targetID: note.id) }
         .presentationDetents([.medium, .large])
     }
     private func send() {

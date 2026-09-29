@@ -515,7 +515,12 @@ struct ScoreWorkspace: View {
     private func endSessionAndShare() throws {
         try store.endSession()
         guard let piece, let session = store.state.sessions.last else { return }
-        socialHooks.shareMilestone(kind: .sessionFinished, pieceID: piece.id, detail: practiceDuration(session.activeSeconds))
+        // Spec §5a: "session finished (duration+pieces)" — a friend can't resolve piece_id to a
+        // title themselves (their read of this event never reaches the *author's* private `pieces`
+        // row), so the title travels in `detail`, the same way AddPieceView/ProfileEditView already
+        // put their own event's readable summary in `detail` rather than relying on the id alone.
+        socialHooks.shareMilestone(kind: .sessionFinished, pieceID: piece.id,
+                                    detail: "\(practiceDuration(session.activeSeconds)) · \(piece.title)")
     }
     private func togglePause() {
         perform { if active?.status == .paused { try store.resume() } else { try store.pause() } }

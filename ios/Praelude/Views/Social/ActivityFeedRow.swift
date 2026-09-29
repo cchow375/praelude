@@ -6,13 +6,27 @@ struct ActivityFeedRow: View {
     let event: ActivityEvent
     let authorCard: ProfileCard?
     let onOpen: () -> Void
+    @Environment(SocialService.self) private var social
+    @Environment(PracticeStore.self) private var store
+
+    /// `authorCard` is only ever populated from `SocialService.friendCards()` — the caller's own
+    /// posts in the feed (a milestone `SocialHooks` shared) have no entry there (`profileCard(for:)`
+    /// is documented never to be called for the caller's own id — see its own doc comment), so this
+    /// tells "You" apart from a friend rather than falling back to a name-less placeholder for the
+    /// one author this app can always identify with certainty.
+    private var isSelf: Bool { event.ownerID == social.myUserID }
+    private var authorName: String {
+        if isSelf { return "You" }
+        return authorCard?.displayNameOrUsernameOrFallback ?? "Praelude musician"
+    }
+    private var authorPhotoPath: String? { isSelf ? store.state.profile.photoRef : authorCard?.photoPath }
 
     var body: some View {
         Button(action: onOpen) {
             HStack(alignment: .top, spacing: 12) {
-                AvatarView(photoPath: authorCard?.photoPath, fallbackText: authorCard?.displayNameOrUsernameOrFallback ?? "?", size: 40)
+                AvatarView(photoPath: authorPhotoPath, fallbackText: authorName, size: 40)
                 VStack(alignment: .leading, spacing: 3) {
-                    (Text(authorCard?.displayNameOrUsernameOrFallback ?? "Praelude musician").fontWeight(.semibold) + Text(" " + headline))
+                    (Text(authorName).fontWeight(.semibold) + Text(" " + headline))
                         .font(.subheadline).foregroundStyle(PraeludeColor.ink)
                     if !event.detail.isEmpty { Text(event.detail).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(2) }
                     Text(event.createdAt.formatted(.relative(presentation: .named))).font(.caption).foregroundStyle(PraeludeColor.inkTertiary)
@@ -47,7 +61,8 @@ struct ActivityDetailSheet: View {
     @State private var reactions: [ReactionRow] = []
     @State private var comments: [CommentRow] = []
     @State private var commentDraft = ""
-    @State private var showReport = false
+    @State private var showReportEvent = false
+    @State private var reportingComment: CommentRow?
 
     private var myReactions: Set<ReactionKind> {
         Set(reactions.filter { $0.ownerID == social.myUserID }.compactMap { ReactionKind(rawValue: $0.kind) })
@@ -78,11 +93,18 @@ struct ActivityDetailSheet: View {
                     } header: { Text("React") }
                     if !comments.isEmpty {
                         Section("Comments") {
-                            ForEach(comments) { comment in Text(comment.body) }
+                            ForEach(comments) { comment in
+                                Text(comment.body)
+                                    .swipeActions(edge: .trailing) {
+                                        if comment.ownerID != social.myUserID {
+                                            Button("Report", role: .destructive) { reportingComment = comment }
+                                        }
+                                    }
+                            }
                         }
                     }
                     Section {
-                        Button("Report this", role: .destructive) { showReport = true }
+                        Button("Report this", role: .destructive) { showReportEvent = true }
                     }
                 }
                 .scrollContentBackground(.hidden)
@@ -97,7 +119,8 @@ struct ActivityDetailSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }
         .task { await load() }
-        .sheet(isPresented: $showReport) { ReportSheet(targetType: .activityEvent, targetID: event.id) }
+        .sheet(isPresented: $showReportEvent) { ReportSheet(targetType: .activityEvent, targetID: event.id) }
+        .sheet(item: $reportingComment) { comment in ReportSheet(targetType: .comment, targetID: comment.id) }
         .presentationDetents([.medium, .large])
     }
     private func countFor(_ kind: ReactionKind) -> Int? { reactions.filter { $0.kind == kind.rawValue }.count }

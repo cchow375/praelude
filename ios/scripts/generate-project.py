@@ -272,6 +272,15 @@ common = {
     # products) rather than only on the app target, and scoped to the simulator SDK only — the
     # device path (iphoneos) was never affected and still builds every real-device arch.
     "EXCLUDED_ARCHS[sdk=iphonesimulator*]": "x86_64",
+    # `xcodebuild test` (never plain `build` — that path doesn't build this at all, which is why
+    # `scripts/check.sh`'s own build step never hit this) links a separate "debug dylib" for fast
+    # relaunch-without-reinstall. That link step failed with undefined symbols from supabase-swift's
+    # internal `Helpers` module (PostgrestError, ObservationToken, AnyJSON.decoder) even though the
+    # same symbols link fine into the app's own main binary in the same build — verified by running
+    # an actual `xcodebuild test`, not assumed: `EXCLUDED_ARCHS`/`ONLY_ACTIVE_ARCH` don't touch this,
+    # it is a different link phase. Turning the debug-dylib optimization off makes `test` link the
+    # ordinary way, matching plain `build`.
+    "ENABLE_DEBUG_DYLIB": "NO",
 }
 project_configs = configs("project", common, signing_config)
 app_config = configs(
