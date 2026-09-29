@@ -58,6 +58,19 @@ final class AudioNotificationBag: @unchecked Sendable {
     deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
 }
 
+/// Shared `NotificationCenter` wiring for the audio services (`MetronomeService` keeps its own
+/// copy, predating this helper): registers on `.main`, copies the notification into a `Sendable`
+/// context, then re-enters the caller's `@MainActor` closure via `assumeIsolated` (valid because
+/// the observer itself always fires on `.main`).
+@MainActor
+func observeAudioNotification(_ name: Notification.Name, into bag: AudioNotificationBag,
+                               action: @escaping @MainActor @Sendable (AudioNotificationContext) -> Void) {
+    bag.tokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { notification in
+        let context = AudioNotificationContext(notification)
+        MainActor.assumeIsolated { action(context) }
+    })
+}
+
 /// Copy values before entering main-actor isolation; Notification itself is not Sendable.
 struct AudioNotificationContext: Sendable {
     let interruptionType: UInt?
