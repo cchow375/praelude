@@ -44,5 +44,7 @@ dist-ssr
 .claude-flow/
 .gstack/
 
-# Supabase CLI local state (linked project ref, CLI version cache) never belongs in source control
+# Supabase CLI local/ephemeral state (linked project ref, CLI version cache, branch state):
+# never contains schema, safe to lose, and never belongs in source control
 supabase/.temp/
+supabase/.branches/
