@@ -610,6 +610,22 @@ import Observation
             if let index = next.warmupExercises.firstIndex(where: { $0.id == exercise.id }) { next.warmupExercises[index] = exercise } else { next.warmupExercises.append(exercise) }
         }
     }
+    /// Upserts every exercise in one transaction/disk write instead of one per exercise — seeding a
+    /// family's whole built-in library (a dozen-plus shapes crossed with 12 keys, see
+    /// `WarmupCatalog.seedDefaults`) through the single-item `saveWarmupExercise` would mean well
+    /// over a hundred synchronous atomic writes on the main actor during onboarding; this keeps the
+    /// same upsert semantics (existing id replaced, new id appended) but pays that cost once.
+    public func saveWarmupExercises(_ exercises: [WarmupExercise]) throws {
+        guard !exercises.isEmpty else { return }
+        let date = now()
+        try transaction { next in
+            for exercise in exercises {
+                var exercise = exercise; exercise.updatedAt = date
+                if let index = next.warmupExercises.firstIndex(where: { $0.id == exercise.id }) { next.warmupExercises[index] = exercise }
+                else { next.warmupExercises.append(exercise) }
+            }
+        }
+    }
     public func deleteWarmupExercise(_ id: UUID) throws {
         let date = now()
         try transaction { next in

@@ -162,4 +162,25 @@ final class PraeludeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["resumePractice"].exists)
     }
 
+    @MainActor func testWarmupsPracticeAndRewardsScreens() {
+        let app = launch()
+        app.tabBars.buttons["Warmups"].press(forDuration: 0.15)
+        let next = app.buttons["warmupNextInRotation"]
+        XCTAssertTrue(next.waitForExistence(timeout: 10), app.debugDescription)
+        screenshot("10-warmups-library")
+        next.press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["warmupVerdict_clean"].waitForExistence(timeout: 10), app.debugDescription)
+        screenshot("11-warmup-practice")
+        app.buttons["warmupVerdict_clean"].press(forDuration: 0.15)
+        XCTAssertTrue(app.staticTexts["warmupProgress"].waitForExistence(timeout: 5))
+        screenshot("12-warmup-one-rep")
+        app.buttons["closeWarmupPractice"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["resumePractice"].waitForExistence(timeout: 5), "closing mid-set must leave it resumable, not discard it")
+        app.tabBars.buttons["Rewards"].press(forDuration: 0.15)
+        XCTAssertTrue(app.navigationBars["Rewards"].waitForExistence(timeout: 10), app.debugDescription)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3)) // let the List finish laying out before capturing it
+        screenshot("13-rewards")
+        XCTAssertTrue(app.staticTexts["Studio"].exists, app.debugDescription)
+    }
+
 }

@@ -5,9 +5,20 @@ import UIKit
 /// Disposable UI-test content only. A normal install always starts blank.
 @MainActor
 enum UITestFixture {
+    /// An already-onboarded instrument, so a `--uitesting` launch never stops at AppRootView's
+    /// "no live instrument" onboarding gate unless a test is specifically exercising §6 onboarding
+    /// (none currently are). Called on every `--uitesting` launch, independent of `--seed`, so even
+    /// a genuinely blank/reset library (`testBlankInstallAndAddPaperPiece`) starts past onboarding.
+    static func ensureOnboarded(into store: PracticeStore) {
+        guard store.state.instruments.allSatisfy({ $0.deletedAt != nil }) else { return }
+        try? store.saveInstrument(Instrument(family: .keyboard, name: "Piano", level: "Intermediate", isPrimary: true))
+    }
+
     static func install(into store: PracticeStore) {
         guard store.state.pieces.isEmpty else { return }
         do {
+            ensureOnboarded(into: store)
+            try store.seedWarmupsIfNeeded(family: .keyboard)
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("Praelude UI study.pdf")
             let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842))
             let data = renderer.pdfData { context in

@@ -5,13 +5,9 @@ import UIKit
 extension NormalizedRect {
     /// Whether a normalized (0...1) fraction of the page falls inside this rect — the hit test
     /// `PagedScoreView` runs when a reading tap might have landed on a link's tap region.
+    /// `rect(in:)` lives on this same type in `ScoreMarkupState.swift`, shared with stamps/text boxes.
     func contains(_ fraction: CGPoint) -> Bool {
         fraction.x >= x && fraction.x <= x + width && fraction.y >= y && fraction.y <= y + height
-    }
-    /// The rect this normalized fraction occupies in a view of the given pixel size — the same
-    /// top-left-origin convention `PassageRegion.rect(in:)` already uses.
-    func rect(in size: CGSize) -> CGRect {
-        CGRect(x: x * size.width, y: y * size.height, width: width * size.width, height: height * size.height)
     }
 }
 

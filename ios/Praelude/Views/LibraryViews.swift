@@ -35,7 +35,7 @@ struct LibraryView: View {
 
     private var visiblePieces: [Piece] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return store.pieces.filter { piece in
+        return store.realPieces.filter { piece in
             piece.status == collection
                 && (folderFilter == nil || piece.folderIDs.contains(folderFilter!))
                 && (tagFilter == nil || piece.tagIDs.contains(tagFilter!))
@@ -377,6 +377,13 @@ private struct PieceDetailsView: View {
                     Text("Active").tag(PieceStatus.active)
                     Text("Completed").tag(PieceStatus.completed)
                     Text("Resting").tag(PieceStatus.resting)
+                }
+                let liveInstruments = store.state.instruments.filter { $0.deletedAt == nil }
+                if !liveInstruments.isEmpty {
+                    Picker("Instrument", selection: $draft.instrumentID) {
+                        Text("None").tag(UUID?.none)
+                        ForEach(liveInstruments) { instrument in Text(instrument.name).tag(Optional(instrument.id)) }
+                    }
                 }
             }
             Section("Organization") {

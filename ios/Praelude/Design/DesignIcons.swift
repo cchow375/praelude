@@ -11,6 +11,9 @@ enum PraeludeGlyph {
     case metronome, passageBox, verdictClean, verdictSloppy, verdictAgain
     case tempo, mic, warmup
     case recording(live: Bool)
+    /// §14: a coin (rewards ledger/wallet), a medallion (a badge), a chevron (a rank-up), a flame
+    /// (a practice streak) — reusing the same 24-unit grid and stroke weight as every other glyph.
+    case coin, badge, rank, streak
 }
 
 struct PraeludeIcon: View {
@@ -37,6 +40,18 @@ struct PraeludeIcon: View {
                     Circle().stroke(style: style)
                     if live { Circle().padding(size * 0.24) }
                 }
+            case .coin:
+                ZStack {
+                    Circle().stroke(style: style).padding(size * 0.06)
+                    PraeludeGlyphShape.coin.stroke(style: style)
+                }
+            case .badge:
+                ZStack {
+                    Circle().stroke(style: style).padding(size * 0.32)
+                    PraeludeGlyphShape.badge.stroke(style: style)
+                }
+            case .rank: PraeludeGlyphShape.rank.stroke(style: style)
+            case .streak: PraeludeGlyphShape.streak.stroke(style: style)
             }
         }
         .frame(width: size, height: size)
@@ -47,6 +62,7 @@ struct PraeludeIcon: View {
 /// is composed separately above since it needs a conditional fill, not a single path.
 private enum PraeludeGlyphShape: Shape {
     case metronome, passageBox, verdictClean, verdictSloppy, verdictAgain, tempo, mic, warmup
+    case coin, badge, rank, streak
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
@@ -105,6 +121,27 @@ private enum PraeludeGlyphShape: Shape {
             for (x, h) in bars {
                 path.move(to: P(x, 20)); path.addLine(to: P(x, 20 - h))
             }
+
+        case .coin:
+            // A short vertical tick across the circle drawn in the enclosing ZStack — a coin's edge.
+            path.move(to: P(12, 6)); path.addLine(to: P(12, 18))
+
+        case .badge:
+            // Two ribbon tails hanging below the circle drawn in the enclosing ZStack.
+            path.move(to: P(9, 15)); path.addLine(to: P(7, 22)); path.addLine(to: P(10, 20.5))
+            path.move(to: P(15, 15)); path.addLine(to: P(17, 22)); path.addLine(to: P(14, 20.5))
+
+        case .rank:
+            // Two stacked chevrons — a rank-up insignia, distinct from the tempo meter's flat bars.
+            path.move(to: P(5, 13)); path.addLine(to: P(12, 7)); path.addLine(to: P(19, 13))
+            path.move(to: P(5, 20)); path.addLine(to: P(12, 14)); path.addLine(to: P(19, 20))
+
+        case .streak:
+            // An asymmetric flame silhouette built from straight lines, matching this set's
+            // consistent-stroke style rather than a rounded/curved flame glyph.
+            path.move(to: P(12, 3)); path.addLine(to: P(16, 11)); path.addLine(to: P(19, 8))
+            path.addLine(to: P(19.5, 15)); path.addLine(to: P(12, 21)); path.addLine(to: P(4.5, 15))
+            path.addLine(to: P(6, 9)); path.addLine(to: P(9, 12)); path.closeSubpath()
         }
         return path
     }

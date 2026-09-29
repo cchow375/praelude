@@ -17,7 +17,9 @@ struct AddPieceView: View {
     @State private var composing = false
     @State private var error: String?
     @State private var saving = false
+    @State private var instrumentID: UUID?
     @FocusState private var titleFocused: Bool
+    private var liveInstruments: [Instrument] { store.state.instruments.filter { $0.deletedAt == nil } }
     var body: some View {
         NavigationStack {
             Form {
@@ -25,6 +27,15 @@ struct AddPieceView: View {
                     TextField("Title", text: $title).accessibilityIdentifier("pieceTitle")
                         .focused($titleFocused).textInputAutocapitalization(.words)
                     TextField("Composer", text: $composer).textInputAutocapitalization(.words)
+                }
+                if liveInstruments.count > 1 {
+                    Section {
+                        Picker("Instrument", selection: $instrumentID) {
+                            ForEach(liveInstruments) { instrument in Text(instrument.name).tag(Optional(instrument.id)) }
+                        }
+                    } footer: {
+                        Text("Praelude tailors parts wording and variant defaults to this piece’s instrument.")
+                    }
                 }
                 Section {
                     Button { showPicker = true } label: {
@@ -68,6 +79,7 @@ struct AddPieceView: View {
             }
             .onChange(of: photoSelections) { _, items in composePhotos(items) }
             .onAppear {
+                if instrumentID == nil { instrumentID = store.primaryInstrument?.id }
                 if let importedURL { select(importedURL) }
                 else { titleFocused = true }
             }
@@ -130,9 +142,9 @@ struct AddPieceView: View {
         do {
             let id: UUID
             if let pdfURL {
-                id = try NativeLibraryFiles(store: store).importPDF(pdfURL, title: title, composer: composer)
+                id = try NativeLibraryFiles(store: store).importPDF(pdfURL, title: title, composer: composer, instrumentID: instrumentID)
             } else {
-                let piece = Piece(title: title, composer: composer)
+                let piece = Piece(title: title, composer: composer, instrumentID: instrumentID)
                 try store.addPiece(piece); id = piece.id
             }
             dismiss(); onAdded(id)

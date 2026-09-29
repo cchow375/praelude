@@ -4,11 +4,45 @@ struct SettingsView: View {
     @Environment(PracticeStore.self) private var store
     @AppStorage("ios.feedback") private var feedbackEnabled = true
     @State private var errorMessage: String?
+    @State private var soundEnabled = RewardSoundService.shared.isEnabled
+    @State private var soundVolume = RewardSoundService.shared.volume
     let onExportBackup: () -> Void
     let onImportBackup: () -> Void
 
     var body: some View {
         Form {
+            Section("Instruments") {
+                NavigationLink {
+                    InstrumentsView()
+                } label: {
+                    HStack {
+                        Label("Your instruments", systemImage: "pianokeys")
+                        Spacer()
+                        if let primary = store.primaryInstrument {
+                            Text(primary.name).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section {
+                Toggle("Reward sounds", isOn: $soundEnabled).praeludeToggleHaptic(soundEnabled)
+                    .onChange(of: soundEnabled) { _, value in RewardSoundService.shared.isEnabled = value }
+                if soundEnabled {
+                    HStack {
+                        Image(systemName: "speaker.fill").foregroundStyle(.secondary)
+                        Slider(value: $soundVolume, in: 0...1)
+                            .onChange(of: soundVolume) { _, value in RewardSoundService.shared.volume = value }
+                        Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel("Reward sound volume")
+                }
+            } header: {
+                Text("Rewards")
+            } footer: {
+                Text("Musical, in-tune tones for milestones and badges — never anything that could be mistaken for the metronome click.")
+            }
+
             Section("Appearance") {
                 Picker("Appearance", selection: preference(\.theme)) {
                     Text("System").tag("system")
