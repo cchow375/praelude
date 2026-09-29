@@ -89,7 +89,10 @@ final class MobileMarkupUITests: XCTestCase {
         app.buttons["removeBox"].press(forDuration: 0.15); checkCount(app, 2)
         app.buttons["undoBox"].press(forDuration: 0.15); checkCount(app, 3)
         app.buttons["finishScoreMarkup"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 5))
+        // §9/R3: this passage was just drawn, so it has never been cold-graded today — the arm panel
+        // shows the cold-grade prompt in place of a plain Start (see PracticeLoopUITests for the
+        // dedicated coverage of that gate; this only needs to get past it to keep testing box edits).
+        XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.buttons["passages"].label.contains("Passage"))
         app.buttons["Score options"].press(forDuration: 0.15)
         app.buttons["Edit passage boxes"].press(forDuration: 0.15)
