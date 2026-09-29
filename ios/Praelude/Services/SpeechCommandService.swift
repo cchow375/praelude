@@ -12,6 +12,11 @@ final class SpeechCommandService {
     private(set) var lastTranscript = ""
     /// A score window may stop only the microphone session it started.
     private(set) var ownerID: UUID?
+    /// §9's "one-tap mute": distinct from `stop()`. Muting keeps the recognizer/audio engine running
+    /// (so un-muting is instant) but stops delivering commands, playing confirmation tones, and
+    /// logging misrecognitions — `stop()` remains the heavier "turn hands-free off entirely" action,
+    /// which tears the engine down and re-requests permission/setup on the next `start()`.
+    private(set) var isMuted = false
 
     @ObservationIgnored private let engine = AVAudioEngine()
     @ObservationIgnored private let notifications = AudioNotificationBag()
@@ -105,6 +110,7 @@ final class SpeechCommandService {
         onCommand = nil
         ownerID = nil
         isListening = false
+        isMuted = false
         status = "Voice is off"
         AudioSessionCoordinator.shared.release(.speech)
     }
@@ -112,6 +118,13 @@ final class SpeechCommandService {
     func stop(ifOwnedBy owner: UUID) {
         guard ownerID == owner else { return }
         stop()
+    }
+
+    /// §9's one-tap mute. Never used to satisfy `stop()`'s job — see `isMuted`'s doc comment.
+    func setMuted(_ value: Bool) {
+        isMuted = value
+        guard wantsListening else { return }
+        status = value ? "Muted — listening paused" : "Listening on this device"
     }
 
     private func beginUtterance() throws {
@@ -128,6 +141,7 @@ final class SpeechCommandService {
         request.shouldReportPartialResults = true
         request.taskHint = .confirmation
         request.contextualStrings = ["clean", "sloppy", "again", "undo", "pause", "resume",
+                                     "shaky", "missed", "start", "stop", "next", "slower", "faster",
                                      "metronome start", "metronome stop", "tempo", "next page", "previous page"]
         self.request = request
         let input = engine.inputNode
@@ -162,6 +176,16 @@ final class SpeechCommandService {
         }
     }
 
+    /// §9 asks for "~0.5 s latency" without losing accuracy. This was 1200ms; halved rather than cut
+    /// to the literal 500ms floor, because a still-revising partial transcript (most likely mid-way
+    /// through a multi-word phrase like "tempo ninety six") needs *some* settle time before commit —
+    /// finalizing on an intermediate partial that the recognizer was about to correct is exactly the
+    /// premature-finalization failure mode documented on the Mac side (`NOTES.md`/"(C) Flaws.md" B3,
+    /// "Progressive-revision metronome artifact"). The silence deadline still restarts on every
+    /// transcript *change* (below), so a genuinely still-speaking phrase keeps extending it; only a
+    /// transcript that has stopped changing is ever finalized early.
+    private static let silenceTimeoutMilliseconds: UInt64 = 600
+
     private func receive(transcript: String?, isFinal: Bool, error: String?, id: UUID) {
         guard wantsListening, generation == id, !finalDelivered else { return }
         if let transcript, !transcript.isEmpty {
@@ -170,7 +194,7 @@ final class SpeechCommandService {
                 lastTranscript = transcript
                 endpointTask?.cancel()
                 endpointTask = Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .milliseconds(1_200))
+                    try? await Task.sleep(for: .milliseconds(Self.silenceTimeoutMilliseconds))
                     guard !Task.isCancelled, self?.generation == id else { return }
                     self?.finishUtterance()
                 }
@@ -179,8 +203,16 @@ final class SpeechCommandService {
         if isFinal {
             finalDelivered = true
             let command = VoiceCommand.parse(transcript ?? "")
-            if let command { onCommand?(command) }
-            else if let transcript, !transcript.isEmpty { status = "Command not recognized" }
+            if isMuted {
+                // Muted: still recognizes (so un-muting is instant), but takes no action and keeps
+                // no record of what it heard — a deliberate no-op, not merely "no sound".
+            } else if let command {
+                VoiceConfirmationPlayer.shared.confirm(command)
+                onCommand?(command)
+            } else if let transcript, !transcript.isEmpty {
+                status = "Command not recognized"
+                VoiceMisrecognitionLog.shared.record(transcript)
+            }
             // The command may itself have turned off listening or dismissed the practice view.
             guard wantsListening, generation == id else { return }
             do { try beginUtterance() }

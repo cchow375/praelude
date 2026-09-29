@@ -35,6 +35,23 @@ struct SettingsView: View {
                 Text("Practice is stored on this device. Save a backup somewhere you trust. Restoring a backup replaces this device’s practice library after you review it.")
             }
 
+            Section {
+                NavigationLink {
+                    VoiceOnboardingView()
+                } label: {
+                    Label("Check voice recognition", systemImage: "mic")
+                }
+                NavigationLink {
+                    VoiceMisrecognitionLogView()
+                } label: {
+                    Label("Misheard phrases", systemImage: "text.bubble")
+                }
+            } header: {
+                Text("Voice")
+            } footer: {
+                Text("Hands-free commands are on-device only and never leave this device. A phrase that isn't in the fixed vocabulary is ignored, not sent anywhere, and logged here only so you can see what this room sounds like to it.")
+            }
+
             Section("Using Praelude") {
                 NavigationLink {
                     PracticeGuideView()

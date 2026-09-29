@@ -22,6 +22,7 @@ struct ScoreWorkspace: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("ios.feedback") private var feedbackEnabled = true
     @State private var voiceOwnerID = UUID()
+    @State private var arm = PracticeArmController()
     @State private var page = 1
     @State private var localMarkup = ScoreMarkupState()
     private var markup: ScoreMarkupState { sharedMarkup ?? localMarkup }
@@ -29,7 +30,6 @@ struct ScoreWorkspace: View {
     @State private var confirmDiscardSelection = false
     @State private var selectedPassage: Passage?
     @State private var sheet: ScoreSheet?
-    @State private var setupAfterDismiss = false
     @State private var focusMode = false
     @State private var twoPages = false
     @State private var importing = false
@@ -63,7 +63,8 @@ struct ScoreWorkspace: View {
                                            regions: visibleRegions, emphasizedIDs: emphasizedIDs, practicedIDs: practicedIDs,
                                            drawingData: { store.drawing(pieceID: pieceID, page: $0) },
                                            saveDrawing: persistInk, onRegionSelected: { id in
-                                               selectedPassage = savedPassages.first { $0.regions.contains { $0.id == id } }
+                                               guard let tapped = savedPassages.first(where: { $0.regions.contains { $0.id == id } }) else { return }
+                                               selectPassage(tapped)
                                            }, onTurnPage: turnPage, onPageChanged: savePage)
                                 .accessibilityIdentifier("scorePDF")
 
@@ -167,14 +168,11 @@ struct ScoreWorkspace: View {
         .sheet(item: $sheet, onDismiss: {
             if let sharingURL { try? FileManager.default.removeItem(at: sharingURL.deletingLastPathComponent()); self.sharingURL = nil }
             if let passage = drawAfterDismiss { drawAfterDismiss = nil; markup.begin(passage, baseline: savedPassages.first { $0.id == passage.id }) }
-            else if setupAfterDismiss { setupAfterDismiss = false; sheet = .setup }
         }) { item in
             switch item {
             case .setup: SetComposerView(pieceID: pieceID, passage: selectedPassage, onStarted: { refreshAudio() })
-            case .passages: PassagePickerView(pieceID: pieceID, currentPage: page, onSelect: { passage in
-                selectedPassage = passage; page = passage.page; savePage(page)
-                if store.activeSet == nil || store.activeSet?.isComplete == true { setupAfterDismiss = true }
-            }, onDraw: { passage in drawAfterDismiss = passage ?? newPassage() })
+            case .passages: PassagePickerView(pieceID: pieceID, currentPage: page, onSelect: selectPassage,
+                                              onDraw: { passage in drawAfterDismiss = passage ?? newPassage() })
             case .passageDetails:
                 if let selectedPassage {
                     NavigationStack {
@@ -211,16 +209,26 @@ struct ScoreWorkspace: View {
             Button("Cancel", role: .cancel) {}
         } message: { Text("Your repetitions and time stay saved. Unfinished work remains in your history.") }
         .alert("Couldn’t complete that", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
-        .onAppear { page = piece?.lastPage ?? 1; runtime.scoreAppeared(ownerID: voiceOwnerID) }
+        .onAppear { page = piece?.lastPage ?? 1; runtime.scoreAppeared(ownerID: voiceOwnerID); rearmIfIdle() }
         .onDisappear { _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); runtime.scoreDisappeared(ownerID: voiceOwnerID) }
-        .onChange(of: pieceID) { _, _ in page = piece?.lastPage ?? 1; selectedPassage = nil; speech.stop(ifOwnedBy: voiceOwnerID) }
+        .onChange(of: pieceID) { _, _ in page = piece?.lastPage ?? 1; selectedPassage = nil; speech.stop(ifOwnedBy: voiceOwnerID); arm.clearArm() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { _ = markup.flushInk() } }
         .onChange(of: markup.errorMessage) { _, message in if let message { error = message; markup.errorMessage = nil } }
         .onChange(of: store.state.passages) { _, passages in
             if let selectedPassage { self.selectedPassage = passages.first { $0.id == selectedPassage.id } }
         }
         .onChange(of: active?.currentBPM) { _, _ in refreshAudio() }
-        .onChange(of: active?.status) { _, _ in refreshAudio(); runtime.updateScreenAwake() }
+        .onChange(of: active?.status) { _, newStatus in
+            refreshAudio(); runtime.updateScreenAwake()
+            if newStatus == .completed, let active { arm.computeAfterSet(active, store: store) }
+            // Covers every path back to "no active set for this piece" in one place — Finish,
+            // relaunching mid-set and then finishing, a different window ending the set, and so
+            // on — not just the touch actions below that already rearm explicitly. Without this,
+            // a `PracticeArmController` created fresh by a relaunch (`.onAppear`'s own
+            // `rearmIfIdle()` correctly declines to arm while a set is still paused/running) would
+            // otherwise stay unarmed forever once that set later completes.
+            if newStatus == nil { rearmIfIdle() }
+        }
         .background {
             Button("Toggle metronome") {
                 if let set = store.activeSet, !set.isComplete { metronome.setTempo(set.currentBPM) }
@@ -354,6 +362,7 @@ struct ScoreWorkspace: View {
             draft.updatedAt = Date()
             try store.savePassage(draft, replacing: markup.baseline)
             selectedPassage = draft; markup.finish()
+            rearmIfIdle()
         }
     }
     private func persistInk(_ page: Int, _ data: Data, _ expected: Data?) -> Bool {
@@ -369,80 +378,47 @@ struct ScoreWorkspace: View {
     @ViewBuilder private var practiceDock: some View {
         VStack(spacing: 12) {
             if let active {
-                if active.isComplete {
-                    HStack {
-                        PraeludeIcon(glyph: .verdictClean, size: 26).foregroundStyle(PraeludeColor.ink)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Set complete").font(.headline)
-                            Text("\(active.totalPlays) repetitions saved").font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
-                        }
-                        Spacer()
-                        Button { perform { try runtime.undo() } } label: { Image(systemName: "arrow.uturn.backward") }
-                            .buttonStyle(.praeludeEdgeControl)
-                            .accessibilityLabel("Undo last repetition").keyboardShortcut("z", modifiers: .command)
-                    }
-                    HStack(spacing: 12) {
-                        Button("Finish") { perform { try store.endSession(); metronome.stop() } }.buttonStyle(.praeludeQuiet)
-                        Button("Another set") {
-                            perform { try store.endSet(); sheet = .setup }
-                        }.buttonStyle(.praeludePrimary)
-                    }
-                } else {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(active.currentStage?.name ?? active.configuration.focus).font(.subheadline.weight(.semibold)).lineLimit(1)
-                            Text(active.status == .paused ? "Paused" : "\(active.progressCount) of \(active.requiredCount) \(active.configuration.basis == .cleanStreak ? "clean" : "plays") · \(Int(active.currentBPM)) BPM")
-                                .font(.subheadline.monospacedDigit()).foregroundStyle(PraeludeColor.inkSecondary).accessibilityIdentifier("repProgress")
-                        }
-                        Spacer(minLength: 4)
-                        Button { perform { try runtime.undo() } } label: { Image(systemName: "arrow.uturn.backward") }
-                            .buttonStyle(.praeludeEdgeControl)
-                            .accessibilityLabel("Undo last repetition").accessibilityIdentifier("undoRep").keyboardShortcut("z", modifiers: .command)
-                            .disabled(!active.attempts.contains { $0.undoneAt == nil })
-                        Button { togglePause() } label: { Image(systemName: active.status == .paused ? "play.fill" : "pause.fill") }
-                            .buttonStyle(.praeludeEdgeControl)
-                            .accessibilityLabel(active.status == .paused ? "Resume practice" : "Pause practice").accessibilityIdentifier("pausePractice")
-                    }
-                    SwiftUI.ProgressView(value: active.progressFraction).tint(PraeludeColor.live).accessibilityLabel("Set progress")
-                    let verdictLayout = dynamicTypeSize.isAccessibilitySize && sizeClass == .compact && verticalSizeClass != .compact
-                        ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 10))
-                    verdictLayout {
-                        if dynamicTypeSize.isAccessibilitySize {
-                            verdictButton(.clean, title: "Clean", glyph: .verdictClean, key: "1", primary: true)
-                            verdictButton(.sloppy, title: "Sloppy", glyph: .verdictSloppy, key: "2", primary: false)
-                            verdictButton(.again, title: "Again", glyph: .verdictAgain, key: "3", primary: false)
-                        } else {
-                            verdictButton(.again, title: "Again", glyph: .verdictAgain, key: "3", primary: false)
-                            verdictButton(.sloppy, title: "Sloppy", glyph: .verdictSloppy, key: "2", primary: false)
-                            verdictButton(.clean, title: "Clean", glyph: .verdictClean, key: "1", primary: true)
-                        }
-                    }.disabled(active.status != .running).opacity(active.status == .running ? 1 : 0.45)
-                }
+                PracticeHUDView(
+                    active: active, passageTitle: active.currentStage?.name ?? active.configuration.focus, arm: arm,
+                    speech: speech, voiceOwnerID: voiceOwnerID, flashedCommand: VoiceConfirmationPlayer.shared.lastCommand,
+                    flashedCommandID: VoiceConfirmationPlayer.shared.lastCommandID,
+                    onVerdict: record, onUndo: { perform { try runtime.undo() } }, onTogglePause: togglePause,
+                    onStop: stopPractice, onFinishSession: { perform { try store.endSession(); metronome.stop() } },
+                    onAnotherSet: { perform { try store.endSet(); rearm() } },
+                    onToggleMetronome: {
+                        if let set = store.activeSet, !set.isComplete { metronome.setTempo(set.currentBPM) }
+                        metronome.toggle()
+                    }, metronomeOn: metronome.isPlaying,
+                    onMuteVoice: { speech.setMuted(!speech.isMuted) }, onVoiceOff: { speech.stop() },
+                    onApplySuggestion: applySuggestion, onDismissSuggestion: { arm.dismiss($0, store: store) }
+                )
             } else if let other = store.activeSet, !other.isComplete {
                 Text("A set is open for \(store.state.pieces.first { $0.id == other.configuration.pieceID }?.title ?? "another piece").")
                     .font(.callout).foregroundStyle(PraeludeColor.inkSecondary)
                 Button("Finish current practice") { ending = true }.buttonStyle(.praeludeQuiet)
             } else {
-                HStack(spacing: 12) {
-                    Button { sheet = .passages } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(selectedPassage?.title ?? "Whole piece").font(.headline)
-                            Text(selectedPassage?.locationLabel ?? "Choose a passage").font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
-                        }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 54).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityIdentifier("choosePassage")
-                    Button { sheet = .setup } label: { Label("Start set", systemImage: "play.fill").frame(minHeight: 36) }
-                        .buttonStyle(.praeludePrimary).fixedSize(horizontal: true, vertical: false).accessibilityIdentifier("startSet")
-                }
+                NextStepAndSuggestionsView(arm: arm, onApply: applySuggestion, onDismiss: { arm.dismiss($0, store: store) })
+                PracticeArmView(
+                    arm: arm, passage: selectedPassage, pieceSubtitle: "Choose a passage",
+                    onStarted: {}, onOpenAdvanced: { sheet = .setup },
+                    onSplitPassage: { beginSelection($0) }
+                )
+                Button { sheet = .passages } label: {
+                    Label(selectedPassage == nil ? "Choose a passage" : "Choose a different passage", systemImage: "bookmark")
+                        .font(.caption).frame(minHeight: 32)
+                }.buttonStyle(.plain).foregroundStyle(PraeludeColor.inkSecondary).accessibilityIdentifier("choosePassage")
             }
             if let failure = store.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
             if let failure = metronome.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
             if let failure = speech.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
-            if speech.isListening && speech.ownerID == voiceOwnerID {
+            if active == nil, speech.isListening, speech.ownerID == voiceOwnerID {
                 HStack(spacing: 8) {
-                    Circle().fill(PraeludeColor.live).frame(width: 6, height: 6)
-                    PraeludeIcon(glyph: .mic, size: 14).foregroundStyle(PraeludeColor.live)
+                    Circle().fill(speech.isMuted ? PraeludeColor.inkTertiary : PraeludeColor.live).frame(width: 6, height: 6)
+                    PraeludeIcon(glyph: .mic, size: 14).foregroundStyle(speech.isMuted ? PraeludeColor.inkTertiary : PraeludeColor.live)
                     Text(speech.status).font(.caption)
                     Spacer()
+                    Button(speech.isMuted ? "Unmute" : "Mute") { speech.setMuted(!speech.isMuted) }.font(.caption.weight(.semibold))
+                        .frame(minHeight: 44).contentShape(Rectangle())
                     Button("Off") { speech.stop() }.font(.caption.weight(.semibold))
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }.accessibilityElement(children: .combine)
@@ -454,17 +430,33 @@ struct ScoreWorkspace: View {
         .praeludeScoreChrome()
         .praeludeHairline(.top)
     }
-    private func verdictButton(_ verdict: Verdict, title: String, glyph: PraeludeGlyph, key: KeyEquivalent, primary: Bool) -> some View {
-        Button { record(verdict) } label: {
-            VStack(spacing: 7) {
-                if !dynamicTypeSize.isAccessibilitySize { PraeludeIcon(glyph: glyph, size: 22) }
-                Text(title).font(.headline).fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 12 : 0)
+    /// §10a: tap 1. Both an on-score box tap and a Passages-list row land here, arming rule defaults
+    /// immediately so the very next tap (or "Start") is tap 2 — no modal in between.
+    private func selectPassage(_ passage: Passage) {
+        selectedPassage = passage
+        page = passage.page
+        savePage(page)
+        rearmIfIdle()
+    }
+    private func rearm() {
+        arm.arm(pieceID: pieceID, passage: selectedPassage, store: store)
+    }
+    private func rearmIfIdle() {
+        guard store.activeSet == nil || store.activeSet?.isComplete == true else { return }
+        rearm()
+    }
+    /// §11: applying a suggestion is fully mechanical for most rules (`PracticeArmController.accept`);
+    /// R1 (no computed split point) and R12 (a whole variant chain) need the player's own input, so
+    /// this layers the one UI-only step each of those two still needs on top of the same accept call.
+    private func applySuggestion(_ decision: Decision) {
+        arm.accept(decision, store: store)
+        switch decision.outcome {
+        case .suggestSplit:
+            if let passageID = decision.passageID, let target = store.state.passages.first(where: { $0.id == passageID }) { beginSelection(target) }
+        case .suggestVariants:
+            rearmIfIdle()
+        default: break
         }
-        .buttonStyle(.praeludeVerdict(emphasis: primary))
-        .keyboardShortcut(key, modifiers: [])
-        .accessibilityIdentifier("verdict_\(verdict.rawValue)")
     }
     private func pageControls(compact: Bool) -> some View {
         HStack(spacing: compact ? 8 : 4) {
@@ -485,8 +477,12 @@ struct ScoreWorkspace: View {
                 }
                 Section("Say a command") {
                     LabeledContent("Clean · Sloppy · Again", value: "Record a rep")
+                    LabeledContent("Shaky · Missed", value: "Grade the first try today")
                     LabeledContent("Undo", value: "Correct the last rep")
-                    LabeledContent("Pause · Resume", value: "Control the set")
+                    LabeledContent("Start · Stop", value: "Begin or end the set")
+                    LabeledContent("Pause · Resume", value: "Hold the set")
+                    LabeledContent("Next", value: "Another set once this one is complete")
+                    LabeledContent("Slower · Faster", value: "Nudge the armed tempo ±5")
                     LabeledContent("Next page · Previous page", value: "Turn pages")
                     LabeledContent("Metronome start · Stop metronome", value: "Control the click")
                     LabeledContent("Tempo eighty", value: "Set 80 BPM")
@@ -497,8 +493,14 @@ struct ScoreWorkspace: View {
                         if speech.isListening { speech.stop() }
                         else { speech.start(ownerID: voiceOwnerID, onCommand: handleVoice) }
                     }.frame(minHeight: 44).fontWeight(.semibold)
+                    if speech.isListening {
+                        Button(speech.isMuted ? "Unmute" : "Mute") { speech.setMuted(!speech.isMuted) }.frame(minHeight: 44)
+                    }
                     Text(speech.status).font(.caption).foregroundStyle(.secondary)
                 } footer: { Text("Microphone and Speech Recognition permissions are requested only when you enable this. On-device speech availability depends on your device and downloaded language support.") }
+                Section {
+                    NavigationLink("Check voice recognition") { VoiceOnboardingView() }
+                }
             }.navigationTitle("Hands-free").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { sheet = nil } } }
         }.presentationDetents([.large])
@@ -518,7 +520,45 @@ struct ScoreWorkspace: View {
             }
             FeedbackService.shared.isEnabled = feedbackEnabled
             _ = try runtime.record(verdict)
+            advancePassagePageIfNeeded()
         }
+    }
+    /// §8: "Multi-region, multi-page; practicing auto-turns pages." With no real playing-position
+    /// signal (§2: no audio grading), a recorded verdict is the one moment the app has real ground
+    /// truth about progress through a cross-page passage — see `PracticeUXHelpers.nextPassagePage`
+    /// — so that is when the score follows, cycling the passage's own pages rather than requiring a
+    /// manual turn to see the rest of it.
+    private func advancePassagePageIfNeeded() {
+        guard let snapshot = active?.configuration.passageSnapshot,
+              let next = PracticeUXHelpers.nextPassagePage(after: page, pages: PracticeUXHelpers.distinctPages(snapshot.regions)),
+              markup.flushInk() else { return }
+        page = next
+        savePage(next)
+    }
+    /// §10a tap 2 (touch or "Start"/a cold grade word). Mirrors `PracticeArmView.start(grade:)` —
+    /// kept separate because voice dispatch lives here, not inside that view.
+    private func armStart(grade: ColdGrade? = nil) {
+        perform {
+            guard try arm.start(grade: grade, store: store, runtime: runtime) else { return }
+            if let configuration = arm.configuration {
+                metronome.setTempo(configuration.startBPM)
+                if configuration.useMetronome { metronome.start() } else { metronome.stop() }
+            }
+            // A cold grade is the set's first recorded attempt too (§9/R3) — it deserves the same
+            // auto page-turn treatment as every later verdict, not just attempt #2 onward.
+            if grade != nil { advancePassagePageIfNeeded() }
+        }
+    }
+    private func stopPractice() {
+        guard let current = active else { return }
+        arm.computeAfterSet(current, store: store)
+        perform { try store.endSet(); metronome.stop() }
+    }
+    private func nudgeArmedTempo(_ delta: Double) {
+        guard store.activeSet == nil || store.activeSet?.isComplete == true, var configuration = arm.configuration else { return }
+        configuration.startBPM = min(max(configuration.startBPM + delta, 20), 300)
+        if configuration.targetBPM < configuration.startBPM { configuration.targetBPM = configuration.startBPM }
+        arm.configuration = configuration
     }
     private func refreshAudio() {
         guard let active else { return }
@@ -530,20 +570,39 @@ struct ScoreWorkspace: View {
     private func handleVoice(_ command: VoiceCommand) {
         // A modal editor owns its own input; speech never writes through an open setup sheet.
         guard markup.mode == .reading, sheet == nil || sheet == .voice else { return }
+        let idle = store.activeSet == nil || store.activeSet?.isComplete == true
         switch command {
-        case .clean: record(.clean)
+        case .clean: if arm.awaitingColdGrade { armStart(grade: .clean) } else { record(.clean) }
         case .sloppy: record(.sloppy)
         case .again: record(.again)
+        // §9: cold grading only means something while the cold-grade prompt is actually showing —
+        // outside that moment these two words are inert, the same firewall as every other command.
+        case .shaky: if arm.awaitingColdGrade { armStart(grade: .shaky) }
+        case .missed: if arm.awaitingColdGrade { armStart(grade: .missed) }
         case .undo: if active != nil { perform { try runtime.undo() } }
         case .pause: if active != nil { perform { try store.pause() } }
         case .resume: if active != nil { perform { try store.resume() } }
+        case .start: if idle { armStart() }
+        case .stop: if active != nil { stopPractice() }
+        case .next:
+            // No session-queue feature exists yet (out of this track's scope); "Next" is defined as
+            // moving straight on to another set on the same passage once this one is complete.
+            if let active, active.isComplete { perform { try store.endSet() }; rearm(); armStart() }
+        case .slower: nudgeArmedTempo(-5)
+        case .faster: nudgeArmedTempo(5)
         case .metronomeStart:
             if let set = store.activeSet, !set.isComplete { metronome.setTempo(set.currentBPM) }
             metronome.start()
         case .metronomeStop: metronome.stop()
         case .setTempo(let bpm):
-            if store.activeSet == nil || store.activeSet?.isComplete == true { metronome.setTempo(bpm) }
-            else { error = "Tempo follows your current set. Finish the set to choose a new tempo." }
+            if idle {
+                metronome.setTempo(bpm)
+                if var configuration = arm.configuration {
+                    configuration.startBPM = bpm
+                    if configuration.targetBPM < bpm { configuration.targetBPM = bpm }
+                    arm.configuration = configuration
+                }
+            } else { error = "Tempo follows your current set. Finish the set to choose a new tempo." }
         case .nextPage: turnPage(1)
         case .previousPage: turnPage(-1)
         }

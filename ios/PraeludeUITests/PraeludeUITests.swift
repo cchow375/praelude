@@ -19,11 +19,12 @@ final class PraeludeUITests: XCTestCase {
         XCTAssertTrue(piece.waitForExistence(timeout: 10), app.debugDescription)
         for _ in 0..<5 where !piece.isHittable { app.swipeUp() }
         piece.press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["startSet"].waitForExistence(timeout: 5))
+        // §10a: the arm panel is already showing with rule defaults filled — no separate "start set"
+        // tap opens it first, that trip through a modal is exactly what this track removed.
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 5))
     }
     @MainActor private func startSet(_ app: XCUIApplication) {
-        app.buttons["startSet"].press(forDuration: 0.15)
-        let start = app.buttons["confirmStartSet"]
+        let start = app.buttons["armStartSet"]
         XCTAssertTrue(start.waitForExistence(timeout: 5))
         start.press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 5), app.debugDescription)
@@ -40,16 +41,17 @@ final class PraeludeUITests: XCTestCase {
         screenshot("02-score")
         app.buttons["Next page"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["Page 2 of 4"].exists)
-        app.buttons["startSet"].press(forDuration: 0.15)
+        // The full manual editor is still reachable and still cancelable, one tap away.
+        app.buttons["More options"].press(forDuration: 0.15)
         screenshot("03-set-sheet")
         app.buttons["Cancel"].press(forDuration: 0.15)
         startSet(app)
         app.buttons["verdict_clean"].press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["1 of 5 clean · 60 BPM"].exists)
+        XCTAssertTrue(app.staticTexts["1 of 5 clean"].exists)
         app.buttons["verdict_sloppy"].press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["0 of 5 clean · 60 BPM"].exists)
+        XCTAssertTrue(app.staticTexts["0 of 5 clean"].exists)
         app.buttons["undoRep"].press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["1 of 5 clean · 60 BPM"].exists)
+        XCTAssertTrue(app.staticTexts["1 of 5 clean"].exists)
         screenshot("04-practice")
         app.buttons["pausePractice"].press(forDuration: 0.15)
         XCTAssertFalse(app.buttons["verdict_clean"].isEnabled)
@@ -66,7 +68,7 @@ final class PraeludeUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Set complete"].waitForExistence(timeout: 5))
         screenshot("05-completion")
         app.buttons["Finish"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["startSet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 15), app.debugDescription)
     }
     @MainActor func testBlankInstallAndAddPaperPiece() {
         let app = launch(seed: false)
@@ -80,7 +82,7 @@ final class PraeludeUITests: XCTestCase {
         XCTAssertTrue(title.waitForExistence(timeout: 5), app.debugDescription)
         title.press(forDuration: 0.15); title.typeText("My practice")
         app.buttons["savePiece"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["startSet"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 5), app.debugDescription)
         screenshot("06-paper-score")
     }
     @MainActor func testMetronomeAndPages() {
@@ -95,7 +97,7 @@ final class PraeludeUITests: XCTestCase {
         screenshot("07-metronome")
         app.buttons["toggleMetronome"].press(forDuration: 0.15)
         app.buttons["Done"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["startSet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 10))
     }
     @MainActor private func tapSettings(_ app: XCUIApplication) {
         let hideSidebar = app.buttons["Hide Sidebar"]

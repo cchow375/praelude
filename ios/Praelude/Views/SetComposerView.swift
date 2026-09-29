@@ -187,7 +187,7 @@ struct PracticeFocusField: View {
     }
 }
 
-private struct VariantEditorView: View {
+struct VariantEditorView: View {
     @Environment(PracticeStore.self) private var store
     @Binding var stages: [VariantStage]
     @State private var name = ""

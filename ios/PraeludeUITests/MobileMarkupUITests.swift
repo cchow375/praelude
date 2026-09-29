@@ -89,7 +89,10 @@ final class MobileMarkupUITests: XCTestCase {
         app.buttons["removeBox"].press(forDuration: 0.15); checkCount(app, 2)
         app.buttons["undoBox"].press(forDuration: 0.15); checkCount(app, 3)
         app.buttons["finishScoreMarkup"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["startSet"].waitForExistence(timeout: 5))
+        // §9/R3: this passage was just drawn, so it has never been cold-graded today — the arm panel
+        // shows the cold-grade prompt in place of a plain Start (see PracticeLoopUITests for the
+        // dedicated coverage of that gate; this only needs to get past it to keep testing box edits).
+        XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.buttons["passages"].label.contains("Passage"))
         app.buttons["Score options"].press(forDuration: 0.15)
         app.buttons["Edit passage boxes"].press(forDuration: 0.15)
@@ -138,15 +141,15 @@ final class MobileMarkupUITests: XCTestCase {
     }
     @MainActor func testPracticeFeedbackAndMeterControls() {
         let app = XCUIApplication(); openScore(app)
-        let start = app.buttons["startSet"]; settle(start, app: app); start.press(forDuration: 0.15)
-        let confirm = app.buttons["confirmStartSet"]
+        // §10a: the arm panel is already showing with defaults filled — one tap starts the set.
+        let confirm = app.buttons["armStartSet"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 8)); settle(confirm, app: app); confirm.press(forDuration: 0.15)
         let clean = app.buttons["verdict_clean"]
         XCTAssertTrue(clean.waitForExistence(timeout: 8)); settle(clean, app: app); clean.tap()
-        XCTAssertTrue(app.staticTexts["1 of 5 clean · 60 BPM"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 5), app.debugDescription)
         shot("15-earned-practice-feedback")
         app.buttons["undoRep"].press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["0 of 5 clean · 60 BPM"].exists)
+        XCTAssertTrue(app.staticTexts["0 of 5 clean"].exists)
         let click = app.buttons["openMetronome"]; settle(click, app: app); click.press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["toggleMetronome"].waitForExistence(timeout: 8))
         XCTAssertFalse(app.sliders["sliderTempo"].isEnabled, "An active set owns the click tempo")

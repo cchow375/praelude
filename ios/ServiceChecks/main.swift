@@ -10,6 +10,9 @@ import Foundation
         let valid: [(String, VoiceCommand)] = [
             ("clean", .clean), ("Clean!", .clean), (" sloppy ", .sloppy), ("again", .again),
             ("undo", .undo), ("pause", .pause), ("resume", .resume),
+            ("shaky", .shaky), ("Shaky.", .shaky), ("missed", .missed), (" MISSED ", .missed),
+            ("start", .start), ("Start!", .start), ("stop", .stop), ("STOP", .stop),
+            ("next", .next), ("Next.", .next), ("slower", .slower), ("faster", .faster),
             ("start metronome", .metronomeStart), ("metronome on", .metronomeStart),
             ("metronome start", .metronomeStart), ("stop metronome", .metronomeStop),
             ("metronome off", .metronomeStop), ("metronome stop", .metronomeStop),
@@ -23,6 +26,8 @@ import Foundation
         for (text, command) in valid { expect(VoiceCommand.parse(text) == command, "Accept \(text)") }
         let invalid = ["", "please clean", "clean and sloppy", "unclean", "again again", "undo two",
                        "don't pause", "stop the music", "the next page is good", "sloppiness", "clean\nsloppy",
+                       "please start", "start over", "stop please", "next steps", "faster please", "go faster",
+                       "missing", "shakily", "we missed the bus", "shaky ground",
                        "tempo", "tempo nan", "tempo infinity", "tempo +inf", "tempo -20", "tempo 19",
                        "tempo 301", "tempo 96 please", "tempo 1e2", "tempo ninety six three", "tempo hundred",
                        "tempo one hundred and", "tempo three hundred one", "tempo one twenty", "tempo twenty zero"]
