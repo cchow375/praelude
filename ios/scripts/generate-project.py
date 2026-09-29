@@ -52,6 +52,12 @@ def configs(prefix, settings, base_config=None):
                 ),
             }
         )
+        # Release links supabase-swift's internal `Helpers` target statically (Products/Helpers.o,
+        # no PackageFrameworks/Helpers.framework), so the Debug-only `-framework Helpers` workaround
+        # documented on OTHER_LDFLAGS below would fail the device Release link with
+        # "framework 'Helpers' not found". Keep it for Debug only.
+        if mode == "Release" and "OTHER_LDFLAGS" in options:
+            options["OTHER_LDFLAGS"] = options["OTHER_LDFLAGS"].replace(" -framework Helpers", "")
         base = (
             "baseConfigurationReference = " + base_config + "; " if base_config else ""
         )
