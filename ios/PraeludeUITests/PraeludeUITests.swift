@@ -149,14 +149,27 @@ final class PraeludeUITests: XCTestCase {
         screenshot("08-dark-practice")
         app.buttons.matching(identifier: "Close score").firstMatch.press(forDuration: 0.15)
         tapSettings(app)
-        app.buttons["Export backup"].press(forDuration: 0.15)
+        let exportBackup = app.buttons["Export backup"]
+        // Scroll first, not a bare press or a plain wait: Settings is a fixed-height popover on
+        // this iPad width, and the Instruments/Rewards sections added above it (after this test
+        // was first written) now push this row below the fold — a row that far off-screen in a
+        // lazily-rendered Form is not materialized in the accessibility tree at all, so waiting
+        // alone never finds it; only scrolling does.
+        for _ in 0..<8 where !exportBackup.exists || !exportBackup.isHittable { app.swipeUp() }
+        XCTAssertTrue(exportBackup.waitForExistence(timeout: 5), app.debugDescription)
+        exportBackup.press(forDuration: 0.15)
         let picker = app.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "DOC.browsingRoot Source:")).firstMatch
         // Both Browse and Recents expose this document root; the phone exporter has no Cancel button.
         XCTAssertTrue(picker.waitForExistence(timeout: 90), app.debugDescription)
         screenshot("09-backup-exporter")
         dismissFilePicker(app)
         tapSettings(app)
-        app.buttons["Restore backup"].press(forDuration: 0.15)
+        // Same fixed-height-popover scroll as `exportBackup` above — each `tapSettings` call
+        // reopens Settings at its default (top) scroll position.
+        let restoreBackup = app.buttons["Restore backup"]
+        for _ in 0..<8 where !restoreBackup.exists || !restoreBackup.isHittable { app.swipeUp() }
+        XCTAssertTrue(restoreBackup.waitForExistence(timeout: 5), app.debugDescription)
+        restoreBackup.press(forDuration: 0.15)
         XCTAssertTrue(picker.waitForExistence(timeout: 90), app.debugDescription)
         dismissFilePicker(app)
         XCTAssertTrue(app.buttons["resumePractice"].exists)
@@ -164,7 +177,21 @@ final class PraeludeUITests: XCTestCase {
 
     @MainActor func testWarmupsPracticeAndRewardsScreens() {
         let app = launch()
-        app.tabBars.buttons["Warmups"].press(forDuration: 0.15)
+        // A plain button lookup, not `app.tabBars` — on this iPad width the destination switcher
+        // is the split view's sidebar list, not a `UITabBar`, matching every other test in this
+        // suite (see `openScore`'s "Pieces" lookup above). The sidebar can start collapsed on
+        // this simulator host (see `LibraryUITests.goToLibrary`'s identical retry) — nothing else
+        // in this test has waited for it to expand, unlike `openScore`'s "Hide Sidebar" check.
+        let warmupsTab = app.buttons["Warmups"]
+        if !warmupsTab.waitForExistence(timeout: 2) {
+            let showSidebar = app.buttons["Show Sidebar"]
+            for _ in 0..<5 {
+                if warmupsTab.waitForExistence(timeout: 1) { break }
+                if showSidebar.exists, showSidebar.isHittable { showSidebar.press(forDuration: 0.15) }
+            }
+        }
+        XCTAssertTrue(warmupsTab.waitForExistence(timeout: 5), app.debugDescription)
+        warmupsTab.press(forDuration: 0.15)
         let next = app.buttons["warmupNextInRotation"]
         XCTAssertTrue(next.waitForExistence(timeout: 10), app.debugDescription)
         screenshot("10-warmups-library")
@@ -176,7 +203,7 @@ final class PraeludeUITests: XCTestCase {
         screenshot("12-warmup-one-rep")
         app.buttons["closeWarmupPractice"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["resumePractice"].waitForExistence(timeout: 5), "closing mid-set must leave it resumable, not discard it")
-        app.tabBars.buttons["Rewards"].press(forDuration: 0.15)
+        app.buttons["Rewards"].press(forDuration: 0.15)
         XCTAssertTrue(app.navigationBars["Rewards"].waitForExistence(timeout: 10), app.debugDescription)
         RunLoop.current.run(until: Date().addingTimeInterval(0.3)) // let the List finish laying out before capturing it
         screenshot("13-rewards")

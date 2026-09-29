@@ -10,9 +10,12 @@ final class MobileMarkupUITests: XCTestCase {
         let hide = app.buttons["Hide Sidebar"]
         if hide.waitForExistence(timeout: 1), hide.isHittable { hide.press(forDuration: 0.15) }
         let piece = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Practice study", "4 pages")).firstMatch
-        // Large Text can place the score row outside the List's realized cells.
+        // Large Text can place the score row outside the List's realized cells, or leave it only
+        // partly on screen: at this size the Today list above it (suggestions, warmups) can push
+        // the row to straddle the bottom edge, where it is already "hittable" but `settle` below
+        // (rightly) refuses it. Scroll until the whole row is inside the window.
         for _ in 0..<6 {
-            if piece.exists, piece.isHittable { break }
+            if piece.exists, piece.isHittable, app.frame.contains(piece.frame) { break }
             app.swipeUp()
         }
         XCTAssertTrue(piece.waitForExistence(timeout: 5), app.debugDescription)

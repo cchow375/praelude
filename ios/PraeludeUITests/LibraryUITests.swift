@@ -24,8 +24,14 @@ final class LibraryUITests: XCTestCase {
             }
         }
         XCTAssertTrue(pieces.waitForExistence(timeout: 5), app.debugDescription)
-        pieces.press(forDuration: 0.15)
-        XCTAssertTrue(app.navigationBars["Pieces"].waitForExistence(timeout: 5), app.debugDescription)
+        // Same lost-press hazard as "Show Sidebar" above: on the first (cold) launch of a run, a
+        // press on the just-revealed sidebar row can be dropped, leaving Today selected.
+        let piecesBar = app.navigationBars["Pieces"]
+        for _ in 0..<3 {
+            if pieces.exists, pieces.isHittable { pieces.press(forDuration: 0.15) }
+            if piecesBar.waitForExistence(timeout: 3) { break }
+        }
+        XCTAssertTrue(piecesBar.waitForExistence(timeout: 5), app.debugDescription)
         // The sidebar can remain open as a persistent column at this width, leaving its "On your
         // music stand" shortcut list (the same piece titles the tests below assert about) on
         // screen alongside the Pieces list it just navigated to. Collapse it so every assertion
@@ -129,7 +135,8 @@ final class LibraryUITests: XCTestCase {
         XCTAssertTrue(start.waitForExistence(timeout: 5), "\u{201c}Open in order\u{201d} must offer Start once the setlist has a piece")
         screenshot("library-setlist")
         start.press(forDuration: 0.15)
-        // Opening a setlist item hands off to the same score workspace `openScore` exercises.
-        XCTAssertTrue(app.buttons["startSet"].waitForExistence(timeout: 10), app.debugDescription)
+        // Opening a setlist item hands off to the same score workspace `openScore` exercises: the
+        // arm panel (§10a), not a separate "start set" tap — see `PraeludeUITests.openScore`.
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 10), app.debugDescription)
     }
 }
