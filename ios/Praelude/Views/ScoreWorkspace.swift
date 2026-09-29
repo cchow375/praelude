@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 private enum ScoreSheet: String, Identifiable {
-    case setup, passages, metronome, pages, voice, passageDetails, share
+    case setup, passages, metronome, pages, voice, passageDetails, share, heatmap
     var id: String { rawValue }
 }
 
@@ -154,6 +154,8 @@ struct ScoreWorkspace: View {
                             Button(speech.isListening ? "Turn voice off" : "Hands-free commands", systemImage: speech.isListening ? "mic.slash" : "mic") {
                                 if speech.isListening { speech.stop() } else { sheet = .voice }
                             }
+                            Button("Score heatmap", systemImage: "square.grid.3x3.fill") { sheet = .heatmap }
+                                .disabled(scoreURL == nil)
                             Button("Replace score PDF", systemImage: "doc.badge.plus") { importing = true }
                             Button("Share annotated score", systemImage: "square.and.arrow.up") {
                                 guard markup.flushInk() else { return }
@@ -185,6 +187,7 @@ struct ScoreWorkspace: View {
             case .pages: if let scoreURL { ScorePagePicker(url: scoreURL, currentPage: page, onSelect: { if markup.flushInk() { page = $0; savePage($0) } }) }
             case .voice: voiceSheet
             case .share: if let sharingURL { ScoreShareView(url: sharingURL) }
+            case .heatmap: if let scoreURL { ScoreHeatmapView(pieceID: pieceID, url: scoreURL, startPage: page) }
             }
         }
         .confirmationDialog("Discard these passage edits?", isPresented: $confirmDiscardSelection, titleVisibility: .visible) {
