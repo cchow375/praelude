@@ -122,6 +122,31 @@ begin
     raise exception 'FAIL 01.11: security definer function public.%() is EXECUTE-granted to anon', v_row.proname;
   end loop;
 
+  -- 5b. The exact, deliberately uneven authenticated-grant contract for the small "is this visible /
+  --     am I a member" predicate helpers (see 20260926220011_advisor_fixes.sql's and
+  --     20260926220018's own comments for the reasoning this codifies): a helper called from inside a
+  --     plain RLS policy qual or a non-SECURITY-DEFINER trigger body runs *as the querying role*, so it
+  --     needs its own grant or every query through that policy/trigger fails outright; a helper only
+  --     ever called from inside another SECURITY DEFINER function runs as that function's owner and
+  --     must NOT also be independently callable, or it becomes a way to ask about an arbitrary pair/
+  --     owner with none of the caller-scoping its real call sites rely on.
+  if not (
+    has_function_privilege('authenticated', 'public.is_studio_member(uuid, uuid)'::regprocedure, 'execute')
+    and has_function_privilege('authenticated', 'public.is_studio_owner(uuid, uuid)'::regprocedure, 'execute')
+    and has_function_privilege('authenticated', 'public.can_view_activity_event(uuid)'::regprocedure, 'execute')
+    and has_function_privilege('authenticated', 'public._can_view_social_target(text, uuid)'::regprocedure, 'execute')
+  ) then
+    raise exception 'FAIL 01.16: a helper read from inside a plain RLS policy/trigger lost its required authenticated grant';
+  end if;
+  if (
+    has_function_privilege('authenticated', 'public.is_friend(uuid, uuid)'::regprocedure, 'execute')
+    or has_function_privilege('authenticated', 'public.is_blocked(uuid, uuid)'::regprocedure, 'execute')
+    or has_function_privilege('authenticated', 'public._profile_stats(uuid)'::regprocedure, 'execute')
+    or has_function_privilege('authenticated', 'public._profile_field_visible(public.profile_visibility, boolean, boolean)'::regprocedure, 'execute')
+  ) then
+    raise exception 'FAIL 01.17: a helper meant to be reachable only from inside another SECURITY DEFINER function became directly callable (arbitrary-pair/owner probing, unscoped to the caller)';
+  end if;
+
   -- 6. Storage: RLS is on for storage.objects, and none of the four buckets is a public bucket. See
   --    04's dynamic tests for the actual per-bucket read/write behavior.
   if not exists (

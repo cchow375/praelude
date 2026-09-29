@@ -54,11 +54,20 @@ set local request.jwt.claims = '{"sub":"__USER_A_ID__","role":"authenticated"}';
 select public.respond_friend_request('__USER_B_ID__', true);
 
 do $$
-declare v_card jsonb;
+declare
+  v_card jsonb;
+  v_status public.friendship_status;
 begin
   set local request.jwt.claims = '{"sub":"__USER_B_ID__","role":"authenticated"}';
-  if not public.is_friend('__USER_A_ID__', '__USER_B_ID__') then
-    raise exception 'FAIL 03.2a: is_friend is false after an accepted request';
+  -- is_friend/is_blocked are intentionally not directly callable (see
+  -- 20260926220018_revert_unneeded_friend_block_grants.sql) - every real call site is from inside
+  -- another SECURITY DEFINER function, so tests check the same state through what a client actually
+  -- can read: the friendships table's own self-scoped SELECT policy.
+  select status into v_status from public.friendships
+    where (requester_id = '__USER_A_ID__' and addressee_id = '__USER_B_ID__')
+       or (requester_id = '__USER_B_ID__' and addressee_id = '__USER_A_ID__');
+  if v_status is distinct from 'accepted' then
+    raise exception 'FAIL 03.2a: friendship status is % after an accepted request, expected accepted', v_status;
   end if;
   v_card := public.get_profile_card('__USER_A_ID__');
   if v_card ->> 'bio' is distinct from 'Cellist, mostly Bach these days.' then
@@ -115,9 +124,13 @@ update public.profiles set is_private_account = false where id = '__USER_A_ID__'
 select public.block_user('__USER_B_ID__');
 
 do $$
+declare v_n int;
 begin
-  if public.is_friend('__USER_A_ID__', '__USER_B_ID__') then
-    raise exception 'FAIL 03.5a: blocking should have deleted the friendship';
+  select count(*) into v_n from public.friendships
+    where (requester_id = '__USER_A_ID__' and addressee_id = '__USER_B_ID__')
+       or (requester_id = '__USER_B_ID__' and addressee_id = '__USER_A_ID__');
+  if v_n <> 0 then
+    raise exception 'FAIL 03.5a: blocking should have deleted the friendship (% row(s) remain)', v_n;
   end if;
 
   set local request.jwt.claims = '{"sub":"__USER_B_ID__","role":"authenticated"}';
