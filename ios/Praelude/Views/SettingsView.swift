@@ -34,6 +34,14 @@ struct SettingsView: View {
             }
 
             Section {
+                NavigationLink {
+                    AccountView()
+                } label: {
+                    Label("Account and sync", systemImage: "person.crop.circle")
+                }
+            }
+
+            Section {
                 Toggle("Reward sounds", isOn: $soundEnabled).praeludeToggleHaptic(soundEnabled)
                     .onChange(of: soundEnabled) { _, value in RewardSoundService.shared.isEnabled = value }
                 if soundEnabled {

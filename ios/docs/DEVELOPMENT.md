@@ -19,8 +19,11 @@ Line Tools alone cannot build the app. Install a compatible iPhone/iPad simulato
 iOS runtime. See [Apple's component guide](https://developer.apple.com/documentation/xcode/downloading-and-installing-additional-xcode-components).
 
 The native project uses Apple frameworks and the Python/Swift tools supplied with the development
-environment. It has no third-party Swift package or JavaScript runtime dependency. Node/npm are
-optional shortcuts for the commands below, not part of the app.
+environment, plus one pinned remote SPM dependency: `supabase-swift` (accounts/sync, spec §4).
+`scripts/generate-project.py` declares the exact version; `Package.resolved`
+(`project.xcworkspace/xcshareddata/swiftpm/`) is committed so every resolve gets the same
+transitive versions, and `SourcePackages/` (the cloned checkouts) is gitignored as reproducible
+from it. Node/npm are optional shortcuts for the commands below, not part of the app.
 
 From `ios/`:
 
@@ -36,26 +39,29 @@ separate: [install on your iPad](INSTALL_ON_IPAD.md).
 
 ## Module map
 
-| Path | Responsibility |
-| --- | --- |
-| `Praelude/PraeludeApp.swift` | App lifecycle, shared services, adaptive navigation and system windows |
-| `Praelude/Core/Models.swift` | Codable domain, preferences, practice and score-markup records |
-| `Praelude/Core/PracticeEngine.swift` | Deterministic repetitions, stages and tempo progression |
-| `Praelude/Core/PracticeStore.swift` | Validation, atomic persistence, migration and recovery |
-| `Praelude/NativeLibraryFiles.swift` | Owned PDF import, native backup packaging and restoration |
-| `Praelude/Views/ScoreWorkspace.swift` | Score/practice workspace, commands and focused actions |
-| `Praelude/Views/PagedScoreView.swift` | PDFKit integration, page position and zoom |
-| `Praelude/Views/ScorePageOverlay.swift`, `ScoreMarkupState.swift` | PencilKit overlays, passage-box drafts and pending ink across view transitions |
-| `Praelude/Views/RecordedPassageView.swift` | Read-only original target for a recorded set |
-| `Praelude/Services/ScoreExport.swift`, `Views/ScoreShareView.swift` | Separate annotated PDF rendering and native share/print sheet |
-| `Praelude/Views/` | Today, library, progress, goals, set/passage editors and settings |
-| `Praelude/Services/` | Metronome, feedback, speech commands, audio session and runtime coordination |
-| `PraeludeCoreTests/` | Foundation persistence/engine/migration tests, runnable without a simulator |
-| `ServiceChecks/` | Deterministic command/pattern checks |
-| `PraeludeAppTests/` | App-hosted native PDF and backup tests |
-| `PraeludeUITests/` | Native interaction and visual/geometry assertions |
-| `scripts/generate-project.py` | Deterministic project/scheme generation; project/version configuration |
-| `scripts/device.py`, `scripts/test_device.py` | Explicit device update workflow and fake-device safety tests |
+| Path                                                                                                                     | Responsibility                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `Praelude/PraeludeApp.swift`                                                                                             | App lifecycle, shared services, adaptive navigation and system windows                                                                  |
+| `Praelude/Core/Models.swift`                                                                                             | Codable domain, preferences, practice and score-markup records                                                                          |
+| `Praelude/Core/PracticeEngine.swift`                                                                                     | Deterministic repetitions, stages and tempo progression                                                                                 |
+| `Praelude/Core/PracticeStore.swift`                                                                                      | Validation, atomic persistence, migration and recovery                                                                                  |
+| `Praelude/NativeLibraryFiles.swift`                                                                                      | Owned PDF import, native backup packaging and restoration                                                                               |
+| `Praelude/Views/ScoreWorkspace.swift`                                                                                    | Score/practice workspace, commands and focused actions                                                                                  |
+| `Praelude/Views/PagedScoreView.swift`                                                                                    | PDFKit integration, page position and zoom                                                                                              |
+| `Praelude/Views/ScorePageOverlay.swift`, `ScoreMarkupState.swift`                                                        | PencilKit overlays, passage-box drafts and pending ink across view transitions                                                          |
+| `Praelude/Views/RecordedPassageView.swift`                                                                               | Read-only original target for a recorded set                                                                                            |
+| `Praelude/Services/ScoreExport.swift`, `Views/ScoreShareView.swift`                                                      | Separate annotated PDF rendering and native share/print sheet                                                                           |
+| `Praelude/Core/SyncEngine.swift`, `SyncDTO.swift`, `SyncJSON.swift`, `SyncCoding.swift`                                  | Transport-agnostic outbound queue, LWW, wire-format DTOs (spec §4d) — Foundation-only, fake-transport-testable                          |
+| `Praelude/Services/SupabaseServices.swift`, `AuthManager.swift`, `PostgRESTSyncTransport.swift`, `SyncCoordinator.swift` | Supabase SDK clients, account lifecycle (spec §4b), the real sync transport, and the Core↔PracticeStore bridge                          |
+| `Praelude/Views/AccountView.swift`, `ProfileEditView.swift`                                                              | Sign up/in/out, delete account (Settings → Account and sync); profile fields, instruments, privacy, stats, preview-as-others (spec §4c) |
+| `Praelude/Views/`                                                                                                        | Today, library, progress, goals, set/passage editors and settings                                                                       |
+| `Praelude/Services/`                                                                                                     | Metronome, feedback, speech commands, audio session and runtime coordination                                                            |
+| `PraeludeCoreTests/`                                                                                                     | Foundation persistence/engine/migration tests, runnable without a simulator                                                             |
+| `ServiceChecks/`                                                                                                         | Deterministic command/pattern checks                                                                                                    |
+| `PraeludeAppTests/`                                                                                                      | App-hosted native PDF and backup tests                                                                                                  |
+| `PraeludeUITests/`                                                                                                       | Native interaction and visual/geometry assertions                                                                                       |
+| `scripts/generate-project.py`                                                                                            | Deterministic project/scheme generation; project/version configuration                                                                  |
+| `scripts/device.py`, `scripts/test_device.py`                                                                            | Explicit device update workflow and fake-device safety tests                                                                            |
 
 Read source for the active schema and API contract. [ROADMAP.md](ROADMAP.md) distinguishes work
 in progress from accepted milestones; the [QA ledger](../../docs/qa/ios/README.md) owns exact evidence.
@@ -77,6 +83,10 @@ python3 -m unittest discover -s scripts -p 'test_*.py'
 
 # Choose a simulator in Xcode and run Product > Test for hosted and UI tests
 open Praelude.xcodeproj
+
+# Live two-device sync smoke test against the hosted project (spec §17a) - skips itself
+# without credentials; see the script's header for how to obtain a throwaway account
+PRAELUDE_SMOKE_EMAIL=... PRAELUDE_SMOKE_PASSWORD=... "scripts/(C) sync-smoke.sh"
 ```
 
 From the repository root, the equivalent shortcuts are `npm run ios:project`, `npm run ios:check`,

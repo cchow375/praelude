@@ -23,4 +23,5 @@
 <key>UIFileSharingEnabled</key><false/>
 <key>LSSupportsOpeningDocumentsInPlace</key><true/>
 <key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>PDF score</string><key>LSHandlerRank</key><string>Alternate</string><key>LSItemContentTypes</key><array><string>com.adobe.pdf</string></array></dict></array>
+<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.christian.praelude.ios.auth</string><key>CFBundleURLSchemes</key><array><string>praelude</string></array></dict></array>
 </dict></plist>

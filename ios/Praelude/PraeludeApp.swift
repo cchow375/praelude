@@ -11,6 +11,9 @@ struct PraeludeApp: App {
     @State private var recording: RecordingService
     @State private var runtime: PracticeRuntime
     @State private var rewards: RewardsRuntime
+    @State private var services: SupabaseServices
+    @State private var auth: AuthManager
+    @State private var syncCoordinator: SyncCoordinator
     @Environment(\.scenePhase) private var scenePhase
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -39,17 +42,39 @@ struct PraeludeApp: App {
         _recording = State(initialValue: take)
         _runtime = State(initialValue: PracticeRuntime(store: value, metronome: click, speech: voice, recording: take))
         _rewards = State(initialValue: RewardsRuntime(store: value))
+        // Accounts + sync (spec §4b/§4d). SupabaseServices/AuthManager never throw to construct, so
+        // the app always launches and works fully offline (guest mode) even if account/sync
+        // infrastructure has trouble - see SyncEngine.init's own doc comment for the same reasoning.
+        let servicesValue = SupabaseServices()
+        let authValue = AuthManager(services: servicesValue, store: value)
+        let syncDirectory = directory.appendingPathComponent("Sync", isDirectory: true)
+        let engine = SyncEngine(transport: PostgRESTSyncTransport(services: servicesValue), directory: syncDirectory)
+        let coordinatorValue = SyncCoordinator(engine: engine, auth: authValue, store: value)
+        // Sign-out (ordinary or the tail of a successful account deletion) must drop this device's
+        // outbound queue and pull cursors so nothing crosses into whichever account signs in next
+        // (AuthManager.onSignedOut's own doc comment). Wired here rather than via a View-level
+        // onChange so it fires even if no view observing `auth.state` happens to be on screen.
+        authValue.onSignedOut = { [weak coordinatorValue] in coordinatorValue?.resetLocalAccountState() }
+        _services = State(initialValue: servicesValue)
+        _auth = State(initialValue: authValue)
+        _syncCoordinator = State(initialValue: coordinatorValue)
     }
     var body: some Scene {
         WindowGroup {
             AppRootView()
                 .environment(store).environment(metronome).environment(speech).environment(runtime).environment(rewards)
                 .environment(tuner).environment(drone).environment(recording)
+                .environment(auth).environment(syncCoordinator)
                 .preferredColorScheme(colorScheme)
                 .tint(PraeludeColor.ink)
                 .onChange(of: store.state.preferences.keepScreenAwake) { _, _ in runtime.updateScreenAwake() }
                 .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording() }
                 .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording() }
+                .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await syncCoordinator.syncAll() } } }
+                .task {
+                    syncCoordinator.startObservingNetwork()
+                    await syncCoordinator.syncAll()
+                }
         }
         WindowGroup("Score", for: UUID.self) { $pieceID in
             NavigationStack {
@@ -96,6 +121,7 @@ struct AppRootView: View {
     @Environment(MetronomeService.self) private var metronome
     @Environment(SpeechCommandService.self) private var speech
     @Environment(RewardsRuntime.self) private var rewards
+    @Environment(AuthManager.self) private var auth
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
@@ -255,7 +281,13 @@ struct AppRootView: View {
                 self.selectedPiece = nil; phoneScore = ScoreRoute(id: selectedPiece)
             }
         }
-        .onOpenURL { url in incomingURL = url; sheet = .add }
+        .onOpenURL { url in
+            if url.scheme == AuthManager.authCallbackURLScheme, url.host == AuthManager.authCallbackHost {
+                Task { await auth.handleAuthCallback(url: url) }
+            } else {
+                incomingURL = url; sheet = .add
+            }
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let message = store.errorMessage {
                 Text(message)
