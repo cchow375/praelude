@@ -20,7 +20,10 @@ final class PracticeRuntime {
         feedback.prime(existingAttemptIDs: (store.state.history + [store.activeSet].compactMap { $0 }).flatMap(\.attempts).map(\.id))
         observe(UIApplication.didEnterBackgroundNotification) { [weak self] in
             guard let self else { return }
-            self.metronome.stop()
+            // The metronome owns its own backgrounding decision (§13 "keep running when locked");
+            // stopping it here unconditionally would silence that preference. Speech recognition
+            // and reward feedback have no such preference, so they always stop.
+            if !self.metronome.keepRunningWhenLocked { self.metronome.stop() }
             self.speech.stop()
             self.feedback.stop()
             // PracticeStore retains a failed durable mutation in errorMessage; never silently

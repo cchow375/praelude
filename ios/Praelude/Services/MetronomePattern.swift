@@ -21,11 +21,39 @@ struct MetronomeSettings: Codable, Equatable, Sendable {
     var sound = MetronomeSound.wood
     var volume = 0.7
     var haptics = false
+    /// Bars of plain click played once, unlooped, before the music starts (0 = off). Added after
+    /// `v1` first shipped, so decoding defaults it rather than requiring the key (see `init(from:)`).
+    var countInBars = 0
+    /// When on, the click keeps playing after the app backgrounds or the screen locks. Added after
+    /// `v1` first shipped, so decoding defaults it rather than requiring the key.
+    var keepRunningWhenLocked = false
 
     var isValid: Bool {
         version == 1 && bpm.isFinite && (20...300).contains(bpm) && (1...12).contains(beatsPerBar)
             && [2, 4, 8].contains(denominator) && (1...4).contains(subdivision)
             && accents.count == beatsPerBar && volume.isFinite && (0...1).contains(volume)
+            && (0...4).contains(countInBars)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version, bpm, beatsPerBar, denominator, subdivision, accents, sound, volume, haptics,
+             countInBars, keepRunningWhenLocked
+    }
+    init() {}
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        bpm = try values.decode(Double.self, forKey: .bpm)
+        beatsPerBar = try values.decode(Int.self, forKey: .beatsPerBar)
+        denominator = try values.decode(Int.self, forKey: .denominator)
+        subdivision = try values.decode(Int.self, forKey: .subdivision)
+        accents = try values.decode([BeatAccent].self, forKey: .accents)
+        sound = try values.decode(MetronomeSound.self, forKey: .sound)
+        volume = try values.decode(Double.self, forKey: .volume)
+        haptics = try values.decode(Bool.self, forKey: .haptics)
+        // Absent from any settings blob persisted before count-in/background-audio shipped.
+        countInBars = try values.decodeIfPresent(Int.self, forKey: .countInBars) ?? 0
+        keepRunningWhenLocked = try values.decodeIfPresent(Bool.self, forKey: .keepRunningWhenLocked) ?? false
     }
     static func accents(for beats: Int, denominator: Int) -> [BeatAccent] {
         guard (1...12).contains(beats) else { return [] }
