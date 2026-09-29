@@ -34,6 +34,15 @@ def configs(prefix, settings, base_config=None):
         options.update(
             {
                 "ENABLE_TESTABILITY": "YES" if mode == "Debug" else "NO",
+                # Xcode's own new-project default, which nothing else in this scripted project sets:
+                # without it, Debug falls back to building every ARCHS entry (arm64 *and* x86_64) for
+                # any concrete (non-"generic") simulator destination. On an Apple Silicon Mac the
+                # Supabase SPM package products only ever get built for the host's native arm64 slice,
+                # so an x86_64 Debug build of this app target then fails with "Unable to resolve
+                # module dependency" for Auth/PostgREST/Storage — a real module, just never built for
+                # the arch this setting was wrongly asking for. Release keeps building every arch
+                # (matches ARCHS/VALID_ARCHS below) since an archive must run on real devices.
+                "ONLY_ACTIVE_ARCH": "YES" if mode == "Debug" else "NO",
                 "SWIFT_OPTIMIZATION_LEVEL": "-Onone" if mode == "Debug" else "-O",
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": (
                     "DEBUG" if mode == "Debug" else ""

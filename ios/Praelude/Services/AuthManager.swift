@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import Auth
+import Storage
 
 /// Owns the app's account lifecycle (spec §4b): email+password sign up/in, magic link (via
 /// `onOpenURL` -> `handleAuthCallback`), password reset, sign out, in-app account deletion, and the
@@ -20,6 +21,12 @@ public final class AuthManager {
     /// Set right after `sendMagicLink`/`resetPassword` succeeds, so the UI can show "check your
     /// email" without a separate round trip.
     public private(set) var lastSentEmail: String?
+    /// Fired on every `.signedOut` auth event — ordinary sign-out and a successful account deletion
+    /// both end here (see `deleteAccount`). `SyncCoordinator` hooks this in `PraeludeApp.init` to
+    /// clear its own local bookkeeping (`SyncEngine.resetLocalAccountState`); `AuthManager` itself
+    /// has no sync state to clear and stays unaware of `SyncCoordinator` to avoid a circular
+    /// dependency between the two.
+    public var onSignedOut: (() -> Void)?
 
     private let services: SupabaseServices
     private let store: PracticeStore
@@ -47,6 +54,7 @@ public final class AuthManager {
                 attachAccountIfNeeded(userID: session.user.id)
             case .signedOut:
                 state = .guest
+                onSignedOut?()
             default:
                 break
             }
@@ -152,6 +160,13 @@ public final class AuthManager {
 
     /// Caller confirms twice in the UI (spec §4b) before this is ever invoked — this method itself
     /// performs the deletion unconditionally once called, no further confirmation gate here.
+    ///
+    /// Local library data (reps, passages, annotations, scores, profile) is deliberately **not**
+    /// wiped by this method — only this device's *account association* is (this device's copy
+    /// reverts to an ordinary offline guest library, the same shape guest mode already is; see
+    /// `detachLocalProfile`). Wiping practice content on top of a server-side account delete would
+    /// turn one irreversible action into two, and "never lose user data" makes no carve-out for
+    /// this path. The UI's own copy already states this local library is untouched.
     @discardableResult
     public func deleteAccount() async -> Bool {
         guard case .signedIn(let userID, _) = state else { return false }
@@ -163,13 +178,35 @@ public final class AuthManager {
                 if !paths.isEmpty { _ = try await storage.from(bucket).remove(paths: paths) }
             }
             let postgrest = try await services.postgrest()
+            // Only after both storage and the RPC itself succeed does anything local change — a
+            // failure at either step above throws before this line, leaving state/local data alone
+            // so the caller sees an error and nothing was touched (spec: wipe local account data
+            // only after server success).
             _ = try await postgrest.rpc("delete_my_account").execute()
+            detachLocalProfile()
+            // The account (and its GoTrue session rows) is already gone server-side; this clears
+            // the local Keychain-cached session to match and fires the same `.signedOut` event an
+            // ordinary sign-out does (-> `onSignedOut` -> SyncCoordinator resets its local sync
+            // bookkeeping). Best-effort: a session the server already invalidated can itself error
+            // here, which must not be reported as "account deletion failed" when it already succeeded.
+            try? await services.auth.signOut()
             state = .guest
             return true
         } catch {
             lastError = Self.message(for: error)
             return false
         }
+    }
+
+    /// The one local write account deletion makes: detaches this device's library from the deleted
+    /// account (`ownerID` back to `nil`, the same "no account yet" value guest mode always used) so
+    /// a future sign-up/sign-in on this device starts a fresh sync relationship rather than silently
+    /// re-attaching (and re-pushing) a profile row for an account that no longer exists server-side.
+    /// Every other field is left exactly as it was — this is a detach, not a reset.
+    private func detachLocalProfile() {
+        var profile = store.state.profile
+        profile.ownerID = nil
+        try? store.updateProfile(profile)
     }
 
     /// Storage `list(path:)` is one level deep, like `ls`; a real object always has a non-nil `id`
@@ -191,6 +228,36 @@ public final class AuthManager {
             }
         }
         return paths
+    }
+
+    // MARK: Profile photo (spec §4c) — `avatars` bucket, owner-prefixed path (see
+    // supabase/(C) Backend.md's storage-buckets note: RLS is owner-only write, privacy-gated read,
+    // never a public bucket). `Profile.photoRef` stores the relative path, not a URL (the sync
+    // protocol's `photo_path` column), so a signed URL is minted on demand for display.
+
+    private static let avatarFileName = "avatar.jpg"
+
+    /// Uploads (replacing any existing) JPEG avatar data and returns the storage path to save on
+    /// `Profile.photoRef`. `nil` on failure (`lastError` is set); guest mode has nowhere to upload
+    /// to and also returns `nil`.
+    public func uploadAvatar(jpegData: Data) async -> String? {
+        guard case .signedIn(let userID, _) = state else { return nil }
+        do {
+            let storage = try await services.storage()
+            let path = "\(userID.uuidString)/\(Self.avatarFileName)"
+            _ = try await storage.from("avatars").upload(path, data: jpegData, options: FileOptions(contentType: "image/jpeg", upsert: true))
+            return path
+        } catch {
+            lastError = Self.message(for: error)
+            return nil
+        }
+    }
+    /// A short-lived signed URL for a `Profile.photoRef` path, for display only — the `avatars`
+    /// bucket is private, so the raw path is never directly fetchable. `nil` (silently — this is
+    /// used for best-effort display, not a user-facing action) if signing fails, e.g. offline.
+    public func avatarSignedURL(path: String) async -> URL? {
+        guard case .signedIn = state else { return nil }
+        return try? await services.storage().from("avatars").createSignedURL(path: path, expiresIn: 3600)
     }
 
     private static func sessionState(_ session: Session?) -> State {

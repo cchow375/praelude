@@ -26,6 +26,12 @@ public final class SyncCoordinator {
     public var profileBackendFields: ProfileBackendFields { engine.state.profileBackendFields }
     public func setProfileBackendFields(_ fields: ProfileBackendFields) { try? engine.updateProfileBackendFields(fields) }
 
+    /// Wired to `AuthManager.onSignedOut` in `PraeludeApp.init` (ordinary sign-out and a successful
+    /// account deletion both end there). Clears this device's outbound queue and pull cursors so
+    /// nothing queued for account A is ever sent under account B's session, and so a signed-back-in
+    /// account pulls fresh rather than trusting a cursor left over from whoever was signed in last.
+    public func resetLocalAccountState() { try? engine.resetLocalAccountState() }
+
     /// The tables this coordinator can pull and LWW-merge. Order matters only in that `instruments`
     /// and `pieces` should land before `passages`/`ink_strokes` reference them — harmless either way
     /// today since Core's own reference checks in `PracticeStore.validate` are a local sanity check,

@@ -37,9 +37,15 @@ struct PraeludeApp: App {
         let authValue = AuthManager(services: servicesValue, store: value)
         let syncDirectory = directory.appendingPathComponent("Sync", isDirectory: true)
         let engine = SyncEngine(transport: PostgRESTSyncTransport(services: servicesValue), directory: syncDirectory)
+        let coordinatorValue = SyncCoordinator(engine: engine, auth: authValue, store: value)
+        // Sign-out (ordinary or the tail of a successful account deletion) must drop this device's
+        // outbound queue and pull cursors so nothing crosses into whichever account signs in next
+        // (AuthManager.onSignedOut's own doc comment). Wired here rather than via a View-level
+        // onChange so it fires even if no view observing `auth.state` happens to be on screen.
+        authValue.onSignedOut = { [weak coordinatorValue] in coordinatorValue?.resetLocalAccountState() }
         _services = State(initialValue: servicesValue)
         _auth = State(initialValue: authValue)
-        _syncCoordinator = State(initialValue: SyncCoordinator(engine: engine, auth: authValue, store: value))
+        _syncCoordinator = State(initialValue: coordinatorValue)
     }
     var body: some Scene {
         WindowGroup {

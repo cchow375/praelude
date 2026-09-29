@@ -9,6 +9,14 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                NavigationLink {
+                    AccountView()
+                } label: {
+                    Label("Account and sync", systemImage: "person.crop.circle")
+                }
+            }
+
             Section("Appearance") {
                 Picker("Appearance", selection: preference(\.theme)) {
                     Text("System").tag("system")

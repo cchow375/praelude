@@ -16,10 +16,14 @@ public enum SyncCoding {
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }
-    /// Shared formatter for the few call sites that need a bare ISO 8601 string rather than a whole
-    /// encoded payload — e.g. a `PostgrestClient.rpc` parameter struct whose own default encoder's
-    /// date strategy this app does not control and should not depend on (see `PostgRESTSyncTransport`).
-    public static let iso8601Formatter = ISO8601DateFormatter()
+    /// For the few call sites that need a bare ISO 8601 string rather than a whole encoded payload —
+    /// e.g. a `PostgrestClient.rpc` parameter struct whose own default encoder's date strategy this
+    /// app does not control and should not depend on (see `PostgRESTSyncTransport`). A computed
+    /// property, not a shared `static let` instance, for the same reason `encoder`/`decoder` above
+    /// are: `ISO8601DateFormatter` is a mutable Foundation class, not `Sendable`, so a single shared
+    /// instance is not safe to read from more than one isolation context at once under Swift 6's
+    /// strict concurrency checking (this app target builds with `SWIFT_VERSION = 6.0`).
+    public static var iso8601Formatter: ISO8601DateFormatter { ISO8601DateFormatter() }
 }
 
 extension Data {
