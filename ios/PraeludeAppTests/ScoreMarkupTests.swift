@@ -98,6 +98,36 @@ final class ScoreMarkupTests: XCTestCase {
     /// a *drag* must never fall through into box-drawing while a placement tool is armed — that would
     /// silently create an unwanted passage box instead of doing nothing while the person taps to place
     /// a stamp.
+    /// Major regression (verifier "reader lens", 2026-09-29): long-pressing a passage outline on the
+    /// score did nothing — `PagedScoreView.Coordinator.longPressed` only ever called `onLongPress()`
+    /// with no location, wired only to exit performance mode. `passageRegion(at:)` is the hit test
+    /// that now backs the on-score quick-action menu (`PassageQuickActions.swift`); crop-aware like
+    /// every other hit test in this file (`displayRect(for:)`).
+    @MainActor func testPassageRegionAtPointFindsTheTopmostRegionAndRespectsActiveCrop() throws {
+        let state = ScoreMarkupState()
+        let overlay = ScorePageOverlay(page: 1, markup: state)
+        overlay.frame = CGRect(x: 0, y: 0, width: 300, height: 400)
+        overlay.layoutIfNeeded()
+        let region = PassageRegion(page: 1, x: 0.1, y: 0.1, width: 0.3, height: 0.2)
+        overlay.displayedRegions = [region]
+        overlay.refresh()
+        XCTAssertEqual(overlay.passageRegion(at: CGPoint(x: 90, y: 80)), region.id)
+        XCTAssertNil(overlay.passageRegion(at: CGPoint(x: 280, y: 380)), "A point outside every region must find nothing")
+
+        // Two overlapping regions: the topmost (last in the array, matching draw order) must win.
+        let under = PassageRegion(page: 1, x: 0, y: 0, width: 1, height: 1)
+        overlay.displayedRegions = [under, region]
+        overlay.refresh()
+        XCTAssertEqual(overlay.passageRegion(at: CGPoint(x: 90, y: 80)), region.id, "The topmost (last-drawn) overlapping region must win")
+
+        // With an active crop that `region` falls entirely outside of, the hit test must use the
+        // crop-remapped (empty) position, not the raw stored one.
+        overlay.displayedRegions = [region]
+        overlay.activeCrop = NormalizedRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5)
+        overlay.layoutIfNeeded()
+        XCTAssertNil(overlay.passageRegion(at: CGPoint(x: 90, y: 80)), "A region entirely outside the active crop must no longer hit-test")
+    }
+
     @MainActor func testStampAndTextPlacementAndQuickBoxClaimTapsButPlacementNeverClaimsDrags() async throws {
         let state = ScoreMarkupState()
         let overlay = ScorePageOverlay(page: 1, markup: state)
@@ -395,6 +425,126 @@ final class ScoreMarkupTests: XCTestCase {
                        "The canvas must stay sized to the original page (bounds / crop fraction), not shrink to the crop")
         XCTAssertEqual(overlay.canvas.frame.origin, CGPoint(x: -150, y: -200),
                        "The canvas must be offset so the crop window, not the canvas's own origin, aligns with the overlay")
+    }
+
+    /// Major regression (verifier "reader lens", 2026-09-29): entering performance mode did not lock
+    /// ink on a page whose overlay already existed — `inkReadOnly` was only ever set once, at overlay
+    /// creation, so a page visited before entering performance mode stayed interactive.
+    @MainActor func testEnteringPerformanceModeLocksInkOnAnAlreadyVisibleOverlay() async throws {
+        let state = ScoreMarkupState()
+        func parent(allowsInk: Bool) -> PagedScoreView {
+            PagedScoreView(url: URL(fileURLWithPath: "/unused-fixture.pdf"), page: .constant(1), twoPages: false,
+                          markup: state, allowsInk: allowsInk, onPageChanged: { _ in })
+        }
+        let coordinator = parent(allowsInk: true).makeCoordinator(); coordinator.connectControls()
+        defer { coordinator.autosave?.cancel() }
+        let document = PDFDocument(); document.insert(try makePage(), at: 0)
+        let view = PDFView(); view.document = document
+        let overlay = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: XCTUnwrap(document.page(at: 0))) as? ScorePageOverlay)
+        state.mode = .writing; state.tool.kind = .pen
+        overlay.refresh()
+        XCTAssertFalse(overlay.inkReadOnly)
+        XCTAssertTrue(overlay.canvas.isUserInteractionEnabled)
+
+        // Enter performance mode: allowsInk flips false without this overlay being torn down and
+        // recreated (performance mode is a plain state flip, not a document/layer change).
+        _ = coordinator.adoptParent(parent(allowsInk: false))
+        coordinator.refreshOverlays()
+        XCTAssertTrue(overlay.inkReadOnly, "Performance mode must lock ink on a page that already has a live overlay")
+        XCTAssertFalse(overlay.canvas.isUserInteractionEnabled)
+    }
+
+    /// Major regression (verifier "reader lens", 2026-09-29): after a page-tool reorder, `parent.page`
+    /// (a *displayed* page number) no longer equals the *source* page `overlays` is keyed by — Undo/Redo
+    /// ink silently targeted a nonexistent overlay and stayed disabled/no-op on the page actually shown.
+    @MainActor func testUndoRedoTargetTheOverlayForTheDisplayedPageEvenAfterAPageToolReorder() async throws {
+        let state = ScoreMarkupState()
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/unused-fixture.pdf"), page: .constant(1), twoPages: false, markup: state, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator()
+        // `canvas.undoManager` (a `UIResponder` property) resolves through the responder chain, which
+        // needs a real window — the same scaffolding `testNativePDFOverlayCoordinatesMatchCroppedPage
+        // AtEveryRotation` below already uses for the identical reason.
+        let view = PDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 600))
+        view.displayMode = .singlePage; view.autoScales = true; view.isInMarkupMode = true
+        view.pageOverlayViewProvider = coordinator
+        coordinator.pdfView = view
+        let window = UIWindow(frame: view.bounds)
+        let controller = UIViewController(); controller.view.addSubview(view)
+        window.rootViewController = controller; window.isHidden = false
+        defer { window.isHidden = true; view.pageOverlayViewProvider = nil }
+        coordinator.connectControls()
+        let document = PDFDocument(); document.insert(try makePage(), at: 0); document.insert(try makePage(), at: 1)
+        // A page-tool reorder: the first *displayed* page now shows source page 2, not source page 1.
+        coordinator.effectivePages = [
+            EffectivePage(id: UUID(), displayOrder: 1, sourcePage: 2, kind: .original, cropRect: nil, rotationDegrees: 0),
+            EffectivePage(id: UUID(), displayOrder: 2, sourcePage: 1, kind: .original, cropRect: nil, rotationDegrees: 0),
+        ]
+        view.document = document; view.go(to: try XCTUnwrap(document.page(at: 0)))
+        view.layoutDocumentView(); view.setNeedsLayout(); view.layoutIfNeeded()
+        var overlay: ScorePageOverlay?
+        for _ in 0..<100 {
+            if let found = coordinator.overlays[2], found.window != nil, found.bounds.width > 0 { overlay = found; break }
+            try await Task.sleep(for: .milliseconds(20))
+            view.layoutIfNeeded()
+        }
+        let resolved = try XCTUnwrap(overlay, "PDFKit should request the overlay for the first displayed page")
+        XCTAssertEqual(resolved.pageNumber, 2, "The overlay for the first displayed page must be keyed by its actual source page")
+        // PencilKit only registers a real undo action on `canvas.undoManager` for an interactive
+        // (gesture-driven) stroke, not a programmatic `canvas.drawing =` assignment — proven live by
+        // `MobileMarkupUITests.testFingerInkUndoAndRelaunch`. What this test isolates instead is
+        // exactly what changed: whether `undoInk` resolves to *this* overlay's undo manager at all.
+        var undone = false
+        let manager = try XCTUnwrap(resolved.canvas.undoManager)
+        manager.registerUndo(withTarget: resolved) { _ in undone = true }
+        XCTAssertTrue(manager.canUndo)
+        state.undoInk()
+        XCTAssertTrue(undone, "Undo must target the overlay for the *displayed* page (source 2), not overlays[parent.page] (source 1)")
+    }
+
+    /// Minor regression (verifier "reader lens", 2026-09-29): only the tap zones and buttons turned
+    /// pages — a reading swipe did nothing. A swipe on a zoomed-in page must still pan, not turn.
+    @MainActor func testSwipeTurnsPagesAtFitZoomButNotWhileZoomedIn() throws {
+        let state = ScoreMarkupState()
+        var turned: [Int] = []
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/unused-fixture.pdf"), page: .constant(1), twoPages: false,
+                                   markup: state, onTurnPage: { turned.append($0) }, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator()
+        let view = ZoomableScorePDFView()
+        let document = PDFDocument(); document.insert(try makePage(), at: 0); view.document = document
+        view.minScaleFactor = 1; view.maxScaleFactor = 6; view.scaleFactor = 1 // at fit, unzoomed
+        let swipe = UISwipeGestureRecognizer()
+        view.addGestureRecognizer(swipe)
+
+        swipe.direction = .left
+        coordinator.swiped(swipe)
+        XCTAssertEqual(turned, [1], "A left swipe at fit-to-page zoom must turn to the next page")
+        swipe.direction = .right
+        coordinator.swiped(swipe)
+        XCTAssertEqual(turned, [1, -1], "A right swipe must turn back")
+
+        // A zoomed-in page: the identical swipe must not also turn the page — the reader needs that
+        // drag to pan the enlarged page instead.
+        view.minScaleFactor = 1; view.maxScaleFactor = 6; view.scaleFactor = 2
+        turned = []
+        coordinator.swiped(swipe)
+        XCTAssertTrue(turned.isEmpty, "A swipe on a zoomed-in page must not also turn the page")
+    }
+
+    /// Major regression (verifier "reader lens", 2026-09-29): in two-page mode, turning by one page
+    /// (the "half-page turns" toggle's whole point) left the displayed spread unchanged on every
+    /// other tap — `displaysAsBook` was hardcoded `false` forever, so PDFKit's own (1,2),(3,4),…
+    /// pairing never moved no matter what page the `page` binding pointed at. `page` landing on an
+    /// even number must flip the parity so that page pairs with the *next* page instead of snapping
+    /// back to the page before it.
+    func testHalfPageTurnParityTogglesPdfKitBookPaginationOnEvenPages() {
+        XCTAssertFalse(scoreDisplaysAsBook(twoPages: true, page: 1), "Odd pages keep the fixed (1,2),(3,4)… pairing")
+        XCTAssertTrue(scoreDisplaysAsBook(twoPages: true, page: 2), "Landing on page 2 must pair it with page 3, not fall back into (1,2)")
+        XCTAssertFalse(scoreDisplaysAsBook(twoPages: true, page: 3), "Page 3 returns to the fixed pairing, now grouped with page 4")
+        XCTAssertTrue(scoreDisplaysAsBook(twoPages: true, page: 4))
+        // Single-page mode: parity is meaningless with only one page on screen; must stay false
+        // regardless of the displayed page number so it never affects `.singlePage` layout.
+        XCTAssertFalse(scoreDisplaysAsBook(twoPages: false, page: 2))
+        XCTAssertFalse(scoreDisplaysAsBook(twoPages: false, page: 1))
     }
 
     @MainActor func testNativePDFOverlayCoordinatesMatchCroppedPageAtEveryRotation() async throws {

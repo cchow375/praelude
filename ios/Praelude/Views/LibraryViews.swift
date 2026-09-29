@@ -32,6 +32,10 @@ struct LibraryView: View {
     @AppStorage("ios.library.showGrid") private var showGrid = false
     let onOpenPiece: (UUID) -> Void
     let onAddPiece: () -> Void
+    /// §7 setlists: threaded through to `SetlistsView` so opening a movement lands on its own saved
+    /// start page (previously stored but never acted on). Defaults to a no-op so every other call
+    /// site (this screen has only one today) is unaffected.
+    var onOpenPieceAtPage: (UUID, Int) -> Void = { _, _ in }
 
     private var visiblePieces: [Piece] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -108,7 +112,7 @@ struct LibraryView: View {
                                        onRename: { tag, name in var t = tag; t.name = name; t.updatedAt = Date(); try store.saveTag(t) },
                                        onDelete: { try store.deleteTag($0.id) })
             case .setlists:
-                NavigationStack { SetlistsView(onOpenPiece: onOpenPiece) }
+                NavigationStack { SetlistsView(onOpenPiece: onOpenPiece, onOpenPieceAtPage: onOpenPieceAtPage) }
             }
         }
     }

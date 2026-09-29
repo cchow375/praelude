@@ -228,6 +228,15 @@ enum ScorePassageBoxStyle {
         [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
          CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)]
     }
+    /// The topmost saved passage region whose *displayed* (crop-remapped) rect contains `point` (in
+    /// this overlay's own coordinate space), if any. Mirrors `handleTap`'s own region-selection hit
+    /// test; exposed for `PagedScoreView.Coordinator`'s long-press gesture (§8: long-press a passage
+    /// outline on the score for its quick-action menu), which lives outside this view's own gesture
+    /// recognizers and outside `.selecting` mode (`visibleRegions` reads `displayedRegions` — the
+    /// saved passages — for any other mode, exactly the set a long-press while reading should hit).
+    func passageRegion(at point: CGPoint) -> UUID? {
+        visibleRegions.reversed().first { displayRect(for: $0)?.contains(point) ?? false }?.id
+    }
     @objc private func tap(_ recognizer: UITapGestureRecognizer) { handleTap(at: recognizer.location(in: self)) }
     /// Point-based so tests can drive it directly without a live touch sequence (`UIGestureRecognizer.
     /// location(in:)` has no public way to fake a location outside real touch tracking).

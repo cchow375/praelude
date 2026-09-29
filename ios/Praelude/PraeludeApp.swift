@@ -181,6 +181,10 @@ struct AppRootView: View {
     /// cold-grade prompt a manual on-score tap would. Cleared by `ScoreWorkspace.onAutoSelectConsumed`
     /// right after it is read, so it never re-fires on a later, unrelated visit to this piece.
     @State private var pendingAutoSelectPassage: (pieceID: UUID, passageID: UUID)?
+    /// §7 setlists: "open by movement" — mirrors `pendingAutoSelectPassage` exactly (a one-shot
+    /// hand-off, consumed and cleared by `ScoreWorkspace.onInitialPageConsumed` right after it is
+    /// read) for a setlist item's own `startPage`, previously stored but never acted on.
+    @State private var pendingInitialPage: (pieceID: UUID, page: Int)?
     @State private var pendingBackupAction: String?
     @State private var sidebarVisibility = NavigationSplitViewVisibility.automatic
     @State private var backup: NativeBackupDocument?
@@ -227,7 +231,9 @@ struct AppRootView: View {
                             navigateFromScore { self.selectedPiece = nil; sidebarVisibility = .automatic }
                         }, sharedMarkup: scoreMarkup,
                         autoSelectPassageID: pendingAutoSelectPassage?.pieceID == selectedPiece ? pendingAutoSelectPassage?.passageID : nil,
-                        onAutoSelectConsumed: { pendingAutoSelectPassage = nil }) }
+                        onAutoSelectConsumed: { pendingAutoSelectPassage = nil },
+                        initialPage: pendingInitialPage?.pieceID == selectedPiece ? pendingInitialPage?.page : nil,
+                        onInitialPageConsumed: { pendingInitialPage = nil }) }
                         else { content(destination).toolbar { ToolbarItem(placement: .topBarTrailing) { settingsButton } } }
                     }
                 }.navigationSplitViewStyle(.balanced)
@@ -243,7 +249,9 @@ struct AppRootView: View {
                     NavigationStack {
                         ScoreWorkspace(pieceID: route.id, onClose: { navigateFromScore { phoneScore = nil } }, sharedMarkup: scoreMarkup,
                                        autoSelectPassageID: pendingAutoSelectPassage?.pieceID == route.id ? pendingAutoSelectPassage?.passageID : nil,
-                                       onAutoSelectConsumed: { pendingAutoSelectPassage = nil })
+                                       onAutoSelectConsumed: { pendingAutoSelectPassage = nil },
+                                       initialPage: pendingInitialPage?.pieceID == route.id ? pendingInitialPage?.page : nil,
+                                       onInitialPageConsumed: { pendingInitialPage = nil })
                     }
                 }
             }
@@ -370,9 +378,10 @@ struct AppRootView: View {
     }
     @ViewBuilder private func content(_ destination: Destination) -> some View {
         switch destination {
-        case .today: TodayView(onOpenPiece: openPiece, onAddPiece: { sheet = .add }, onContinueWarmup: { practicingWarmup = true },
+        case .today: TodayView(onOpenPiece: { openPiece($0) }, onAddPiece: { sheet = .add }, onContinueWarmup: { practicingWarmup = true },
                                onStartPassage: startPassage)
-        case .pieces: LibraryView(onOpenPiece: openPiece, onAddPiece: { sheet = .add })
+        case .pieces: LibraryView(onOpenPiece: { openPiece($0) }, onAddPiece: { sheet = .add },
+                                  onOpenPieceAtPage: { id, page in openPiece(id, startPage: page) })
         case .friends: FriendsView()
         case .warmups: WarmupsView(onStartPractice: { practicingWarmup = true })
         case .progress: PracticeProgressView()
@@ -392,10 +401,11 @@ struct AppRootView: View {
               store.activeSet?.status != .running else { return }
         activeCelebration = rewards.dequeueCelebration()
     }
-    private func openPiece(_ id: UUID) {
+    private func openPiece(_ id: UUID, startPage: Int? = nil) {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--uitesting") { NSLog("PraeludeUITest: Open piece action") }
         #endif
+        if let startPage { pendingInitialPage = (id, startPage) }
         if selectedPiece == id || phoneScore?.id == id { sidebarVisibility = .detailOnly; return }
         navigateFromScore {
             if usesSidebar { selectedPiece = id; sidebarVisibility = .detailOnly }

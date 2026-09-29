@@ -54,6 +54,17 @@ final class ZoomableScorePDFView: PDFView {
     }
 }
 
+/// §7 half-page turns: which PDFKit book-pagination parity produces the spread that should be on
+/// screen for a given displayed page. `.twoUp` pairs pages by index parity — `displaysAsBook = false`
+/// groups (1,2),(3,4),…; `true` leaves page 1 alone and groups (2,3),(4,5),… — and that grouping was
+/// previously left fixed at `false` forever. A single-step "half" page turn (landing on page 2, say)
+/// therefore never changed which spread PDFKit showed: page 2 was already inside the (1,2) group.
+/// Recomputing this from the current page on every update, instead of leaving it fixed, is what makes
+/// that single-step turn actually shift the visible spread. A free function (not inlined in
+/// `makeUIView`/`updateUIView`) so the parity logic is unit-testable — SwiftUI gives those methods no
+/// public way to construct the `UIViewRepresentableContext` a test would need.
+func scoreDisplaysAsBook(twoPages: Bool, page: Int) -> Bool { twoPages && page.isMultiple(of: 2) }
+
 struct PagedScoreView: UIViewRepresentable {
     let url: URL
     @Binding var page: Int
@@ -90,9 +101,11 @@ struct PagedScoreView: UIViewRepresentable {
     var onPlaceBreakPoint: (Int, NormalizedRect) -> Void = { _, _ in }
     var onEditTextBox: (TextBoxAnnotation) -> Void = { _ in }
     var onTurnPage: (Int) -> Void = { _ in }
-    /// §7 performance mode: a long press anywhere on the score exits it. The only way out while
-    /// every other control is deliberately hidden, so it fires regardless of `focusPageTurns`.
-    var onLongPress: () -> Void = {}
+    /// §7 performance mode: a long press anywhere on the score exits it (the only way out while
+    /// every other control is deliberately hidden, so it fires regardless of `focusPageTurns`) — a
+    /// `nil` region id. §8: outside performance mode, a long press landing on a saved passage
+    /// outline instead passes that passage's id, for `ScoreWorkspace`'s on-score quick-action menu.
+    var onLongPress: (UUID?) -> Void = { _ in }
     var onPageChanged: (Int) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     func makeUIView(context: Context) -> ZoomableScorePDFView {
@@ -108,6 +121,22 @@ struct PagedScoreView: UIViewRepresentable {
         longPress.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         longPress.delegate = context.coordinator
         view.addGestureRecognizer(longPress)
+        // Minor regression (verifier "reader lens", 2026-09-29): with no relationship between the
+        // two, a touch held long enough to recognize as a long press *also* recognized as a tap on
+        // release (UITapGestureRecognizer has no built-in maximum hold duration) — leaving
+        // performance mode with the documented long press also fired a page turn from the very same
+        // touch. The tap now waits to see whether the long press claims the touch first.
+        pageTap.require(toFail: longPress)
+        // Minor regression (verifier "reader lens", 2026-09-29): only the tap zones and buttons
+        // turned pages — a reading swipe did nothing. Discrete (recognizes once per gesture, unlike
+        // PDFKit's own continuous pan), so it coexists with pinch/pan for a zoomed-in page; `swiped(_:)`
+        // itself declines while zoomed past fit, where the identical drag should pan instead.
+        for direction: UISwipeGestureRecognizer.Direction in [.left, .right] {
+            let swipe = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.swiped(_:)))
+            swipe.direction = direction
+            swipe.delegate = context.coordinator
+            view.addGestureRecognizer(swipe)
+        }
         // Opaque, so this is the color actually shown in the margins/gutter around page content —
         // the `PraeludeColor.scorePaper` layer `ScoreWorkspace` places behind this view never shows
         // through. Pinned paper-white like that token, not a system gray, so the score reads as one
@@ -115,7 +144,7 @@ struct PagedScoreView: UIViewRepresentable {
         view.backgroundColor = UIColor(PraeludeColor.scorePaper)
         view.displayDirection = .horizontal
         view.displayMode = twoPages ? .twoUp : .singlePage
-        view.displaysAsBook = false
+        view.displaysAsBook = scoreDisplaysAsBook(twoPages: twoPages, page: page)
         view.autoScales = true
         view.isInMarkupMode = true
         view.pageOverlayViewProvider = context.coordinator
@@ -148,6 +177,8 @@ struct PagedScoreView: UIViewRepresentable {
         }
         let mode: PDFDisplayMode = twoPages ? .twoUp : .singlePage
         if view.displayMode != mode { view.displayMode = mode; view.refreshScaleRange() }
+        let book = scoreDisplaysAsBook(twoPages: twoPages, page: page)
+        if view.displaysAsBook != book { view.displaysAsBook = book; view.refreshScaleRange() }
         if let doc = view.document, let target = doc.page(at: max(0, page - 1)), view.currentPage != target {
             guard context.coordinator.flush() else { return }
             view.go(to: target)
@@ -246,12 +277,16 @@ struct PagedScoreView: UIViewRepresentable {
             toolPicker.stateAutosaveName = "Praelude.ScoreTools"
             let markup = parent.markup
             parent.markup.flushInk = { [weak self, weak markup] in self?.flush() ?? (markup?.pendingInk.isEmpty ?? true) }
+            // `parent.page` is a *displayed* page number; `overlays` is keyed by *source* page (see
+            // `sourcePage(forDisplayIndex:)`'s own doc comment) — after any page-tool reorder/insert/
+            // delete the two diverge, and indexing `overlays` by `parent.page` directly used to silently
+            // miss the live overlay (Undo/Redo ink staying disabled, or acting on the wrong page).
             parent.markup.undoInk = { [weak self] in
-                guard let self, let canvas = overlays[parent.page]?.canvas else { return }
+                guard let self, let number = sourcePage(forDisplayIndex: parent.page), let canvas = overlays[number]?.canvas else { return }
                 canvas.undoManager?.undo(); updateUndoState()
             }
             parent.markup.redoInk = { [weak self] in
-                guard let self, let canvas = overlays[parent.page]?.canvas else { return }
+                guard let self, let number = sourcePage(forDisplayIndex: parent.page), let canvas = overlays[number]?.canvas else { return }
                 canvas.undoManager?.redo(); updateUndoState()
             }
             parent.markup.resolveInkConflict = { [weak self] number, keepLocal in
@@ -363,6 +398,12 @@ struct PagedScoreView: UIViewRepresentable {
         }
         func refreshOverlays() { for overlay in Array(overlays.values) { refresh(overlay) }; updateUndoState() }
         private func refresh(_ overlay: ScorePageOverlay) {
+            // §7 performance mode: `allowsInk` can flip on a page that already has a live overlay —
+            // entering performance mode does not tear overlays down and rebuild them, so an overlay
+            // created while ink was allowed previously kept accepting Pencil input until the reader
+            // turned away and back. `inkReadOnly` must be kept in sync on every refresh pass, not only
+            // set once at overlay creation (`pdfView(_:overlayViewFor:)`).
+            overlay.inkReadOnly = !parent.allowsInk
             overlay.displayedRegions = parent.regions
             overlay.regionColors = parent.regionColors
             overlay.emphasizedIDs = parent.emphasizedIDs; overlay.practicedIDs = parent.practicedIDs
@@ -508,7 +549,7 @@ struct PagedScoreView: UIViewRepresentable {
             return drawing
         }
         private func updateUndoState() {
-            let manager = overlays[parent.page]?.canvas.undoManager
+            let manager = sourcePage(forDisplayIndex: parent.page).flatMap { overlays[$0] }?.canvas.undoManager
             let undo = manager?.canUndo ?? false, redo = manager?.canRedo ?? false
             guard parent.markup.canUndoInk != undo || parent.markup.canRedoInk != redo else { return }
             Task { @MainActor [weak self] in
@@ -551,8 +592,18 @@ struct PagedScoreView: UIViewRepresentable {
             parent.onTurnPage(recognizer.location(in: view).x < view.bounds.width / 3 ? -1 : 1)
         }
         @objc func longPressed(_ recognizer: UILongPressGestureRecognizer) {
-            guard recognizer.state == .began else { return }
-            parent.onLongPress()
+            guard recognizer.state == .began, let view = recognizer.view as? PDFView else { return }
+            guard let tappedPage = view.page(for: recognizer.location(in: view), nearest: false), let document = view.document,
+                  let number = sourcePage(forDisplayIndex: document.index(for: tappedPage) + 1), let overlay = overlays[number] else {
+                parent.onLongPress(nil); return
+            }
+            let point = overlay.convert(recognizer.location(in: view), from: view)
+            parent.onLongPress(overlay.passageRegion(at: point))
+        }
+        @objc func swiped(_ recognizer: UISwipeGestureRecognizer) {
+            guard let view = recognizer.view as? ZoomableScorePDFView,
+                  view.scaleFactor <= view.minScaleFactor * 1.05 else { return }
+            parent.onTurnPage(recognizer.direction == .left ? 1 : -1)
         }
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool { parent.markup.mode == .reading }
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }

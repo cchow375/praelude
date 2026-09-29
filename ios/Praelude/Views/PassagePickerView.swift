@@ -115,8 +115,9 @@ struct PassagePickerView: View {
 
 /// §8 "split": choose which of a passage's boxes move into a brand-new passage. The chooser lists
 /// boxes by page since that is how a musician would recognize them — there is no live score to tap
-/// on from the passage list, unlike drawing a box in `ScorePageOverlay`.
-private struct PassageSplitView: View {
+/// on from the passage list, unlike drawing a box in `ScorePageOverlay`. Not `private`: also
+/// presented from `ScoreWorkspace`'s on-score long-press quick actions (`PassageQuickActions.swift`).
+struct PassageSplitView: View {
     @Environment(PracticeStore.self) private var store
     let passage: Passage
     let onDone: () -> Void
@@ -160,8 +161,9 @@ private struct PassageSplitView: View {
 }
 
 /// §8 "merge": fold one or more other passages from the same piece into this one. `passage` keeps
-/// its own learning history; every chosen passage's boxes move over and it is archived.
-private struct PassageMergeView: View {
+/// its own learning history; every chosen passage's boxes move over and it is archived. Not
+/// `private`: also presented from `ScoreWorkspace`'s on-score long-press quick actions.
+struct PassageMergeView: View {
     @Environment(PracticeStore.self) private var store
     let passage: Passage
     let candidates: [Passage]

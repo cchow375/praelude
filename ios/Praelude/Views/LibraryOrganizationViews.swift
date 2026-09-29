@@ -133,6 +133,9 @@ private struct RenameSheet: View {
 
 struct SetlistsView: View {
     let onOpenPiece: (UUID) -> Void
+    /// §7 setlists: opens a movement at its own saved `startPage`, previously stored but never acted
+    /// on (`onOpenPiece` alone always lands on the piece's own `lastPage`).
+    var onOpenPieceAtPage: (UUID, Int) -> Void = { _, _ in }
     @Environment(PracticeStore.self) private var store
     @State private var newName = ""
     @State private var errorMessage: String?
@@ -154,7 +157,7 @@ struct SetlistsView: View {
                 Section {
                     ForEach(setlists) { setlist in
                         NavigationLink {
-                            SetlistDetailView(setlistID: setlist.id, onOpenPiece: onOpenPiece)
+                            SetlistDetailView(setlistID: setlist.id, onOpenPiece: onOpenPiece, onOpenPieceAtPage: onOpenPieceAtPage)
                         } label: {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(setlist.name).foregroundStyle(.primary)
@@ -184,6 +187,7 @@ struct SetlistsView: View {
 private struct SetlistDetailView: View {
     let setlistID: UUID
     let onOpenPiece: (UUID) -> Void
+    var onOpenPieceAtPage: (UUID, Int) -> Void = { _, _ in }
     @Environment(PracticeStore.self) private var store
     @State private var addingPiece = false
     @State private var editingItem: SetlistItem?
@@ -244,7 +248,10 @@ private struct SetlistDetailView: View {
         .sheet(isPresented: $addingPiece) { AddSetlistItemView(onAdd: appendItem) }
         .sheet(item: $editingItem) { item in EditSetlistItemView(item: item, onSave: saveItem) }
     }
-    private func open(_ item: SetlistItem) { currentItemID = item.id; onOpenPiece(item.pieceID) }
+    private func open(_ item: SetlistItem) {
+        currentItemID = item.id
+        if let startPage = item.startPage { onOpenPieceAtPage(item.pieceID, startPage) } else { onOpenPiece(item.pieceID) }
+    }
     private func step(_ offset: Int) {
         guard let setlist, let next = SetlistNavigator.item(after: currentItemID, offset: offset, in: setlist, pieces: store.pieces) else { return }
         open(next)

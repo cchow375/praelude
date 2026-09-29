@@ -16,6 +16,11 @@ struct ScoreWorkspace: View {
     /// path a manual on-score tap already does (see `TodayView.startItem`). Consumed once on appear.
     var autoSelectPassageID: UUID? = nil
     var onAutoSelectConsumed: () -> Void = {}
+    /// §7 setlists: "open by movement" — a one-shot override for the page this score opens to,
+    /// exactly like `autoSelectPassageID`/`onAutoSelectConsumed` above (a setlist item's own
+    /// `startPage`, which previously was stored but never acted on).
+    var initialPage: Int? = nil
+    var onInitialPageConsumed: () -> Void = {}
     @Environment(PracticeStore.self) private var store
     @Environment(MetronomeService.self) private var metronome
     @Environment(SpeechCommandService.self) private var speech
@@ -60,6 +65,9 @@ struct ScoreWorkspace: View {
     @State private var error: String?
     @State private var sharingURL: URL?
     @State private var editingTextBox: TextBoxAnnotation?
+    /// §8: a long press landing on a saved passage's outline while reading (not performance mode,
+    /// which uses the same gesture to exit) — drives `.passageQuickActions` below.
+    @State private var longPressedPassage: Passage?
     private var piece: Piece? { store.state.pieces.first { $0.id == pieceID } }
     private var active: ActiveSet? { store.activeSet?.configuration.pieceID == pieceID ? store.activeSet : nil }
     private var scoreURL: URL? { piece.flatMap { NativeLibraryFiles(store: store).scoreURL(for: $0) } }
@@ -77,6 +85,24 @@ struct ScoreWorkspace: View {
     /// §7 links: `sourcePage`/`targetPage` are *displayed* page numbers (see "(C) Schema3.md").
     private var effectiveScoreLinks: [ScoreLink] { store.state.scoreLinks.filter { $0.pieceID == pieceID && $0.deletedAt == nil } }
     private var effectivePageCount: Int { PageLayout.effectiveCount(pageEdits: effectivePageEdits, pieceID: pieceID, sourcePageCount: piece?.pageCount ?? 0) }
+    /// §7 page tools: this piece's effective reading order — the same one `PagedScoreView.Coordinator`
+    /// independently computes from the identical inputs, so the two always agree on what a source vs.
+    /// a displayed page number means. `page` (this view's own `@State`) is always a *displayed* page
+    /// number (`PagedScoreView` navigates its composed/display document by it); a stored mark's own
+    /// `.page` (`PassageRegion`, ink) is always a *source* page number (see "(C) Schema3.md") — the two
+    /// must never be assigned to each other directly.
+    private var effectivePages: [EffectivePage] { PageLayout.effectivePages(pageEdits: effectivePageEdits, pieceID: pieceID, sourcePageCount: piece?.pageCount ?? 0) }
+    /// The displayed page a source-page-anchored mark currently shows on, for navigating *to* it.
+    /// Falls back to `source` itself, exactly right for the overwhelmingly common piece with no page
+    /// edits (identity order, where source and display always coincide).
+    private func displayPage(forSourcePage source: Int) -> Int { effectivePages.first { $0.sourcePage == source }?.displayOrder ?? source }
+    /// The inverse, for comparing the page currently on screen *against* stored source pages. `nil`
+    /// for a generated blank/staff display page, which has no source page to compare against at all.
+    private func sourcePage(forDisplayPage display: Int) -> Int? {
+        guard !effectivePages.isEmpty else { return display }
+        guard display >= 1, display <= effectivePages.count else { return nil }
+        return effectivePages[display - 1].sourcePage
+    }
     private var practicedIDs: Set<UUID> {
         let practiced = (store.state.history + [active].compactMap { $0 }).filter { !$0.effectiveAttempts.isEmpty }
             .compactMap(\.configuration.passageSnapshot).flatMap(\.regions)
@@ -287,6 +313,7 @@ struct ScoreWorkspace: View {
             Button("Use the saved drawing", role: .destructive) { markup.resolveInkConflict(page, false) }
             Button("Keep editing", role: .cancel) { markup.conflictPage = nil }
         } message: { _ in Text("Both windows edited this page. Choose which drawing to keep. Your unsaved drawing stays open until you decide.") }
+        .passageQuickActions(target: $longPressedPassage, allPassages: savedPassages, pageCount: piece?.pageCount ?? 1, onEditBoxes: { beginSelection($0) })
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
             guard let piece else { return }
             perform {
@@ -308,7 +335,8 @@ struct ScoreWorkspace: View {
         } message: { Text("Your repetitions and time stay saved. Unfinished work remains in your history.") }
         .alert("Couldn’t complete that", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
         .onAppear {
-            page = piece?.lastPage ?? 1
+            page = min(max(1, initialPage ?? piece?.lastPage ?? 1), max(1, effectivePageCount))
+            if initialPage != nil { savePage(page); onInitialPageConsumed() }
             runtime.scoreAppeared(ownerID: voiceOwnerID)
             if let autoSelectPassageID, let target = savedPassages.first(where: { $0.id == autoSelectPassageID }) {
                 selectPassage(target)
@@ -362,7 +390,7 @@ struct ScoreWorkspace: View {
                        stamps: visibleStamps, textBoxes: visibleTextBoxes, otherLayersInkData: otherLayersInk,
                        drawingData: mergedInkData, saveDrawing: persistInk, onRegionSelected: onRegionSelected,
                        onPlaceStamp: placeStamp, onPlaceTextBox: placeTextBox, onPlaceBreakPoint: placeBreakPointTap, onEditTextBox: { editingTextBox = $0 },
-                       onTurnPage: turnPage, onLongPress: exitPerformanceMode, onPageChanged: savePage)
+                       onTurnPage: turnPage, onLongPress: handleLongPress, onPageChanged: savePage)
             .accessibilityIdentifier("scorePDF")
     }
     private func onRegionSelected(_ id: UUID) {
@@ -634,7 +662,7 @@ struct ScoreWorkspace: View {
     /// immediately so the very next tap (or "Start") is tap 2 — no modal in between.
     private func selectPassage(_ passage: Passage) {
         selectedPassage = passage
-        page = passage.page
+        page = displayPage(forSourcePage: passage.page)
         savePage(page)
         rearmIfIdle()
     }
@@ -752,6 +780,15 @@ struct ScoreWorkspace: View {
         performanceMode = false; focusMode = false
         PraeludeHaptic.toggle()
     }
+    /// §7/§8: one gesture, two jobs, picked by mode — performance mode's only way out (its own long
+    /// press already ignores this while not active, so the plain call is safe unconditionally), or —
+    /// while reading normally — a saved passage's on-score quick actions (see "(C) Audit.md": these
+    /// previously existed only as a context menu on rows in the Passages sheet).
+    private func handleLongPress(_ regionID: UUID?) {
+        guard !performanceMode else { exitPerformanceMode(); return }
+        guard let regionID, let passage = savedPassages.first(where: { $0.regions.contains { $0.id == regionID } }) else { return }
+        longPressedPassage = passage
+    }
     private func perform(_ action: () throws -> Void) { do { try action() } catch { self.error = error.localizedDescription } }
 
     /// `store.endSession()` plus the spec §5a "session finished" feed event — one place for both of
@@ -792,11 +829,16 @@ struct ScoreWorkspace: View {
     /// — so that is when the score follows, cycling the passage's own pages rather than requiring a
     /// manual turn to see the rest of it.
     private func advancePassagePageIfNeeded() {
+        // `nextPassagePage` compares against `PassageRegion.page` (source pages), so the currently
+        // *displayed* page must be converted to its source equivalent before comparing, and the
+        // result converted back before it reaches `page` (displayed) — see `EffectivePage`'s own
+        // doc comment and the property above.
         guard let snapshot = active?.configuration.passageSnapshot,
-              let next = PracticeUXHelpers.nextPassagePage(after: page, pages: PracticeUXHelpers.distinctPages(snapshot.regions)),
+              let currentSource = sourcePage(forDisplayPage: page),
+              let next = PracticeUXHelpers.nextPassagePage(after: currentSource, pages: PracticeUXHelpers.distinctPages(snapshot.regions)),
               markup.flushInk() else { return }
-        page = next
-        savePage(next)
+        page = displayPage(forSourcePage: next)
+        savePage(page)
     }
     /// §10a tap 2 (touch or "Start"/a cold grade word). Mirrors `PracticeArmView.start(grade:)` —
     /// kept separate because voice dispatch lives here, not inside that view.
