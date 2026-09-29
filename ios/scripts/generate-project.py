@@ -106,6 +106,45 @@ for path in sorted((root / "Praelude/Resources/Fonts").glob("*.ttf")) + sorted(
     )
     app_files.append(f)
     resources.append(obj(rel + "build", "isa = PBXBuildFile; fileRef = " + f + ";"))
+
+# Remote SPM dependency: supabase-swift, pinned to an exact release (spec 4b/4c/4d - auth, sync,
+# storage). Individual products only (Auth, PostgREST, Storage, Realtime), not the combined
+# "Supabase" product, "Functions" or "PostgrestMacros" - verified against the package's own
+# Package.swift at this tag: those four targets' only dependencies are swift-crypto (Auth only),
+# swift-http-types, swift-log and swift-concurrency-extras/xctest-dynamic-overlay, none of them a
+# macro/codegen package, keeping this dependency-free project's new dependency graph small and
+# predictable to resolve on a Mac shared with other agents' builds.
+supabase_package = obj(
+    "supabasePackage",
+    "isa = XCRemoteSwiftPackageReference; repositoryURL = "
+    + q("https://github.com/supabase/supabase-swift")
+    + "; requirement = {kind = exactVersion; version = "
+    + q("2.55.2")
+    + ";};",
+)
+supabase_products = {
+    name: obj(
+        "supabaseProduct" + name,
+        "isa = XCSwiftPackageProductDependency; package = "
+        + supabase_package
+        + "; productName = "
+        + name
+        + ";",
+    )
+    for name in ("Auth", "PostgREST", "Storage", "Realtime")
+}
+
+
+def package_build_files(tag):
+    # A package product is linked via a PBXBuildFile whose productRef (not fileRef) points at the
+    # XCSwiftPackageProductDependency - a separate PBXBuildFile per target/phase, same as Xcode's
+    # own generator, even though every one of them points at the same four product dependencies.
+    return [
+        obj(tag + name + "Build", "isa = PBXBuildFile; productRef = " + ref + ";")
+        for name, ref in supabase_products.items()
+    ]
+
+
 test_files = []
 test_sources = []
 for path in sorted((root / "PraeludeUITests").glob("*.swift")):
@@ -191,7 +230,7 @@ def phase(key, isa, files):
 
 app_phases = [
     phase("sources", "PBXSourcesBuildPhase", app_sources),
-    phase("frameworks", "PBXFrameworksBuildPhase", []),
+    phase("frameworks", "PBXFrameworksBuildPhase", package_build_files("app")),
     phase("resources", "PBXResourcesBuildPhase", resources),
 ]
 test_phases = [
@@ -234,7 +273,9 @@ app_target = obj(
     + app_config
     + "; buildPhases = "
     + array(app_phases)
-    + "; buildRules = (); dependencies = ();",
+    + "; buildRules = (); dependencies = (); packageProductDependencies = "
+    + array(list(supabase_products.values()))
+    + ";",
 )
 proxy = obj(
     "proxy",
@@ -277,7 +318,7 @@ test_target = obj(
 )
 unit_phases = [
     phase("unitSources", "PBXSourcesBuildPhase", unit_sources),
-    phase("unitFrameworks", "PBXFrameworksBuildPhase", []),
+    phase("unitFrameworks", "PBXFrameworksBuildPhase", package_build_files("unitTest")),
     phase("unitResources", "PBXResourcesBuildPhase", []),
 ]
 unit_config = configs(
@@ -302,6 +343,8 @@ unit_target = obj(
     + array(unit_phases)
     + "; buildRules = (); dependencies = "
     + array([dep])
+    + "; packageProductDependencies = "
+    + array(list(supabase_products.values()))
     + ";",
 )
 project = obj(
@@ -320,6 +363,8 @@ project = obj(
     + products
     + '; projectDirPath = ""; projectRoot = ""; targets = '
     + array([app_target, test_target, unit_target])
+    + "; packageReferences = "
+    + array([supabase_package])
     + ";",
 )
 project_dir = root / "Praelude.xcodeproj"

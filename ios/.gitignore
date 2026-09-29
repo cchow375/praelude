@@ -8,3 +8,7 @@ xcuserdata/
 *.ipa
 *.xcarchive/
 Signing.local.xcconfig
+# SPM's resolved-package checkouts (supabase-swift et al.) - reproducible from Package.resolved
+# (which IS committed, at Praelude.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/) plus each
+# package's own repositoryURL. Re-cloned automatically on the next build/resolve.
+SourcePackages/
