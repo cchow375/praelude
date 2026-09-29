@@ -40,12 +40,15 @@ public final class SupabaseServices {
         let token = try await auth.session.accessToken
         var headers = apiKeyHeader
         headers["Authorization"] = "Bearer \(token)"
-        return PostgrestClient(url: restURL, headers: headers)
+        // `logger: nil` is already this initializer's default; passing it explicitly disambiguates
+        // toward the current init(url:schema:headers:logger:fetch:encoder:decoder:retryEnabled:)
+        // instead of the deprecated pre-logger overload, which otherwise resolves first.
+        return PostgrestClient(url: restURL, headers: headers, logger: nil)
     }
     public func storage() async throws -> SupabaseStorageClient {
         let token = try await auth.session.accessToken
         var headers = apiKeyHeader
         headers["Authorization"] = "Bearer \(token)"
-        return SupabaseStorageClient(configuration: StorageClientConfiguration(url: storageURL, headers: headers))
+        return SupabaseStorageClient(configuration: StorageClientConfiguration(url: storageURL, headers: headers, logger: nil))
     }
 }

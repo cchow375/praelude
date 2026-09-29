@@ -82,8 +82,14 @@ struct ProfileEditView: View {
                         Image(systemName: "person.fill").foregroundStyle(PraeludeColor.inkTertiary)
                     }
                 }
+                // A plain local String, not `self.isUploadingPhoto` itself, is what the trailing
+                // closure captures — PhotosPicker's label closure is @Sendable, so capturing a
+                // main-actor-isolated property directly there is a (harmless in practice, since
+                // SwiftUI only ever evaluates it on the main actor, but still worth avoiding)
+                // Swift 6 warning; a value-captured String has no isolation to complain about.
+                let photoPickerLabel = isUploadingPhoto ? "Uploading…" : "Change photo"
                 PhotosPicker(selection: $photoItem, matching: .images) {
-                    Text(isUploadingPhoto ? "Uploading…" : "Change photo")
+                    Text(photoPickerLabel)
                 }
                 .buttonStyle(.praeludeQuiet)
                 .disabled(isUploadingPhoto)
