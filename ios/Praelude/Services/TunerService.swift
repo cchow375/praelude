@@ -44,13 +44,24 @@ final class TunerService {
             let format = input.inputFormat(forBus: 0)
             guard format.sampleRate > 0, format.channelCount > 0 else { throw TunerError.noInput }
             input.removeTap(onBus: 0)
-            input.installTap(onBus: 0, bufferSize: 4_096, format: format) { [weak self] buffer, _ in
+            // The tap block itself must be `nonisolated`: AVAudioEngine invokes it synchronously on
+            // its own realtime audio thread, never hopping through Swift concurrency first. A plain
+            // closure written inside this `@MainActor` method infers `@MainActor` isolation from its
+            // lexical context (installTap's block parameter carries no isolation of its own), which
+            // makes the compiler insert a synchronous "am I on the main actor?" check at the very top
+            // of the closure — and since the audio thread never is, that check traps on the first
+            // buffer instead of hopping. `weakSelf` is `nonisolated(unsafe)` so the closure can carry
+            // it across into the `@Sendable` block below without requiring `TunerService: Sendable`;
+            // every actual read/write of `self`'s state still happens back on the main actor via
+            // `MainActor.run`, same as before.
+            nonisolated(unsafe) let weakSelf = self
+            input.installTap(onBus: 0, bufferSize: 4_096, format: format) { @Sendable [weak weakSelf] buffer, _ in
                 guard let channel = buffer.floatChannelData?[0] else { return }
                 let samples = Array(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
                 let sampleRate = format.sampleRate
                 Task.detached(priority: .userInitiated) {
                     let pitch = PitchDetector.detectPitch(samples: samples, sampleRate: sampleRate)
-                    await MainActor.run { self?.ingest(pitch: pitch, generation: thisGeneration) }
+                    await MainActor.run { weakSelf?.ingest(pitch: pitch, generation: thisGeneration) }
                 }
             }
             try engine.start()

@@ -111,7 +111,12 @@ final class PulseCheckWiringTests: XCTestCase {
         XCTAssertTrue(try fixture.runtime.record(.clean, eventID: UUID()))
         XCTAssertNotNil(fixture.runtime.activePulseCheck)
 
-        try await Task.sleep(for: .seconds(3))
+        // Poll rather than sleep a fixed interval: on a loaded CI/simulator host `Task.sleep` wakeups
+        // can lag well past the ~1.6s the check lasts. 15s is a ceiling, not the expected wait.
+        let deadline = Date().addingTimeInterval(15)
+        while fixture.runtime.activePulseCheck != nil, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
         XCTAssertNil(fixture.runtime.activePulseCheck, "The pulse check must end on its own once its bars have elapsed")
 
         XCTAssertTrue(try fixture.runtime.record(.clean, eventID: UUID()))
@@ -193,8 +198,8 @@ final class PulseCheckWiringTests: XCTestCase {
     /// The auto-clear timer is real (`Task.sleep`), so this drives it with the smallest duration
     /// reachable through public API — fastest tempo (300 bpm) and fewest beats per bar (1) — rather
     /// than asserting on `startPulseCheck`'s private implementation. `PulseCheckPlan.totalBars` is 8
-    /// by default (leadIn 4 + silent 2 + recovery 2), so 8 bars * (60 / 300 bpm) ≈ 1.6s; the 3s wait
-    /// leaves comfortable headroom for `Task` scheduling jitter without making this test slow.
+    /// by default (leadIn 4 + silent 2 + recovery 2), so 8 bars * (60 / 300 bpm) ≈ 1.6s; the test polls with a generous
+    /// ceiling so scheduling jitter on a loaded host can't produce a false failure.
     @MainActor
     func testPulseCheckClearsItselfAfterItsOwnDuration() async throws {
         let fixture = try fixture()
@@ -203,7 +208,12 @@ final class PulseCheckWiringTests: XCTestCase {
         XCTAssertTrue(try fixture.runtime.record(.clean, eventID: UUID()))
         XCTAssertNotNil(fixture.runtime.activePulseCheck)
 
-        try await Task.sleep(for: .seconds(3))
+        // Poll rather than sleep a fixed interval: on a loaded CI/simulator host `Task.sleep` wakeups
+        // can lag well past the ~1.6s the check lasts. 15s is a ceiling, not the expected wait.
+        let deadline = Date().addingTimeInterval(15)
+        while fixture.runtime.activePulseCheck != nil, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
         XCTAssertNil(fixture.runtime.activePulseCheck, "The pulse check must end on its own once its bars have elapsed")
         XCTAssertNil(fixture.metronome.dropoutPlan)
     }

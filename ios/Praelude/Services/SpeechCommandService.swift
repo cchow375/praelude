@@ -147,7 +147,16 @@ final class SpeechCommandService {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw VoiceError.noMicrophone }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in request.append(buffer) }
+        // `nonisolated(unsafe)`: AVAudioEngine calls this block synchronously on its own realtime
+        // audio thread, never through Swift concurrency. Written as a plain closure inside this
+        // `@MainActor` method, it would infer `@MainActor` isolation from context and the compiler
+        // would insert a synchronous main-actor check at the top of the closure — which traps the
+        // instant the audio thread (never the main actor) delivers the first buffer. `request` is
+        // captured through this unsafe local so the closure can be `@Sendable`/nonisolated without
+        // requiring `SFSpeechAudioBufferRecognitionRequest: Sendable`; Apple documents `append(_:)`
+        // as safe to call off the main thread, and nothing else here touches actor-isolated state.
+        nonisolated(unsafe) let tapRequest = request
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in tapRequest.append(buffer) }
         tapInstalled = true
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             // Move only value types across the callback boundary, never the audio buffer or result object.
