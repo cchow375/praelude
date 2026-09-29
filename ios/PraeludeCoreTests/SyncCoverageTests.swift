@@ -322,4 +322,72 @@ final class SyncCoverageTests: XCTestCase {
         pulled.undone_at = Date(timeIntervalSince1970: 1_700_000_100)
         XCTAssertEqual(pulled.coreValue?.undoneAt, pulled.undone_at, "A pulled row that was already undone elsewhere must decode as undone, not reset to active.")
     }
+
+    // MARK: Ink stroke sync (`ink_strokes`) — blocker regression (verifier "reader lens", 2026-09-29)
+    //
+    // `InkStrokeSyncRow` used to have no `fingerprint` field at all, so a pulled row always decoded
+    // with `fingerprint == nil` regardless of what the pushing device sent — see the type's own doc
+    // comment in `SyncDTO.swift` and `ios/supabase/migrations/20260926220023_ink_strokes_add_fingerprint.sql`.
+
+    func testInkStrokeSyncRowRoundTripsFingerprintThroughJSON() throws {
+        let stroke = InkStroke(pieceID: UUID(), page: 1, layer: .mine, data: Data([1, 2, 3]), fingerprint: Data([0xAA, 0xBB]))
+        let row = try XCTUnwrap(InkStrokeSyncRow(stroke))
+        let json = try SyncCoding.encoder.encode(row)
+        let decoded = try SyncCoding.decoder.decode(InkStrokeSyncRow.self, from: json)
+        let roundTripped = try XCTUnwrap(decoded.coreValue)
+        XCTAssertEqual(roundTripped.fingerprint, stroke.fingerprint, "The fingerprint must survive the wire round trip")
+        XCTAssertEqual(roundTripped.data, stroke.data)
+    }
+
+    /// A row written before this fix — or by the whole-page compatibility shim, which never computes
+    /// a fingerprint at all — has none. It must still decode, with `fingerprint == nil`, not fail.
+    func testInkStrokeSyncRowWithNoFingerprintStillDecodes() throws {
+        let stroke = InkStroke(pieceID: UUID(), page: 1, layer: .mine, data: Data([9]))
+        let row = try XCTUnwrap(InkStrokeSyncRow(stroke))
+        XCTAssertNil(row.fingerprint)
+        let json = try SyncCoding.encoder.encode(row)
+        let decoded = try SyncCoding.decoder.decode(InkStrokeSyncRow.self, from: json)
+        XCTAssertNil(decoded.coreValue?.fingerprint)
+    }
+
+    /// The end-to-end failure this DTO gap caused (audit probe P9): a second "device" pulls strokes
+    /// through the sync row, then saves an edit through the exact `replaceInk` path a real canvas
+    /// save uses. Before this fix, the pulled rows' lost fingerprints made every unchanged stroke look
+    /// "new" on the next save, tombstoning and recreating each one under an id that collided with the
+    /// row just tombstoned in the very same transaction — failing the whole page. `applySyncedInkStroke`
+    /// is what a real `SyncCoordinator` pull calls (`SyncCoordinator.swift`); this proves the Core half
+    /// without needing PencilKit or the app target — see `AnnotationAppTests.swift` for the PencilKit-
+    /// level probes of the same `replaceInk` path.
+    @MainActor func testDeviceBCanSaveAfterPullingInkThatKeptItsFingerprintThroughSync() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-ink-sync-\(UUID())")
+        let deviceB = PracticeStore(directory: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var piece = Piece(title: "Test score", pageCount: 1); piece.pdfFileName = "fixture.pdf"
+        try deviceB.addPiece(piece)
+        // Device A's original strokes, exactly as they would arrive over the wire.
+        let fingerprintA = Data([0x01, 0x02])
+        let fingerprintB = Data([0x03, 0x04])
+        let strokeA = InkStroke(pieceID: piece.id, page: 1, layer: .mine, data: Data([0xA0]), fingerprint: fingerprintA)
+        let strokeB = InkStroke(pieceID: piece.id, page: 1, layer: .mine, data: Data([0xB0]), fingerprint: fingerprintB)
+        for stroke in [strokeA, strokeB] {
+            let row = try XCTUnwrap(InkStrokeSyncRow(stroke))
+            let json = try SyncCoding.encoder.encode(row)
+            let pulled = try SyncCoding.decoder.decode(InkStrokeSyncRow.self, from: json)
+            try deviceB.applySyncedInkStroke(try XCTUnwrap(pulled.coreValue))
+        }
+        XCTAssertEqual(deviceB.inkStrokes(pieceID: piece.id, page: 1).map(\.fingerprint), [fingerprintA, fingerprintB],
+                       "A pulled row must keep its fingerprint, not decode to nil")
+        // Device B re-splits the same two strokes — independently re-serialized, so different `data`
+        // but the same fingerprint, exactly what a real PKDrawing round trip produces — plus one new
+        // stroke of its own.
+        try deviceB.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [
+            .init(data: Data([0xA1]), fingerprint: fingerprintA),
+            .init(data: Data([0xB1]), fingerprint: fingerprintB),
+            .init(data: Data([0xC0]), fingerprint: Data([0x05, 0x06])),
+        ])
+        let rows = deviceB.inkStrokes(pieceID: piece.id, page: 1)
+        XCTAssertEqual(rows.count, 3, "The two synced strokes must be recognized as unchanged, not tombstoned and duplicated")
+        XCTAssertEqual(Set(rows.map(\.fingerprint)), [fingerprintA, fingerprintB, Data([0x05, 0x06])])
+        try PracticeStore.validate(deviceB.state)
+    }
 }

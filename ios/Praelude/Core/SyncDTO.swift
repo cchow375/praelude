@@ -157,6 +157,19 @@ public struct InkStrokeSyncRow: Codable, Equatable, Sendable {
     public var layer: String
     /// `bytea` as Postgres hex-literal text (`\x...`), never base64 — see `SyncCoding.swift`.
     public var data: String
+    /// `InkStroke.fingerprint`, hex-encoded the same way `data` is, or omitted for a row the
+    /// whole-page compatibility shim wrote (`saveDrawing`, which never computes one). **Load-bearing
+    /// for a second device's ability to save at all**, not just cosmetic: `PracticeStore.replaceInk`
+    /// diffs by `fingerprint ?? data`, so a synced row that silently lost its fingerprint would diff
+    /// by its raw PencilKit-encoded `data` instead — which a re-split of the very same, untouched
+    /// stroke on the pulling device never reproduces (see `InkPerStroke`'s own doc comment: two
+    /// independent `PKDrawing` constructions from identical content never serialize to equal bytes).
+    /// Every synced stroke would then look "changed" on the pulling device's next save, tombstoning
+    /// and recreating it under a freshly computed id that — because `stableID` is deterministic in
+    /// the *fingerprint*, which two devices splitting identical content agree on even when `data`
+    /// itself differs byte-for-byte — collides with the very row just tombstoned in the same
+    /// transaction, failing `validate`'s uniqueness check outright.
+    public var fingerprint: String?
     public var created_at: Date
     public var updated_at: Date
     public var deleted_at: Date?
@@ -164,11 +177,16 @@ public struct InkStrokeSyncRow: Codable, Equatable, Sendable {
     public init?(_ stroke: InkStroke) {
         id = stroke.id; piece_id = stroke.pieceID; page = stroke.page; layer = stroke.layer.rawValue
         data = stroke.data.praeludeHexLiteral
+        fingerprint = stroke.fingerprint?.praeludeHexLiteral
         created_at = stroke.createdAt; updated_at = stroke.updatedAt; deleted_at = stroke.deletedAt
     }
     public var coreValue: InkStroke? {
         guard let layer = InkLayer(rawValue: layer), let bytes = Data(praeludeHexLiteral: data) else { return nil }
-        return InkStroke(id: id, pieceID: piece_id, page: page, layer: layer, data: bytes,
+        // An empty/unparseable hex string is treated as "no fingerprint" rather than a decode
+        // failure — a legitimately absent fingerprint round-trips through `nil` at the JSON layer,
+        // but stay lenient here rather than fail the whole row over this one optional field.
+        let fingerprintBytes = fingerprint.flatMap { Data(praeludeHexLiteral: $0) }
+        return InkStroke(id: id, pieceID: piece_id, page: page, layer: layer, data: bytes, fingerprint: fingerprintBytes,
                           createdAt: created_at, updatedAt: updated_at, deletedAt: deleted_at)
     }
 }

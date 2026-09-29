@@ -90,11 +90,13 @@ Two more encoding requirements, also verified rather than assumed:
   `.dateDecodingStrategy = .iso8601` on the encoder/decoder used for every sync payload. Verified:
   `Date(timeIntervalSince1970: 1_790_000_000)` encodes to `"2026-09-21T14:13:20Z"` with `.iso8601`,
   which Postgres accepts natively.
-- **`bytea` columns (`ink_strokes.data`) need hex, not base64.** Swift's `Data` encodes to base64 by
-  default; Postgres's `bytea` input function expects `\x`-prefixed hex (or the legacy escape format),
-  not base64. The client must hex-encode `InkStroke.data` itself before putting it in a
-  `sync_upsert('ink_strokes', ...)` payload (e.g. `"\\x" + data.map { String(format: "%02x", $0) }.joined()`),
-  and hex-decode the `data` field back into `Data` when reading a row back.
+- **`bytea` columns (`ink_strokes.data`, `ink_strokes.fingerprint`) need hex, not base64.** Swift's
+  `Data` encodes to base64 by default; Postgres's `bytea` input function expects `\x`-prefixed hex
+  (or the legacy escape format), not base64. The client must hex-encode `InkStroke.data`/
+  `.fingerprint` itself before putting it in a `sync_upsert('ink_strokes', ...)` payload (e.g.
+  `"\\x" + data.map { String(format: "%02x", $0) }.joined()`), and hex-decode both fields back into
+  `Data` when reading a row back. `fingerprint` is nullable — omit it, or send JSON `null`, for a row
+  the whole-page compatibility shim wrote, which never computes one.
 - **jsonb columns are opaque.** `regions`, `schedule_*` (flattened, not jsonb — see §5), `items`,
   `crop_rect`, `source_region`/`target_region`, `tempo_step`, `stages`, `passage_snapshot`,
   `location` (on `break_point_taps`) all just store whatever Core's own `JSONEncoder.encode(...)`
@@ -132,7 +134,7 @@ there); jsonb columns are opaque per §3.
 | `instruments`                                                                                               | `transposition_semitones`, `transposition_label` (`Transposition?` flattened)                                                                                                                                                                                                                                         |
 | `pieces`                                                                                                    | `tag_ids`, `folder_ids`, `performance_dates` (array), `last_page_updated_at` (own clock — write via `sync_update_last_page`, not `sync_upsert`)                                                                                                                                                                       |
 | `passages`                                                                                                  | `regions` (jsonb array of `PassageRegion`), `joined_from_passage_ids`, `learning_state`, `schedule_due_date`/`schedule_interval_days`/`schedule_review_step` (`PassageSchedule` flattened)                                                                                                                            |
-| `ink_strokes`                                                                                               | `data` (bytea — hex, see §3)                                                                                                                                                                                                                                                                                          |
+| `ink_strokes`                                                                                               | `data`, `fingerprint` (both bytea — hex, see §3; `fingerprint` nullable)                                                                                                                                                                                                                                              |
 | `page_edits`                                                                                                | `crop_rect` (jsonb `NormalizedRect?`), `deleted` (Core's own reading-order flag — distinct from the sync tombstone `deleted_at`)                                                                                                                                                                                      |
 | `score_links`                                                                                               | `source_region`/`target_region` (jsonb `NormalizedRect?`)                                                                                                                                                                                                                                                             |
 | `annotations`                                                                                               | Unified `TextBoxAnnotation`/`StampAnnotation`: `kind` (`'text'` or `'stamp'`), `region` (jsonb), then either `text` or `stamp_kind`/`stamp_label` per the `annotations_kind_shape` check                                                                                                                              |

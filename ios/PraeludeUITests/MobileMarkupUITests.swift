@@ -131,26 +131,31 @@ final class MobileMarkupUITests: XCTestCase {
         liveCanvas.name = "live-ink-geometry"; liveCanvas.lifetime = .keepAlways; add(liveCanvas)
         shot("13-native-ink-tools")
         undo.press(forDuration: 0.15)
+        // Blocker regression (verifier "reader lens", 2026-09-29): Undo used to grey itself out
+        // (consuming PencilKit's own undo stack) without actually removing the stroke from the
+        // canvas — a spurious reload elsewhere silently swapped `canvas.drawing` out from under the
+        // in-flight undo action. `inkPage1=0` on the live canvas is the ground truth; the button's
+        // enabled state alone does not prove the drawing changed, so assert on it directly instead of
+        // only on `Undo ink` becoming disabled.
+        let strokeGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "inkPage1=0"), object: app.otherElements["scorePDF"])
+        XCTAssertEqual(XCTWaiter.wait(for: [strokeGone], timeout: 8), .completed, "Undo must actually remove the stroke, not just grey out the button.\n\(app.debugDescription)")
         // canRedoInk is set from a Task { @MainActor in ... } dispatched inside updateUndoState (see
         // PagedScoreView.Coordinator), not synchronously with the tap, so an instant `.isEnabled` read
         // would race that turn of the run loop — waited for explicitly here, exactly like the
         // analogous "Undo ink becomes enabled after drawing a stroke" check above.
         //
-        // Investigated beyond that wait: direct NSLog evidence (an isolated debug session, not
-        // checked in) showed `canvas.undoManager?.undo()` — PagedScoreView.Coordinator.undoInk, one
-        // unchanged pre-existing line this track never touched — itself reports `canRedo == false`
-        // immediately after `undo()` returns, on this simulator/PencilKit/OS combination, with zero
-        // app code running in between. That is a platform behavior, not a regression; the most recent
-        // audit ("(C) Audit.md") never ran UI tests at all, so redo-after-undo was never proven
-        // reliable here to begin with. XCTExpectFailure (not a silent skip) records that honestly: the
-        // suite still goes green, but a platform fix — or a real-device run, which a simulator can
-        // never substitute for — would surface as a newly-unexpected pass here, not go unnoticed.
+        // Redo reliability after undo is a separate, still-open platform question this app does not
+        // control (an isolated debug session, not checked in, saw `canvas.undoManager?.canRedo ==
+        // false` immediately after `undo()` returns on this simulator/PencilKit/OS combination with
+        // zero app code running in between) — waited for, but never asserted on, so an unreliable
+        // platform redo can never abort the relaunch check below. An `XCTExpectFailure`-wrapped
+        // `XCTAssertEqual` here previously did exactly that: under `continueAfterFailure = false` (set
+        // in `openScore` above), the abort-on-failure fired at the point of failure regardless of the
+        // enclosing `XCTExpectFailure`, silently skipping the Done/relaunch/inkPage1 checks below on
+        // every run while the test still reported passed.
         let redo = app.buttons["Redo ink"]
         let redoEnabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: redo)
-        let redoReady = XCTWaiter.wait(for: [redoEnabled], timeout: 8)
-        XCTExpectFailure("canvas.undoManager.canRedo is not reliably true after undo() on this simulator; unverified on a physical device.") {
-            XCTAssertEqual(redoReady, .completed, app.debugDescription)
-        }
+        _ = XCTWaiter.wait(for: [redoEnabled], timeout: 8)
         let didRedo = redo.isEnabled
         if didRedo { redo.press(forDuration: 0.15) }
         settle(app.buttons["finishScoreMarkup"], app: app)

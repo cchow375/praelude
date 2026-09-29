@@ -206,6 +206,22 @@ import Observation
             for (ordinal, input) in remainingNew {
                 let key = input.fingerprint ?? input.data
                 let id = InkStroke.stableID(pieceID: pieceID, page: page, layer: layer, data: key, ordinal: ordinal)
+                // The exact same (page, layer, content, ordinal) combination can recur after its row
+                // was already tombstoned above — Redo after Undo, Undo of an erase, or Undo of a lasso
+                // move that restores a stroke's original transform all put identical content back at
+                // its original position. `stableID` is a pure function of those inputs, so it
+                // recomputes the *same id* the earlier (now-deleted) row already has. Resurrecting
+                // that row in place — instead of unconditionally appending a second row with the same
+                // id — is what keeps this a no-op for real content that never left, and what stops
+                // `validate`'s uniqueness check from rejecting the whole page the moment restored
+                // content collides with its own tombstone.
+                if let resurrect = next.inkStrokes.firstIndex(where: { $0.id == id }) {
+                    next.inkStrokes[resurrect].data = input.data
+                    next.inkStrokes[resurrect].fingerprint = input.fingerprint
+                    next.inkStrokes[resurrect].deletedAt = nil
+                    next.inkStrokes[resurrect].updatedAt = date.addingTimeInterval(Double(ordinal) * 0.000_001)
+                    continue
+                }
                 // Several new rows can land in the same flush (e.g. splitting a legacy multi-stroke
                 // page blob into per-stroke rows for the first time). A shared `date` would make their
                 // draw order (see `inkStrokes`' `createdAt` sort) depend on however `Set`/dictionary

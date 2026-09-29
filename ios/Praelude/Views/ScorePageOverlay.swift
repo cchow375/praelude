@@ -60,6 +60,15 @@ enum ScorePassageBoxStyle {
     var onPlaceBreakPoint: (Int, NormalizedRect) -> Void = { _, _ in }
     var onEditTextBox: (TextBoxAnnotation) -> Void = { _ in }
     var inkReadOnly = false
+    /// §7 page tools: this page's active non-destructive crop (`PageEdit.cropRect`), or `nil` for the
+    /// overwhelmingly common page no page tool has ever cropped. Every stored mark (ink, passage
+    /// boxes, stamps, text boxes) is defined against the page's *original, uncropped* bounds — see
+    /// `GeometryTransforms.swift` — but `bounds`/`canvas.frame` below reflect whatever PDFKit is
+    /// actually showing right now (the cropped region's own, smaller size), so a mark must be remapped
+    /// through `croppedForDisplay`/`uncroppedFromDisplay` at the boundary between the two. Set once by
+    /// `PagedScoreView.Coordinator` when an overlay is created (a crop change always tears down and
+    /// rebuilds every overlay — see `updateUIView`'s `sourceChanged` check).
+    var activeCrop: NormalizedRect? { didSet { guard activeCrop != oldValue else { return }; setNeedsLayout(); setNeedsDisplay() } }
     private(set) var selectionPan: UIPanGestureRecognizer!
     private var origin = CGPoint.zero
     private var originalRegion: PassageRegion?
@@ -71,7 +80,7 @@ enum ScorePassageBoxStyle {
     init(page: Int, markup: ScoreMarkupState) {
         pageNumber = page; self.markup = markup
         super.init(frame: .zero)
-        isOpaque = false; backgroundColor = .clear
+        isOpaque = false; backgroundColor = .clear; clipsToBounds = true
         accessibilityIdentifier = "passageCanvas_page_\(page)"
         canvas.backgroundColor = .clear; canvas.isOpaque = false; canvas.isScrollEnabled = false
         canvas.drawingPolicy = .pencilOnly
@@ -86,7 +95,42 @@ enum ScorePassageBoxStyle {
         addGestureRecognizer(selectionTap)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override func layoutSubviews() { super.layoutSubviews(); canvas.frame = bounds; setNeedsDisplay() }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Ink stroke points are canvas-local and have no normalized-rect representation to remap the
+        // way a stored mark's rect can — the canvas itself must stay sized to the *original,
+        // uncropped* page always (so a stroke's raw points keep meaning the same thing regardless of
+        // crop state) and instead be positioned as an oversized, offset view whose crop-window portion
+        // exactly fills this (possibly smaller, cropped) overlay — `clipsToBounds` above hides the
+        // rest. With no active crop this is exactly `bounds`, unchanged from before.
+        if let activeCrop, activeCrop.width > 0, activeCrop.height > 0 {
+            let full = CGSize(width: bounds.width / activeCrop.width, height: bounds.height / activeCrop.height)
+            canvas.frame = CGRect(x: -activeCrop.x * full.width, y: -activeCrop.y * full.height, width: full.width, height: full.height)
+        } else {
+            canvas.frame = bounds
+        }
+        setNeedsDisplay()
+    }
+    /// A stored mark's on-screen rect, remapped into the current (possibly cropped) display —
+    /// `nil` when an active crop leaves nothing of it visible. Every draw/hit-test call site below
+    /// goes through this rather than a mark's own `rect(in: bounds.size)` directly.
+    private func displayRect(for region: PassageRegion) -> CGRect? {
+        guard let activeCrop else { return region.rect(in: bounds.size) }
+        return region.croppedForDisplay(within: activeCrop)?.rect(in: bounds.size)
+    }
+    private func displayRect(for normalized: NormalizedRect) -> CGRect? {
+        guard let activeCrop else { return normalized.rect(in: bounds.size) }
+        return normalized.croppedForDisplay(within: activeCrop)?.rect(in: bounds.size)
+    }
+    /// The inverse: a freshly drawn/placed mark, normalized against this overlay's *current* (display)
+    /// bounds, remapped back to the original-page basis every stored mark uses — the write-side
+    /// counterpart to `displayRect(for:)` above.
+    private func storageRegion(fromDisplay region: PassageRegion) -> PassageRegion {
+        activeCrop.map { region.uncroppedFromDisplay(within: $0) } ?? region
+    }
+    private func storageRect(fromDisplay normalized: NormalizedRect) -> NormalizedRect {
+        activeCrop.map { normalized.uncroppedFromDisplay(within: $0) } ?? normalized
+    }
 
     func refresh() {
         canvas.drawingPolicy = markup.mode == .writing && markup.fingerDrawing ? .anyInput : .pencilOnly
@@ -115,7 +159,7 @@ enum ScorePassageBoxStyle {
         guard let context = UIGraphicsGetCurrentContext() else { return }
         if let otherLayersImage { otherLayersImage.draw(in: bounds) }
         for region in visibleRegions {
-            let box = region.rect(in: bounds.size)
+            guard let box = displayRect(for: region) else { continue }
             let selected = markup.mode == .selecting && markup.selectedRegionID == region.id
             let emphasized = emphasizedIDs.contains(region.id) || markup.mode == .selecting
             let practiced = practicedIDs.contains(region.id) && !emphasized
@@ -142,8 +186,7 @@ enum ScorePassageBoxStyle {
             context.setLineDash(phase: 0, lengths: [])
         }
         for textBox in visibleTextBoxes {
-            let box = textBox.region.rect(in: bounds.size)
-            guard box.width > 4, box.height > 4 else { continue }
+            guard let box = displayRect(for: textBox.region), box.width > 4, box.height > 4 else { continue }
             context.setFillColor(UIColor(PraeludeColor.scorePaper).withAlphaComponent(0.92).cgColor)
             context.fill(box)
             context.setStrokeColor(UIColor(PraeludeColor.scoreInk).withAlphaComponent(0.4).cgColor)
@@ -173,8 +216,7 @@ enum ScorePassageBoxStyle {
     }
     private func drawStampGlyphs(context: CGContext) {
         for stamp in visibleStamps {
-            let box = stamp.position.rect(in: bounds.size)
-            guard box.width > 0, box.height > 0 else { continue }
+            guard let box = displayRect(for: stamp.position), box.width > 0, box.height > 0 else { continue }
             if markup.selectedStampID == stamp.id {
                 context.setFillColor(UIColor(PraeludeColor.scoreInk).withAlphaComponent(0.1).cgColor)
                 context.fillEllipse(in: box.insetBy(dx: -4, dy: -4))
@@ -192,7 +234,7 @@ enum ScorePassageBoxStyle {
     func handleTap(at point: CGPoint) {
         if markup.breakPointArmed {
             guard let position = NormalizedRect.centered(at: point, width: 0.05, height: 0.05, in: bounds.size) else { return }
-            onPlaceBreakPoint(pageNumber, position)
+            onPlaceBreakPoint(pageNumber, storageRect(fromDisplay: position))
             return
         }
         if markup.mode == .writing, markup.tool.kind == .stamp {
@@ -201,7 +243,7 @@ enum ScorePassageBoxStyle {
         if markup.mode == .writing, markup.tool.kind == .text {
             handleTextTap(at: point); return
         }
-        markup.selectedRegionID = visibleRegions.reversed().first { $0.rect(in: bounds.size).contains(point) }?.id
+        markup.selectedRegionID = visibleRegions.reversed().first { displayRect(for: $0)?.contains(point) ?? false }?.id
         setNeedsDisplay()
     }
     private func handleStampTap(at point: CGPoint) {
@@ -209,20 +251,20 @@ enum ScorePassageBoxStyle {
         // a new one, whether or not the stamp tool still has a kind armed. Only an active-layer
         // stamp can be selected — matching the "only the active layer is ever editable" rule ink
         // already follows.
-        if let existing = visibleStamps.reversed().first(where: { $0.position.rect(in: bounds.size).insetBy(dx: -6, dy: -6).contains(point) }) {
+        if let existing = visibleStamps.reversed().first(where: { displayRect(for: $0.position)?.insetBy(dx: -6, dy: -6).contains(point) ?? false }) {
             markup.selectedStampID = (existing.layer == markup.activeLayer && markup.selectedStampID != existing.id) ? existing.id : nil
             setNeedsDisplay(); return
         }
         guard markup.armedStamp != nil, let position = NormalizedRect.centered(at: point, width: 0.045, height: 0.045, in: bounds.size) else { return }
         markup.selectedStampID = nil
-        onPlaceStamp(pageNumber, position) // ScoreWorkspace reads `markup.armedStamp` itself to build the new StampAnnotation
+        onPlaceStamp(pageNumber, storageRect(fromDisplay: position)) // ScoreWorkspace reads `markup.armedStamp` itself to build the new StampAnnotation
     }
     private func handleTextTap(at point: CGPoint) {
-        if let existing = visibleTextBoxes.reversed().first(where: { $0.region.rect(in: bounds.size).contains(point) }) {
+        if let existing = visibleTextBoxes.reversed().first(where: { displayRect(for: $0.region)?.contains(point) ?? false }) {
             onEditTextBox(existing); return
         }
         guard let region = NormalizedRect.centered(at: point, width: 0.28, height: 0.07, in: bounds.size) else { return }
-        onPlaceTextBox(pageNumber, region)
+        onPlaceTextBox(pageNumber, storageRect(fromDisplay: region))
     }
     @objc private func pan(_ recognizer: UIPanGestureRecognizer) {
         if markup.quickBoxArmed { quickBoxPan(recognizer); return }
@@ -230,18 +272,17 @@ enum ScorePassageBoxStyle {
         switch recognizer.state {
         case .began:
             origin = point; resizeCorner = nil; originalRegion = nil; drawingID = UUID()
-            if let selected = visibleRegions.first(where: { $0.id == markup.selectedRegionID }) {
+            if let selected = visibleRegions.first(where: { $0.id == markup.selectedRegionID }), let box = displayRect(for: selected) {
                 let threshold = max(12, bounds.width * 0.025)
-                if let corner = corners(selected.rect(in: bounds.size)).enumerated().first(where: { hypot($0.element.x-point.x, $0.element.y-point.y) < threshold }) {
+                if let corner = corners(box).enumerated().first(where: { hypot($0.element.x-point.x, $0.element.y-point.y) < threshold }) {
                     originalRegion = selected; resizeCorner = corner.offset
                 }
             }
-            if originalRegion == nil { originalRegion = visibleRegions.reversed().first { $0.rect(in: bounds.size).contains(point) } }
+            if originalRegion == nil { originalRegion = visibleRegions.reversed().first { displayRect(for: $0)?.contains(point) ?? false } }
             markup.rememberSelection()
         case .changed, .ended:
             var box: CGRect
-            if let existing = originalRegion {
-                let old = existing.rect(in: bounds.size)
+            if let existing = originalRegion, let old = displayRect(for: existing) {
                 if let resizeCorner {
                     let opposite = corners(old)[3 - resizeCorner]
                     box = CGRect(x: min(point.x, opposite.x), y: min(point.y, opposite.y), width: abs(point.x-opposite.x), height: abs(point.y-opposite.y))
@@ -251,7 +292,9 @@ enum ScorePassageBoxStyle {
                     box.origin.y = min(max(0, box.minY), max(0, bounds.height-box.height))
                 }
             } else { box = CGRect(x: min(origin.x, point.x), y: min(origin.y, point.y), width: abs(point.x-origin.x), height: abs(point.y-origin.y)) }
-            if let region = PassageRegion.clamped(id: originalRegion?.id ?? drawingID, page: pageNumber, rect: box, size: bounds.size) { markup.update(region) }
+            if let region = PassageRegion.clamped(id: originalRegion?.id ?? drawingID, page: pageNumber, rect: box, size: bounds.size) {
+                markup.update(storageRegion(fromDisplay: region))
+            }
             refresh()
         case .cancelled: markup.undoSelection(); refresh()
         default: break
@@ -270,7 +313,7 @@ enum ScorePassageBoxStyle {
             setNeedsDisplay()
         case .ended:
             let box = CGRect(x: min(origin.x, point.x), y: min(origin.y, point.y), width: abs(point.x-origin.x), height: abs(point.y-origin.y))
-            markup.pendingQuickBox = PassageRegion.clamped(id: drawingID, page: pageNumber, rect: box, size: bounds.size)
+            markup.pendingQuickBox = PassageRegion.clamped(id: drawingID, page: pageNumber, rect: box, size: bounds.size).map(storageRegion(fromDisplay:))
             markup.quickBoxArmed = false; quickBoxPreview = nil; setNeedsDisplay()
         case .cancelled: markup.quickBoxArmed = false; quickBoxPreview = nil; setNeedsDisplay()
         default: break

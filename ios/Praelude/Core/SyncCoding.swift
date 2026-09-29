@@ -29,8 +29,8 @@ public enum SyncCoding {
 extension Data {
     /// Postgres `bytea` textual-input format: `\x` followed by lowercase hex pairs. Swift's `Data`
     /// encodes to base64 by default, which `bytea`'s input function does not accept — verified
-    /// against a live copy of this schema, see "(C) Sync Protocol.md" §3. Used for `ink_strokes.data`,
-    /// the one `bytea` column this sync engine touches.
+    /// against a live copy of this schema, see "(C) Sync Protocol.md" §3. Used for
+    /// `ink_strokes.data`/`.fingerprint`, the only `bytea` columns this sync engine touches.
     public var praeludeHexLiteral: String {
         "\\x" + map { String(format: "%02x", $0) }.joined()
     }

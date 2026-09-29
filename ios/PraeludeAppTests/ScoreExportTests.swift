@@ -124,6 +124,91 @@ final class ScoreExportTests: XCTestCase {
         XCTAssertEqual(store.drawing(pieceID: piece.id, page: 1), ink)
     }
 
+    /// Major regression (verifier "reader lens", 2026-09-29): ink drawn on a page before a page-tool
+    /// crop existed used to export at the wrong position once the crop was applied — `drawInk`
+    /// treated stored ink as already relative to the *cropped* window, when it is actually relative to
+    /// the page's *original* bounds (see "(C) Schema3.md"). Uses a page with no native cropBox offset
+    /// (unlike `fixture()`, which deliberately exercises that separate, already-correct case) so the
+    /// two interpretations produce clearly different, discriminating expected positions.
+    @MainActor func testAnnotatedExportPositionsInkCorrectlyUnderAPageToolCrop() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Praelude-ExportCropTests-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let store = PracticeStore(directory: root.appendingPathComponent("Library"))
+        let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792)).pdfData { renderer in
+            renderer.beginPage()
+            "VECTOR_SCORE".draw(at: CGPoint(x: 80, y: 500), withAttributes: [.font: UIFont.systemFont(ofSize: 18)])
+        }
+        let source = root.appendingPathComponent("source.pdf")
+        XCTAssertTrue(try XCTUnwrap(PDFDocument(data: data)).write(to: source))
+        let id = try NativeLibraryFiles(store: store).importPDF(source, title: "Crop export", composer: "Test")
+        let piece = try XCTUnwrap(store.pieces.first { $0.id == id })
+        // A page-tool crop covering the original page's x:[0.1,0.6], y:[0.1,0.6] — deliberately not
+        // centered, so "relative to the crop" and "relative to the original page, then clipped to the
+        // crop window" give different, discriminating expected positions.
+        let crop = NormalizedRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5)
+        try store.savePageEdits([PageEdit(pieceID: piece.id, sourcePage: 1, displayOrder: 1, cropRect: crop)])
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [redInk()])
+        let exportedURL = try ScoreExport.annotatedPDF(pieceID: piece.id, store: store)
+        addTeardownBlock { try? FileManager.default.removeItem(at: exportedURL.deletingLastPathComponent()) }
+        let page = try XCTUnwrap(PDFDocument(url: exportedURL)?.page(at: 0))
+        XCTAssertEqual(page.bounds(for: .cropBox).width, 0.5 * 612, accuracy: 1)
+        XCTAssertEqual(page.bounds(for: .cropBox).height, 0.5 * 792, accuracy: 1)
+        let thumbnail = page.thumbnail(of: CGSize(width: 1000, height: 1000), for: .cropBox)
+        let red = try XCTUnwrap(centroid(thumbnail, red: true), "Ink inside the crop window must still appear in the export")
+        // redInk()'s own centroid is ~(137.5, 200) in the original page's Y-down points (see the
+        // rotation test above); the crop window is 306x396pt starting at (61.2, 79.2).
+        let expectedX = (137.5 - 0.1 * 612) / (0.5 * 612)
+        let expectedY = (200.0 - 0.1 * 792) / (0.5 * 792)
+        XCTAssertEqual(red.x, expectedX, accuracy: 0.02, "Ink must be positioned relative to the original page, not the crop window")
+        XCTAssertEqual(red.y, expectedY, accuracy: 0.02)
+    }
+
+    @MainActor func testAnnotatedExportIncludesTeacherLayerInkStampsAndTextBoxes() async throws {
+        let (store, piece, _) = try fixture()
+        let baselineURL = try ScoreExport.annotatedPDF(pieceID: piece.id, store: store)
+        let baselinePage = try XCTUnwrap(PDFDocument(url: baselineURL)?.page(at: 0))
+        let baselinePixels = try nonBackgroundPixelCount(baselinePage.thumbnail(of: CGSize(width: 400, height: 400), for: .cropBox))
+
+        // Teacher-layer ink: previously silently dropped from export (only `.mine` was included).
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .teacher, strokes: [redInk()])
+        try store.saveStampAnnotation(StampAnnotation(pieceID: piece.id, page: 1,
+            position: NormalizedRect(x: 0.6, y: 0.6, width: 0.12, height: 0.12), kind: .circle))
+        try store.saveTextAnnotation(TextBoxAnnotation(pieceID: piece.id, page: 1,
+            region: NormalizedRect(x: 0.1, y: 0.78, width: 0.35, height: 0.1), text: "BREATHE"))
+        let exportedURL = try ScoreExport.annotatedPDF(pieceID: piece.id, store: store)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: baselineURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: exportedURL.deletingLastPathComponent())
+        }
+        let page = try XCTUnwrap(PDFDocument(url: exportedURL)?.page(at: 0))
+        let thumbnail = page.thumbnail(of: CGSize(width: 400, height: 400), for: .cropBox)
+        XCTAssertNotNil(try centroid(thumbnail, red: true), "Teacher-layer ink must appear in the export, not only the .mine layer")
+        let annotatedPixels = try nonBackgroundPixelCount(thumbnail)
+        XCTAssertGreaterThan(annotatedPixels, baselinePixels + 200, "The stamp and text box must actually be rendered onto the exported page")
+    }
+
+    /// Counts pixels that are not near-white, for a before/after content-presence comparison (stamps
+    /// and text boxes don't produce a single solid color the way `centroid` can key on).
+    @MainActor private func nonBackgroundPixelCount(_ image: UIImage) throws -> Int {
+        let cg = try XCTUnwrap(image.cgImage)
+        let width = cg.width, height = cg.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        try bytes.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: width, height: height,
+                                                  bitsPerComponent: 8, bytesPerRow: width * 4,
+                                                  space: CGColorSpaceCreateDeviceRGB(),
+                                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        var count = 0
+        for pixel in 0..<(width * height) {
+            let offset = pixel * 4
+            if bytes[offset] < 245 || bytes[offset + 1] < 245 || bytes[offset + 2] < 245 { count += 1 }
+        }
+        return count
+    }
+
     @MainActor func testExportOmitsPracticeBoxesAndUsesUniqueCopies() async throws {
         let (store, piece, _) = try fixture()
         try store.savePassage(Passage(pieceID: piece.id, title: "Private practice target", regions: [PassageRegion(page: 1, x: 0, y: 0, width: 1, height: 1)]))

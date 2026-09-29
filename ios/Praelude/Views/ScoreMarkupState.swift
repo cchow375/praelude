@@ -129,8 +129,13 @@ extension PassageRegion {
 }
 
 /// Shared with `PassageRegion.rect(in:)` above — every normalized mark type (§7 stamps/text boxes,
-/// §8 passage boxes) places the same way on the overlay's own (already rotation/crop/zoom-correct;
-/// see `GeometryTransforms.swift`) unrotated page-local bounds.
+/// §8 passage boxes) places the same way on the overlay's own unrotated page-local bounds (already
+/// rotation/zoom-correct — `PDFPageOverlayViewProvider` handles that). Crop is a separate remapping
+/// this plain linear scale does not do by itself: a mark stored here is always in the page's
+/// *original, uncropped* basis, but `bounds` reflects whatever is currently displayed (which can be
+/// smaller, once a page-tool crop is active) — see `GeometryTransforms.swift` and
+/// `ScorePageOverlay.displayRect(for:)`/`storageRegion(fromDisplay:)`, which every caller in that file
+/// goes through instead of calling `rect(in:)` on a stored mark directly.
 extension NormalizedRect {
     func rect(in size: CGSize) -> CGRect {
         CGRect(x: x * size.width, y: y * size.height, width: width * size.width, height: height * size.height)

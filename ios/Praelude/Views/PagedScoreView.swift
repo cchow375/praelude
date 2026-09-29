@@ -263,7 +263,12 @@ struct PagedScoreView: UIViewRepresentable {
                 if keepLocal {
                     let data = pending?.data ?? overlay.flatMap { encodedInk($0.canvas) } ?? Data()
                     guard parent.saveDrawing(number, data, saved) else { return }
-                    committed[number] = data.isEmpty ? nil : data
+                    // Re-read through `parent.drawingData`, not the just-saved canvas bytes, so
+                    // `committed` stays in the same representation `refresh()`'s comparison below and
+                    // `persistInk`'s own guard both use — see `flush()`'s identical fix for why a
+                    // canvas's own live encoding and a freshly merged-from-storage encoding are never
+                    // reliably byte-equal even for identical content.
+                    committed[number] = parent.drawingData(number)
                 } else {
                     loading = true
                     do {
@@ -301,6 +306,13 @@ struct PagedScoreView: UIViewRepresentable {
             if let overlay = overlays[number] { return overlay }
             let overlay = ScorePageOverlay(page: number, markup: parent.markup)
             overlay.inkReadOnly = !parent.allowsInk
+            // §7 page tools: this display position's own crop, if any (see "(C) Schema3.md" and
+            // `ScorePageOverlay.activeCrop`) — the exact same crop `ScorePageComposer.renderedPage`
+            // just used to build this very `page`'s `.cropBox`, so the overlay and the PDF content it
+            // sits on always agree about what "cropped" means. `effectivePages` is rebuilt (and every
+            // overlay torn down with it) whenever page edits change, so this never goes stale.
+            let effectiveCrop = effectivePages.indices.contains(displayIndex - 1) ? effectivePages[displayIndex - 1].cropRect : nil
+            overlay.activeCrop = (effectiveCrop?.isValid == true) ? effectiveCrop : nil
             loading = true
             if let pending = parent.markup.pendingInk[number], parent.markup.pendingInkDocument == parent.url {
                 do {
@@ -471,7 +483,14 @@ struct PagedScoreView: UIViewRepresentable {
                 } else { success = false; continue }
                 parent.markup.rememberInk(page: number, data: data, expected: expected, document: parent.url, layer: parent.activeLayer)
                 if parent.saveDrawing(number, data, expected) {
-                    committed[number] = data.isEmpty ? nil : data
+                    // See `ScoreWorkspace.mergedInkData`'s doc: re-read through `parent.drawingData`
+                    // (now stable, since that cache invalidates only when the stored rows actually
+                    // change) instead of stamping the canvas's own raw encoding, so `committed` never
+                    // spuriously diverges from what `refresh()`/`persistInk` compare it against and
+                    // triggers a needless reload right after this device's own successful save — a
+                    // reload that used to swap `canvas.drawing` out from under an in-flight PencilKit
+                    // undo action (the root cause of "Undo greys out but leaves the stroke on screen").
+                    committed[number] = parent.drawingData(number)
                     canvasBaseline[number] = overlays[number].flatMap { encodedInk($0.canvas) }
                     dirtyPages.remove(number); parent.markup.clearPendingInk(page: number)
                     parent.markup.inkRevision += 1

@@ -40,3 +40,18 @@ extension NormalizedRect {
         NormalizedRect(x: crop.x + x * crop.width, y: crop.y + y * crop.height, width: width * crop.width, height: height * crop.height)
     }
 }
+
+/// The identical remapping for `PassageRegion`'s own independent x/y/width/height — kept as a
+/// separate type from `NormalizedRect` (see that type's own doc comment: "so `PassageRegion`'s
+/// on-disk shape and schema1/2 compatibility never changes"), so it needs its own copy of these two
+/// methods rather than inheriting `NormalizedRect`'s.
+extension PassageRegion {
+    func croppedForDisplay(within crop: NormalizedRect) -> PassageRegion? {
+        guard let visible = NormalizedRect(x: x, y: y, width: width, height: height).croppedForDisplay(within: crop) else { return nil }
+        return PassageRegion(id: id, page: page, x: visible.x, y: visible.y, width: visible.width, height: visible.height)
+    }
+    func uncroppedFromDisplay(within crop: NormalizedRect) -> PassageRegion {
+        let original = NormalizedRect(x: x, y: y, width: width, height: height).uncroppedFromDisplay(within: crop)
+        return PassageRegion(id: id, page: page, x: original.x, y: original.y, width: original.width, height: original.height)
+    }
+}

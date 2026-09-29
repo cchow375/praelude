@@ -147,6 +147,58 @@ final class AnnotationCoreTests: XCTestCase {
         XCTAssertEqual(row.id, InkStroke.stableID(pieceID: piece.id, page: 1, layer: .mine, data: Data([5, 5, 5]), ordinal: 0))
     }
 
+    /// Blocker regression (verifier "reader lens", 2026-09-29): the exact same (page, layer, content,
+    /// ordinal) combination recurring after being tombstoned — Redo after Undo, or Undo of an erase —
+    /// used to fail outright, because `stableID` recomputes the *same id* the deleted row already has
+    /// and `replaceInk` unconditionally appended a second row under it; `validate`'s uniqueness check
+    /// (which covers deleted rows too) then rejected the whole page.
+    @MainActor func testReplaceInkResurrectsATombstonedRowInsteadOfCreatingADuplicateId() async throws {
+        let (store, directory, piece) = try store()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let a = Data([1, 2, 3])
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [a])
+        let original = try XCTUnwrap(store.inkStrokes(pieceID: piece.id, page: 1).first)
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [] as [Data])
+        XCTAssertTrue(store.inkStrokes(pieceID: piece.id, page: 1).isEmpty, "Erasing must tombstone, not hard-delete")
+        // The exact scenario that used to throw "duplicate stroke identifiers": the same content,
+        // at the same ordinal, comes back (Redo after Undo, or Undo of an erase).
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [a])
+        let restored = try XCTUnwrap(store.inkStrokes(pieceID: piece.id, page: 1).first)
+        XCTAssertEqual(restored.id, original.id, "Restoring identical content resurrects its original row identity")
+        XCTAssertEqual(restored.data, a)
+        XCTAssertNil(restored.deletedAt)
+        XCTAssertEqual(store.state.inkStrokes.filter { $0.pieceID == piece.id && $0.page == 1 }.count, 1,
+                       "No duplicate row must be left behind under the same id")
+        try PracticeStore.validate(store.state)
+    }
+
+    /// The same failure via a lasso move: moving a stroke is a real content/fingerprint change (its
+    /// pre-move row is correctly tombstoned), but undoing the move reproduces the stroke's *original*
+    /// fingerprint at its *original* ordinal — which collides with that very first tombstoned row.
+    @MainActor func testReplaceInkResurrectsAfterALassoMoveIsUndoneBackToOriginalGeometry() async throws {
+        let (store, directory, piece) = try store()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let originalFingerprint = Data([0xAA])
+        let movedFingerprint = Data([0xBB])
+        let b = Data([9, 9])
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine,
+                              strokes: [.init(data: Data([1]), fingerprint: originalFingerprint), .init(data: b)])
+        let firstA = try XCTUnwrap(store.inkStrokes(pieceID: piece.id, page: 1).first { $0.fingerprint == originalFingerprint })
+        // Lasso-move A: same stroke, new geometry/fingerprint, still ordinal 0.
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine,
+                              strokes: [.init(data: Data([2]), fingerprint: movedFingerprint), .init(data: b)])
+        XCTAssertNotNil(store.state.inkStrokes.first { $0.id == firstA.id }?.deletedAt, "The pre-move row must be tombstoned")
+        // Undo the move: A's geometry (and therefore fingerprint) reverts to its original value, at
+        // its original ordinal — recomputing firstA's own id.
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine,
+                              strokes: [.init(data: Data([3]), fingerprint: originalFingerprint), .init(data: b)])
+        let restoredA = try XCTUnwrap(store.inkStrokes(pieceID: piece.id, page: 1).first { $0.fingerprint == originalFingerprint })
+        XCTAssertEqual(restoredA.id, firstA.id)
+        XCTAssertNil(restoredA.deletedAt)
+        XCTAssertEqual(store.inkStrokes(pieceID: piece.id, page: 1).count, 2, "A and B, no duplicates")
+        try PracticeStore.validate(store.state)
+    }
+
     // MARK: - Passage split / merge / recolor / archive (§8)
 
     @MainActor func testSplitPassageMovesOnlyChosenRegionsAndStartsTheNewOneFresh() async throws {
@@ -245,6 +297,27 @@ final class AnnotationCoreTests: XCTestCase {
         let crop = NormalizedRect(x: 0, y: 0, width: 0.4, height: 0.4)
         let farAway = NormalizedRect(x: 0.6, y: 0.6, width: 0.2, height: 0.2)
         XCTAssertNil(farAway.croppedForDisplay(within: crop))
+    }
+
+    /// Major regression (verifier "reader lens", 2026-09-29): `PassageRegion` needed its own copy of
+    /// the crop remapping (kept a separate type from `NormalizedRect` deliberately — see that type's
+    /// own doc comment), which previously existed only on `NormalizedRect` and was never called by any
+    /// app code for either type — the actual root cause of annotations sliding off the music after a
+    /// page-tool crop.
+    func testPassageRegionCropForDisplayAndUncroppedFromDisplayRoundTrip() throws {
+        let crop = NormalizedRect(x: 0.2, y: 0.1, width: 0.5, height: 0.6)
+        let original = PassageRegion(page: 3, x: 0.3, y: 0.2, width: 0.2, height: 0.1)
+        let displayed = try XCTUnwrap(original.croppedForDisplay(within: crop))
+        XCTAssertEqual(displayed.page, 3, "Cropping must never change which page a region belongs to")
+        XCTAssertEqual(displayed.x, 0.2, accuracy: 1e-9)
+        XCTAssertEqual(displayed.y, 1.0 / 6.0, accuracy: 1e-9)
+        let restored = displayed.uncroppedFromDisplay(within: crop)
+        XCTAssertEqual(restored.x, original.x, accuracy: 1e-9)
+        XCTAssertEqual(restored.y, original.y, accuracy: 1e-9)
+        XCTAssertEqual(restored.width, original.width, accuracy: 1e-9)
+        XCTAssertEqual(restored.height, original.height, accuracy: 1e-9)
+        let farAway = PassageRegion(page: 1, x: 0.9, y: 0.9, width: 0.05, height: 0.05)
+        XCTAssertNil(farAway.croppedForDisplay(within: NormalizedRect(x: 0, y: 0, width: 0.4, height: 0.4)))
     }
 
     func testCropForDisplayClipsAMarkThatOnlyPartlyOverlapsTheCrop() {

@@ -77,33 +77,61 @@ private struct ScoreLinkEditorView: View {
     @State private var dragStart: CGPoint?
     @State private var regionFraction: CGRect?
 
+    /// `link.sourcePage` is a *displayed* page number (this type's own doc comment); `PageThumbnail`
+    /// (also used by the page-tools editor, which always passes a real source page directly) expects
+    /// a *source* PDF page. Resolves through the same effective order the reader uses, so the preview
+    /// always matches the actual page the tap region will land on — `nil` for a generated blank/staff
+    /// display page, which has no source PDF page to preview at all.
+    private var resolvedSourcePage: Int? {
+        guard let piece = store.state.pieces.first(where: { $0.id == pieceID }) else { return nil }
+        let pages = PageLayout.effectivePages(pageEdits: store.state.pageEdits, pieceID: pieceID, sourcePageCount: piece.pageCount)
+        return pages.first { $0.displayOrder == link.sourcePage }?.sourcePage
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     GeometryReader { geometry in
+                        // `PageThumbnail` renders with `.scaledToFit()`, which letterboxes whenever the
+                        // page's own aspect ratio doesn't match this container's — the actual page sits
+                        // centered in `fit`, smaller than `geometry.size`. Every drag/overlay coordinate
+                        // below is measured against `fit`, not the raw container, or a region drawn
+                        // partly (or entirely) in the letterbox margin would be saved at the wrong place
+                        // on the page (see "(C) Audit.md").
+                        let fit = resolvedSourcePage.flatMap { PageThumbnail.fitFrame(pieceID: pieceID, page: $0, store: store, in: geometry.size) }
+                            ?? CGRect(origin: .zero, size: geometry.size)
                         ZStack(alignment: .topLeading) {
-                            PageThumbnail(pieceID: pieceID, page: link.sourcePage)
+                            if let resolvedSourcePage {
+                                PageThumbnail(pieceID: pieceID, page: resolvedSourcePage)
+                            } else {
+                                PraeludeColor.inkFillQuiet
+                                Text("This page has no source PDF page to preview.").font(.caption).foregroundStyle(.secondary).padding()
+                            }
                             if let regionFraction {
                                 Rectangle()
                                     .fill(PraeludeColor.ink.opacity(0.12))
                                     .overlay(Rectangle().stroke(PraeludeColor.ink.opacity(0.5), lineWidth: 1.5))
-                                    .frame(width: max(2, regionFraction.width * geometry.size.width), height: max(2, regionFraction.height * geometry.size.height))
-                                    .position(x: (regionFraction.minX + regionFraction.width / 2) * geometry.size.width,
-                                              y: (regionFraction.minY + regionFraction.height / 2) * geometry.size.height)
+                                    .frame(width: max(2, regionFraction.width * fit.width), height: max(2, regionFraction.height * fit.height))
+                                    .position(x: fit.minX + (regionFraction.minX + regionFraction.width / 2) * fit.width,
+                                              y: fit.minY + (regionFraction.minY + regionFraction.height / 2) * fit.height)
                             }
                         }
                         .contentShape(Rectangle())
                         .gesture(DragGesture(minimumDistance: 4)
                             .onChanged { value in
-                                let size = geometry.size
-                                guard size.width > 0, size.height > 0 else { return }
+                                guard fit.width > 0, fit.height > 0 else { return }
                                 if dragStart == nil { dragStart = value.startLocation }
                                 guard let start = dragStart else { return }
                                 let rect = CGRect(x: min(start.x, value.location.x), y: min(start.y, value.location.y),
                                                   width: abs(value.location.x - start.x), height: abs(value.location.y - start.y))
-                                regionFraction = CGRect(x: rect.minX / size.width, y: rect.minY / size.height,
-                                                        width: rect.width / size.width, height: rect.height / size.height)
+                                // Clip to the actual thumbnail before normalizing, so a drag that
+                                // strays into (or starts in) the letterbox margin never produces a
+                                // fraction outside the page it is supposed to describe.
+                                let clipped = rect.intersection(fit)
+                                guard !clipped.isNull else { regionFraction = nil; return }
+                                regionFraction = CGRect(x: (clipped.minX - fit.minX) / fit.width, y: (clipped.minY - fit.minY) / fit.height,
+                                                        width: clipped.width / fit.width, height: clipped.height / fit.height)
                             }
                             .onEnded { _ in dragStart = nil })
                     }
@@ -177,5 +205,24 @@ struct PageThumbnail: View {
         guard box.width > 0, box.height > 0 else { return nil }
         let scale = min(4, max(0.3, size.width * UIScreen.main.scale / box.width))
         return pdfPage.thumbnail(of: CGSize(width: box.width * scale, height: box.height * scale), for: .cropBox)
+    }
+    /// The actual on-screen frame `.scaledToFit()` gives this view's rendered page image within a
+    /// container of `size` — a page whose aspect ratio doesn't match `size` is letterboxed, centered,
+    /// not stretched to fill it. A caller that overlays or measures something on top of this view (the
+    /// link editor's drag region) must use this, not the raw container size, or it silently measures
+    /// against the wrong frame whenever the two aspect ratios differ (see "(C) Audit.md").
+    static func fitFrame(pieceID: UUID, page: Int, store: PracticeStore, in size: CGSize) -> CGRect? {
+        guard size.width > 0, size.height > 0,
+              let piece = store.state.pieces.first(where: { $0.id == pieceID }),
+              let url = NativeLibraryFiles(store: store).scoreURL(for: piece),
+              let document = PDFDocument(url: url), page >= 1, page <= document.pageCount,
+              let pdfPage = document.page(at: page - 1) else { return nil }
+        let box = pdfPage.bounds(for: .cropBox)
+        guard box.width > 0, box.height > 0 else { return nil }
+        let aspect = box.width / box.height
+        let containerAspect = size.width / size.height
+        let fitSize = aspect > containerAspect ? CGSize(width: size.width, height: size.width / aspect)
+                                                : CGSize(width: size.height * aspect, height: size.height)
+        return CGRect(x: (size.width - fitSize.width) / 2, y: (size.height - fitSize.height) / 2, width: fitSize.width, height: fitSize.height)
     }
 }

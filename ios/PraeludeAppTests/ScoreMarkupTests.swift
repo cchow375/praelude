@@ -283,6 +283,120 @@ final class ScoreMarkupTests: XCTestCase {
         XCTAssertNil(state.conflictPage); XCTAssertFalse(coordinator.dirtyPages.contains(1))
     }
 
+    /// Blocker regression (verifier "reader lens", 2026-09-29): a page that already has saved ink
+    /// could never save again — every save after the first raised a false "Ink changed in another
+    /// window" conflict, even with a single window open. Root cause: `InkPerStroke.merge` rebuilds a
+    /// fresh `PKDrawing(strokes:)` on every call, which embeds a new random value each time regardless
+    /// of content (see `InkPerStroke`'s own doc comment), so two back-to-back calls against the exact
+    /// same stored rows never compare equal. Reproduces the mechanism with a real `PracticeStore` and
+    /// real `InkPerStroke` — unlike this file's other ink tests, which back `drawingData` with a plain
+    /// dictionary that is stable by construction and would never have caught this.
+    @MainActor func testSecondSaveOnAPageWithExistingInkDoesNotFalselyConflictDespiteNonDeterministicMerge() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-ink-conflict-\(UUID())")
+        let practiceStore = PracticeStore(directory: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var piece = Piece(title: "Test score", pageCount: 1); piece.pdfFileName = "fixture.pdf"
+        try practiceStore.addPiece(piece)
+        try practiceStore.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: InkPerStroke.split(ink(at: 20)))
+
+        func rows() -> [InkStroke] { practiceStore.inkStrokes(pieceID: piece.id, page: 1, layer: .mine) }
+        func rawMerge() -> Data? {
+            let blobs = rows().map(\.data)
+            return blobs.isEmpty ? nil : try? InkPerStroke.merge(blobs).dataRepresentation()
+        }
+        // The premise this fix depends on, proven directly (audit probe P1): merging the exact same
+        // stored rows twice in a row, nothing else changed, produces different bytes.
+        XCTAssertNotEqual(rawMerge(), rawMerge(),
+                          "PKDrawing(strokes:) must be non-deterministic across independent constructions for this regression to be meaningful")
+
+        // ScoreWorkspace.mergedInkData's fix, reproduced inline: cache the merge, invalidated only
+        // when the stored rows' own identity (id + content) actually changes.
+        var cache: (signature: Int, data: Data?)?
+        func cachedMergedInkData(_ page: Int) -> Data? {
+            let current = rows()
+            var signature = current.count &* 31
+            for row in current { signature ^= row.id.hashValue ^ (row.fingerprint ?? row.data).hashValue }
+            if let cache, cache.signature == signature { return cache.data }
+            let blobs = current.map(\.data)
+            let data = blobs.isEmpty ? nil : try? InkPerStroke.merge(blobs).dataRepresentation()
+            cache = (signature, data)
+            return data
+        }
+        let state = ScoreMarkupState()
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/unused-fixture.pdf"), page: .constant(1), twoPages: false,
+                                   markup: state, drawingData: cachedMergedInkData, saveDrawing: { page, data, expected in
+            guard cachedMergedInkData(page) == expected else { state.conflictPage = page; return false }
+            let strokes = data.isEmpty ? [] : InkPerStroke.split(try! PKDrawing(data: data), reusing: rows())
+            guard (try? practiceStore.replaceInk(pieceID: piece.id, page: page, layer: .mine, strokes: strokes)) != nil else { return false }
+            cache = nil
+            return true
+        }, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator(); coordinator.connectControls()
+        defer { coordinator.autosave?.cancel() }
+        let document = PDFDocument(); document.insert(try makePage(), at: 0)
+        let view = PDFView(); view.document = document
+        let overlay = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: XCTUnwrap(document.page(at: 0))) as? ScorePageOverlay)
+        XCTAssertEqual(overlay.canvas.drawing.strokes.count, 1, "The page must load with its already-saved stroke")
+
+        // Draw a second stroke on top of the first (mirrors U1: "saved the first stroke, then the
+        // second stroke showed the conflict dialog").
+        coordinator.loading = true
+        overlay.canvas.drawing = PKDrawing(strokes: overlay.canvas.drawing.strokes + ink(at: 60).strokes)
+        coordinator.loading = false
+        coordinator.canvasViewDrawingDidChange(overlay.canvas)
+        XCTAssertTrue(coordinator.flush(), "Saving a second stroke on a page that already has saved ink must not raise a false conflict")
+        XCTAssertNil(state.conflictPage)
+        XCTAssertEqual(rows().count, 2, "Both strokes must be persisted")
+    }
+
+    /// Major regression (verifier "reader lens", 2026-09-29): after a non-destructive page-tool crop,
+    /// existing marks used to shift off the music they were drawn on — `croppedForDisplay`/
+    /// `uncroppedFromDisplay` (`GeometryTransforms.swift`) existed but were never called from any app
+    /// code. Proves `ScorePageOverlay.activeCrop` actually remaps hit-testing, new-mark placement, and
+    /// the ink canvas's own positioning.
+    @MainActor func testActiveCropRemapsStoredMarksForDisplayAndNewMarksBackForStorage() throws {
+        let state = ScoreMarkupState()
+        let overlay = ScorePageOverlay(page: 1, markup: state)
+        let crop = NormalizedRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5)
+        overlay.activeCrop = crop
+        overlay.frame = CGRect(x: 0, y: 0, width: 300, height: 400)
+        overlay.layoutIfNeeded()
+
+        // A box stored at the page's original center sits inside the crop's own middle — it must
+        // hit-test at the crop-remapped position, not its raw stored coordinates.
+        let region = PassageRegion(page: 1, x: 0.4, y: 0.4, width: 0.2, height: 0.2)
+        overlay.displayedRegions = [region]
+        overlay.refresh()
+        overlay.handleTap(at: CGPoint(x: 150, y: 200))
+        XCTAssertEqual(state.selectedRegionID, region.id, "A stored mark must hit-test at its crop-remapped position")
+
+        // A mark stored entirely outside the active crop must never be selectable at all.
+        let outside = PassageRegion(page: 1, x: 0, y: 0, width: 0.1, height: 0.1)
+        overlay.displayedRegions = [outside]
+        state.selectedRegionID = nil
+        overlay.handleTap(at: CGPoint(x: 10, y: 10))
+        XCTAssertNil(state.selectedRegionID, "A mark entirely outside the active crop must never be hit-testable")
+
+        // Placing a *new* stamp at the crop's own center must be converted back to the page's
+        // original basis before it reaches ScoreWorkspace/PracticeStore.
+        state.mode = .writing; state.tool.kind = .stamp; state.armedStamp = (.circle, nil)
+        overlay.refresh()
+        var placedAt: NormalizedRect?
+        overlay.onPlaceStamp = { _, position in placedAt = position }
+        overlay.handleTap(at: CGPoint(x: 150, y: 200))
+        let placed = try XCTUnwrap(placedAt)
+        XCTAssertEqual(placed.x + placed.width / 2, 0.5, accuracy: 0.01, "A stamp placed at the crop's own center must be stored at the page's original center")
+        XCTAssertEqual(placed.y + placed.height / 2, 0.5, accuracy: 0.01)
+
+        // Ink itself has no normalized-rect representation to remap — the canvas must instead stay
+        // sized to the *original* page and be repositioned (offset, not scaled) so the crop window
+        // fills the overlay; a stroke's raw points then keep meaning the same thing regardless of crop.
+        XCTAssertEqual(overlay.canvas.frame.size, CGSize(width: 600, height: 800),
+                       "The canvas must stay sized to the original page (bounds / crop fraction), not shrink to the crop")
+        XCTAssertEqual(overlay.canvas.frame.origin, CGPoint(x: -150, y: -200),
+                       "The canvas must be offset so the crop window, not the canvas's own origin, aligns with the overlay")
+    }
+
     @MainActor func testNativePDFOverlayCoordinatesMatchCroppedPageAtEveryRotation() async throws {
         let state = ScoreMarkupState()
         let parent = PagedScoreView(url: URL(fileURLWithPath: "/unused-fixture.pdf"), page: .constant(1), twoPages: false,

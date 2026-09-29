@@ -95,9 +95,28 @@ struct ScoreWorkspace: View {
     /// whole-canvas conflict-check/load boundary — `persistInk` below is what actually splits a
     /// save back into true per-stroke rows, so storage is per-stroke even though this boundary still
     /// speaks one `Data` blob per page (see "(C) Schema3.md" — the compatibility shim's replacement).
+    ///
+    /// **Cached, deliberately.** `InkPerStroke.merge` rebuilds a fresh `PKDrawing(strokes:)` on every
+    /// call, which — per that type's own doc comment — embeds a new random value each time,
+    /// independent of content. Called twice in a row against *unchanged* storage it therefore never
+    /// returns equal bytes. Every optimistic-concurrency check that reads this function
+    /// (`persistInk`'s guard below, and `PagedScoreView.Coordinator.refresh`'s "did storage change
+    /// elsewhere" comparison) is a `==`/`!=` against a value captured from an earlier call, so without
+    /// this cache a page that already has one saved stroke could never save a second edit — every
+    /// later save would see its own unrelated re-serialization noise as a false "changed elsewhere"
+    /// conflict. Keyed by the stored rows' own stable identity (id + content), mirroring
+    /// `PagedScoreView.Coordinator.refreshOtherLayersImage`'s existing signature-cache idiom for this
+    /// exact same instability one layer up (the read-only underlay image).
+    @State private var mergedInkCache: [String: (signature: Int, data: Data?)] = [:]
     private func mergedInkData(_ page: Int) -> Data? {
-        let rows = store.inkStrokes(pieceID: pieceID, page: page, layer: markup.activeLayer).map(\.data)
-        return rows.isEmpty ? nil : try? InkPerStroke.merge(rows).dataRepresentation()
+        let rows = store.inkStrokes(pieceID: pieceID, page: page, layer: markup.activeLayer)
+        var signature = rows.count &* 31
+        for row in rows { signature = signature ^ row.id.hashValue ^ (row.fingerprint ?? row.data).hashValue }
+        let key = "\(pieceID)|\(page)|\(markup.activeLayer.rawValue)"
+        if let cached = mergedInkCache[key], cached.signature == signature { return cached.data }
+        let data = rows.isEmpty ? nil : try? InkPerStroke.merge(rows.map(\.data)).dataRepresentation()
+        mergedInkCache[key] = (signature, data)
+        return data
     }
     /// Every visible layer other than the active one, flattened for `ScorePageOverlay`'s read-only
     /// underlay (§7 "layers mine/teacher/performance show/hide").
