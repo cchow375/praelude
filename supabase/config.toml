@@ -270,6 +270,10 @@ max_frequency = "5s"
 # [auth.sms.test_otp]
 # 4152127777 = "123456"
 
+# Spec calls for email+password and magic link only; SMS/phone auth is out of scope.
+[auth.sms.twilio]
+enabled = false
+
 # Configure logged in session timeouts.
 # [auth.sessions]
 # Force log out after the specified duration.
