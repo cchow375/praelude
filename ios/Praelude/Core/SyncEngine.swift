@@ -122,14 +122,26 @@ public final class SyncEngine {
 
     public var pendingCount: Int { queue.entries.count }
 
+    /// Never throws: a directory-creation failure under the app's own Application Support directory
+    /// (already proven writable by the time this runs — `PracticeStore` creates a sibling directory
+    /// first) is vanishingly unlikely, and this app must still launch and work fully offline even in
+    /// that case, the same resilience `PracticeStore.init` already applies to its own storage. Falls
+    /// back to a temporary-directory-backed queue (still persists within this launch, just not across
+    /// reinstalls of a corrupted container) rather than fail to construct at all.
     public init(transport: any SyncTransport, directory: URL, now: @escaping () -> Date = Date.init,
                 stuckThreshold: TimeInterval = 60,
-                writeData: @escaping (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }) throws {
+                writeData: @escaping (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }) {
         self.transport = transport
         self.now = now
         self.stuckThreshold = stuckThreshold
         self.writeData = writeData
-        queue = try SyncQueue(directory: directory, writeData: writeData)
+        if let primary = try? SyncQueue(directory: directory, writeData: writeData) {
+            queue = primary
+        } else {
+            let fallbackDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-fallback", isDirectory: true)
+            queue = (try? SyncQueue(directory: fallbackDirectory, writeData: writeData))
+                ?? (try! SyncQueue(directory: fallbackDirectory, writeData: { _, _ in })) // in-memory only
+        }
         stateFileURL = directory.appendingPathComponent("sync-state.json")
         if FileManager.default.fileExists(atPath: stateFileURL.path), let data = try? Data(contentsOf: stateFileURL),
            let decoded = try? JSONDecoder().decode(SyncEngineState.self, from: data) {
@@ -209,13 +221,12 @@ public final class SyncEngine {
         var latest = state.cursors[table]
         for row in rows {
             applyRow(row)
-            if let updatedAt = row["updated_at"]?.stringValue.flatMap(SyncEngine.iso8601.date(from:)), latest == nil || updatedAt > latest! {
+            if let updatedAt = row["updated_at"]?.stringValue.flatMap(SyncCoding.iso8601Formatter.date(from:)), latest == nil || updatedAt > latest! {
                 latest = updatedAt
             }
         }
         if let latest { state.cursors[table] = latest; try persistState() }
     }
-    private static let iso8601 = ISO8601DateFormatter()
 
     public func updateProfileBackendFields(_ fields: ProfileBackendFields) throws {
         state.profileBackendFields = fields

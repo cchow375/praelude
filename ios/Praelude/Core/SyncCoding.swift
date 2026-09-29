@@ -16,6 +16,10 @@ public enum SyncCoding {
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }
+    /// Shared formatter for the few call sites that need a bare ISO 8601 string rather than a whole
+    /// encoded payload — e.g. a `PostgrestClient.rpc` parameter struct whose own default encoder's
+    /// date strategy this app does not control and should not depend on (see `PostgRESTSyncTransport`).
+    public static let iso8601Formatter = ISO8601DateFormatter()
 }
 
 extension Data {

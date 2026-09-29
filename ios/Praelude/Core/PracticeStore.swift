@@ -189,6 +189,22 @@ import Observation
     public func saveDrawing(pieceID: UUID, page: Int, data: Data) throws {
         try replaceInk(pieceID: pieceID, page: page, layer: .mine, strokes: data.isEmpty ? [] : [data])
     }
+    /// Upserts (or replaces) one ink row by its own id — the row-identity counterpart to
+    /// `replaceInk`'s content-diffing merge, for a caller that already has a specific row's identity
+    /// rather than "the full current set of blobs for a page/layer". `replaceInk`'s two call sites
+    /// (`saveDrawing`, and any future per-`PKStroke` call site) are content-diff compatibility layers
+    /// over the same storage; this is for the sync engine applying a pulled `ink_strokes` row (spec
+    /// §4d) with the server's own id/timestamps, which a content diff cannot reproduce — Schema3.md
+    /// already describes each `InkStroke` row as "its own merge unit".
+    public func applySyncedInkStroke(_ stroke: InkStroke) throws {
+        try transaction { next in
+            if let index = next.inkStrokes.firstIndex(where: { $0.id == stroke.id }) {
+                next.inkStrokes[index] = stroke
+            } else {
+                next.inkStrokes.append(stroke)
+            }
+        }
+    }
     public func requireReplaceableScore(pieceID: UUID) throws { try Self.requireReplaceableScore(pieceID: pieceID, in: state) }
     private static func requireReplaceableScore(pieceID: UUID, in state: LibraryState) throws {
         let snapshots = (state.history + [state.activeSet].compactMap { $0 }).compactMap { $0.configuration.passageSnapshot }

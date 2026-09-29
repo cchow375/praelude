@@ -7,6 +7,9 @@ struct PraeludeApp: App {
     @State private var metronome: MetronomeService
     @State private var speech: SpeechCommandService
     @State private var runtime: PracticeRuntime
+    @State private var services: SupabaseServices
+    @State private var auth: AuthManager
+    @State private var syncCoordinator: SyncCoordinator
     @Environment(\.scenePhase) private var scenePhase
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -27,14 +30,30 @@ struct PraeludeApp: App {
         _metronome = State(initialValue: click)
         _speech = State(initialValue: voice)
         _runtime = State(initialValue: PracticeRuntime(store: value, metronome: click, speech: voice))
+        // Accounts + sync (spec §4b/§4d). SupabaseServices/AuthManager never throw to construct, so
+        // the app always launches and works fully offline (guest mode) even if account/sync
+        // infrastructure has trouble - see SyncEngine.init's own doc comment for the same reasoning.
+        let servicesValue = SupabaseServices()
+        let authValue = AuthManager(services: servicesValue, store: value)
+        let syncDirectory = directory.appendingPathComponent("Sync", isDirectory: true)
+        let engine = SyncEngine(transport: PostgRESTSyncTransport(services: servicesValue), directory: syncDirectory)
+        _services = State(initialValue: servicesValue)
+        _auth = State(initialValue: authValue)
+        _syncCoordinator = State(initialValue: SyncCoordinator(engine: engine, auth: authValue, store: value))
     }
     var body: some Scene {
         WindowGroup {
             AppRootView()
                 .environment(store).environment(metronome).environment(speech).environment(runtime)
+                .environment(auth).environment(syncCoordinator)
                 .preferredColorScheme(colorScheme)
                 .tint(PraeludeColor.ink)
                 .onChange(of: store.state.preferences.keepScreenAwake) { _, _ in runtime.updateScreenAwake() }
+                .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await syncCoordinator.syncAll() } } }
+                .task {
+                    syncCoordinator.startObservingNetwork()
+                    await syncCoordinator.syncAll()
+                }
         }
         WindowGroup("Score", for: UUID.self) { $pieceID in
             NavigationStack {
@@ -65,6 +84,7 @@ struct AppRootView: View {
     @Environment(PracticeStore.self) private var store
     @Environment(MetronomeService.self) private var metronome
     @Environment(SpeechCommandService.self) private var speech
+    @Environment(AuthManager.self) private var auth
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var usesSidebar: Bool { UIDevice.current.userInterfaceIdiom == .pad && !dynamicTypeSize.isAccessibilitySize }
@@ -215,7 +235,13 @@ struct AppRootView: View {
                 self.selectedPiece = nil; phoneScore = ScoreRoute(id: selectedPiece)
             }
         }
-        .onOpenURL { url in incomingURL = url; sheet = .add }
+        .onOpenURL { url in
+            if url.scheme == AuthManager.authCallbackURLScheme, url.host == AuthManager.authCallbackHost {
+                Task { await auth.handleAuthCallback(url: url) }
+            } else {
+                incomingURL = url; sheet = .add
+            }
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let message = store.errorMessage {
                 Text(message)
