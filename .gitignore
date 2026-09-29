@@ -43,3 +43,6 @@ dist-ssr
 .claude/
 .claude-flow/
 .gstack/
+
+# Supabase CLI local state (linked project ref, CLI version cache) never belongs in source control
+supabase/.temp/
