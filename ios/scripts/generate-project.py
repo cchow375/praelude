@@ -63,7 +63,12 @@ def configs(prefix, settings, base_config=None):
                 + "; "
                 + base
                 + "buildSettings = {"
-                + " ".join(k + " = " + q(v) + ";" for k, v in options.items())
+                # Every key is quoted via q(), not just values — a bareword key is only valid in the
+                # old-style ASCII plist .pbxproj format for a limited character set; a conditionalized
+                # key like "EXCLUDED_ARCHS[sdk=iphonesimulator*]" (brackets, "=", "*") needs quoting
+                # or the project file fails to parse ("damaged ... parse error"). A quoted plain key
+                # like "SWIFT_VERSION" is equally valid, so this is safe for every existing entry too.
+                + " ".join(q(k) + " = " + q(v) + ";" for k, v in options.items())
                 + "};",
             )
         )
@@ -256,6 +261,26 @@ common = {
     "CLANG_ENABLE_MODULES": "YES",
     "SWIFT_STRICT_CONCURRENCY": "complete",
     "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
+    # The Supabase SPM package products (Auth/PostgREST/Storage/Realtime) only ever resolve an
+    # arm64 slice for the simulator SDK on this Apple Silicon host (verified: `swiftpm` never built
+    # an x86_64 variant for them, matching the ONLY_ACTIVE_ARCH comment above). ONLY_ACTIVE_ARCH
+    # only narrows a *concrete* simulator destination down to one arch; a *generic* one (what
+    # `scripts/check.sh`'s own build step and an archive both use) ignores it and builds every
+    # ARCHS entry regardless, which for the simulator SDK's Xcode default (`$(ARCHS_STANDARD)` =
+    # arm64 *and* x86_64) fails to resolve those package products for the x86_64 leg. Project-level
+    # (inherited by every target: app, app tests, UI tests, all of which link the same four
+    # products) rather than only on the app target, and scoped to the simulator SDK only — the
+    # device path (iphoneos) was never affected and still builds every real-device arch.
+    "EXCLUDED_ARCHS[sdk=iphonesimulator*]": "x86_64",
+    # `xcodebuild test` (never plain `build` — that path doesn't build this at all, which is why
+    # `scripts/check.sh`'s own build step never hit this) links a separate "debug dylib" for fast
+    # relaunch-without-reinstall. That link step failed with undefined symbols from supabase-swift's
+    # internal `Helpers` module (PostgrestError, ObservationToken, AnyJSON.decoder) even though the
+    # same symbols link fine into the app's own main binary in the same build — verified by running
+    # an actual `xcodebuild test`, not assumed: `EXCLUDED_ARCHS`/`ONLY_ACTIVE_ARCH` don't touch this,
+    # it is a different link phase. Turning the debug-dylib optimization off makes `test` link the
+    # ordinary way, matching plain `build`.
+    "ENABLE_DEBUG_DYLIB": "NO",
 }
 project_configs = configs("project", common, signing_config)
 app_config = configs(

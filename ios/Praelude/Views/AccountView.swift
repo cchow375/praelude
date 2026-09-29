@@ -16,6 +16,14 @@ struct AccountView: View {
     @State private var confirmDeleteStep2 = false
     @State private var deleteError: String?
 
+    /// The age gate (spec §5c "age gate at signup with stricter defaults for minors"). `nil` until
+    /// chosen; required before "Create account" enables, so a new account is never created without
+    /// it. Applied once, the moment `auth.state` actually flips to `.signedIn` for the first time
+    /// after that tap — sign-up itself only sends a confirmation email (`AccountView`'s own footer
+    /// copy says so), so the account this needs to write to doesn't exist yet at the point of tap.
+    @State private var pendingAgeBracket: AgeBracket?
+    @State private var appliedAgeGate = false
+
     var body: some View {
         Form {
             switch auth.state {
@@ -48,6 +56,18 @@ struct AccountView: View {
         } message: {
             Text("There is no way to undo this.")
         }
+        .onChange(of: auth.state) { _, state in
+            guard case .signedIn = state, !appliedAgeGate, let bracket = pendingAgeBracket else { return }
+            appliedAgeGate = true
+            applyAgeGate(bracket)
+        }
+    }
+
+    /// See `ProfileBackendFields.applyingAgeGate` (Core) for exactly which fields this changes and
+    /// why — kept there, not inline here, so the decision itself is unit-testable without a View.
+    private func applyAgeGate(_ bracket: AgeBracket) {
+        syncCoordinator.setProfileBackendFields(syncCoordinator.profileBackendFields.applyingAgeGate(bracket))
+        syncCoordinator.pushProfile()
     }
 
     @ViewBuilder private var signedOutSections: some View {
@@ -68,20 +88,26 @@ struct AccountView: View {
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
             SecureField("Password", text: $password)
                 .textContentType(mode == .signIn ? .password : .newPassword)
+            if mode == .signUp {
+                Picker("Age", selection: $pendingAgeBracket) {
+                    Text("Choose one").tag(AgeBracket?.none)
+                    ForEach(AgeBracket.allCases, id: \.self) { Text($0.label).tag(AgeBracket?.some($0)) }
+                }
+            }
             Button(mode == .signIn ? "Sign in" : "Create account") {
                 Task {
                     isWorking = true
                     if mode == .signIn { await auth.signIn(email: email, password: password) }
-                    else { await auth.signUp(email: email, password: password) }
+                    else { appliedAgeGate = false; await auth.signUp(email: email, password: password) }
                     isWorking = false
                 }
             }
             .buttonStyle(.praeludePrimary)
-            .disabled(email.isEmpty || password.count < 6)
+            .disabled(email.isEmpty || password.count < 6 || (mode == .signUp && pendingAgeBracket == nil))
             .listRowInsets(EdgeInsets())
         } footer: {
             Text(mode == .signUp
-                 ? "A confirmation email is sent before a new account can sign in."
+                 ? "A confirmation email is sent before a new account can sign in. Age sets your starting privacy defaults — stricter for under 18 — which you can always change in Edit profile."
                  : "At least 6 characters.")
         }
         Section {

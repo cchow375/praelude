@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 
 struct AddPieceView: View {
     @Environment(PracticeStore.self) private var store
+    @Environment(SyncCoordinator.self) private var syncCoordinator
+    @Environment(SocialHooks.self) private var hooks
     @Environment(\.dismiss) private var dismiss
     let importedURL: URL?
     let onAdded: (UUID) -> Void
@@ -147,6 +149,12 @@ struct AddPieceView: View {
                 let piece = Piece(title: title, composer: composer, instrumentID: instrumentID)
                 try store.addPiece(piece); id = piece.id
             }
+            // Not previously wired (this is the only place a Piece is created): §4d sync needs this
+            // regardless of §5, and `SocialHooks.shareMilestone` below specifically needs this piece
+            // to exist server-side first — `post_activity_event`'s ownership trigger rejects a
+            // piece_id nothing has pushed yet.
+            if let piece = store.state.pieces.first(where: { $0.id == id }) { syncCoordinator.pushPiece(piece) }
+            hooks.shareMilestone(kind: .newPiece, pieceID: id, detail: title)
             dismiss(); onAdded(id)
         } catch { self.error = error.localizedDescription }
     }

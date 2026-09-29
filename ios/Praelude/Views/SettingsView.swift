@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var soundEnabled = RewardSoundService.shared.isEnabled
     @State private var soundVolume = RewardSoundService.shared.volume
     @State private var confirmCleanup = false
+    @State private var showDeveloperContact = false
     let onExportBackup: () -> Void
     let onImportBackup: () -> Void
 
@@ -57,6 +58,23 @@ struct SettingsView: View {
                 Text("Rewards")
             } footer: {
                 Text("Musical, in-tune tones for milestones and badges — never anything that could be mistaken for the metronome click.")
+            }
+
+            Section {
+                NavigationLink {
+                    BlockedUsersView()
+                } label: {
+                    Label("Blocked accounts", systemImage: "hand.raised")
+                }
+                Button {
+                    showDeveloperContact = true
+                } label: {
+                    Label("Contact developer", systemImage: "envelope")
+                }
+            } header: {
+                Text("Friends and safety")
+            } footer: {
+                Text("Who sees your presence, streaks, pieces, and notes is set per field in Edit profile, above.")
             }
 
             Section("Appearance") {
@@ -153,6 +171,7 @@ struct SettingsView: View {
         .background(PraeludeColor.paper)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showDeveloperContact) { ReportSheet(targetType: .developerContact, targetID: nil) }
     }
 
     private func preference<Value>(_ keyPath: WritableKeyPath<Preferences, Value>) -> Binding<Value> {

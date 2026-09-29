@@ -15,6 +15,7 @@ struct ScoreWorkspace: View {
     @Environment(MetronomeService.self) private var metronome
     @Environment(SpeechCommandService.self) private var speech
     @Environment(PracticeRuntime.self) private var runtime
+    @Environment(SocialHooks.self) private var socialHooks
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -265,7 +266,7 @@ struct ScoreWorkspace: View {
             }, onDelete: isSaved ? { perform { try store.deleteTextAnnotation(box.id) } } : nil)
         }
         .confirmationDialog("End this practice session?", isPresented: $ending, titleVisibility: .visible) {
-            Button("End practice", role: .destructive) { perform { try store.endSession(); metronome.stop(); speech.stop() } }
+            Button("End practice", role: .destructive) { perform { try endSessionAndShare(); metronome.stop(); speech.stop() } }
             Button("Cancel", role: .cancel) {}
         } message: { Text("Your repetitions and time stay saved. Unfinished work remains in your history.") }
         .alert("Couldn’t complete that", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
@@ -485,7 +486,7 @@ struct ScoreWorkspace: View {
                     speech: speech, voiceOwnerID: voiceOwnerID, flashedCommand: VoiceConfirmationPlayer.shared.lastCommand,
                     flashedCommandID: VoiceConfirmationPlayer.shared.lastCommandID,
                     onVerdict: record, onUndo: { perform { try runtime.undo() } }, onTogglePause: togglePause,
-                    onStop: stopPractice, onFinishSession: { perform { try store.endSession(); metronome.stop() } },
+                    onStop: stopPractice, onFinishSession: { perform { try endSessionAndShare(); metronome.stop() } },
                     onAnotherSet: { perform { try store.endSet(); rearm() } },
                     onToggleMetronome: {
                         if let set = store.activeSet, !set.isComplete { metronome.setTempo(set.currentBPM) }
@@ -651,6 +652,21 @@ struct ScoreWorkspace: View {
         PraeludeHaptic.toggle()
     }
     private func perform(_ action: () throws -> Void) { do { try action() } catch { self.error = error.localizedDescription } }
+
+    /// `store.endSession()` plus the spec §5a "session finished" feed event — one place for both of
+    /// this screen's two "End practice"/"Finish" buttons, so the hook can't be added to one and
+    /// forgotten on the other. The just-ended session is `store.state.sessions.last` immediately
+    /// after `endSession()` returns (it stamps that session's own `endedAt`, not a new one).
+    private func endSessionAndShare() throws {
+        try store.endSession()
+        guard let piece, let session = store.state.sessions.last else { return }
+        // Spec §5a: "session finished (duration+pieces)" — a friend can't resolve piece_id to a
+        // title themselves (their read of this event never reaches the *author's* private `pieces`
+        // row), so the title travels in `detail`, the same way AddPieceView/ProfileEditView already
+        // put their own event's readable summary in `detail` rather than relying on the id alone.
+        socialHooks.shareMilestone(kind: .sessionFinished, pieceID: piece.id,
+                                    detail: "\(practiceDuration(session.activeSeconds)) · \(piece.title)")
+    }
     private func togglePause() {
         perform { if active?.status == .paused { try store.resume() } else { try store.pause() } }
     }

@@ -14,6 +14,9 @@ struct PraeludeApp: App {
     @State private var services: SupabaseServices
     @State private var auth: AuthManager
     @State private var syncCoordinator: SyncCoordinator
+    @State private var social: SocialService
+    @State private var socialHooks: SocialHooks
+    @State private var presence: PresenceService
     @Environment(\.scenePhase) private var scenePhase
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -58,6 +61,16 @@ struct PraeludeApp: App {
         _services = State(initialValue: servicesValue)
         _auth = State(initialValue: authValue)
         _syncCoordinator = State(initialValue: coordinatorValue)
+
+        // Social (spec §5). No offline queue of its own (supabase/(C) Sync Protocol.md §1) — see
+        // SocialService's own doc comment — so nothing here needs the same guest-mode fallback
+        // SyncEngine's init comment describes; every method already no-ops in guest mode on its own.
+        let socialValue = SocialService(services: servicesValue, auth: authValue)
+        let hooksValue = SocialHooks(social: socialValue, auth: authValue, syncCoordinator: coordinatorValue)
+        let presenceValue = PresenceService(services: servicesValue, auth: authValue, social: socialValue)
+        _social = State(initialValue: socialValue)
+        _socialHooks = State(initialValue: hooksValue)
+        _presence = State(initialValue: presenceValue)
     }
     var body: some Scene {
         WindowGroup {
@@ -65,6 +78,7 @@ struct PraeludeApp: App {
                 .environment(store).environment(metronome).environment(speech).environment(runtime).environment(rewards)
                 .environment(tuner).environment(drone).environment(recording)
                 .environment(auth).environment(syncCoordinator)
+                .environment(social).environment(socialHooks).environment(presence)
                 .preferredColorScheme(colorScheme)
                 .tint(PraeludeColor.ink)
                 .onChange(of: store.state.preferences.keepScreenAwake) { _, _ in runtime.updateScreenAwake() }
@@ -83,6 +97,7 @@ struct PraeludeApp: App {
             }
             .environment(store).environment(metronome).environment(speech).environment(runtime).environment(rewards)
             .environment(tuner).environment(drone).environment(recording)
+            .environment(socialHooks)
             .preferredColorScheme(colorScheme)
             .tint(PraeludeColor.ink)
             .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording() }
@@ -95,7 +110,7 @@ struct PraeludeApp: App {
 }
 
 private enum Destination: String, CaseIterable, Identifiable {
-    case today = "Today", pieces = "Pieces", warmups = "Warmups", progress = "Progress"
+    case today = "Today", pieces = "Pieces", friends = "Friends", warmups = "Warmups", progress = "Progress"
     case history = "History", calendar = "Calendar", notebook = "Notebook", insights = "Data"
     case rewards = "Rewards"
     var id: String { rawValue }
@@ -103,6 +118,7 @@ private enum Destination: String, CaseIterable, Identifiable {
         switch self {
         case .today: return "sun.max"
         case .pieces: return "music.note.list"
+        case .friends: return "person.2"
         case .warmups: return "flame"
         case .progress: return "chart.bar.xaxis"
         case .history: return "clock.arrow.circlepath"
@@ -122,6 +138,8 @@ struct AppRootView: View {
     @Environment(SpeechCommandService.self) private var speech
     @Environment(RewardsRuntime.self) private var rewards
     @Environment(AuthManager.self) private var auth
+    @Environment(SocialService.self) private var social
+    @Environment(PresenceService.self) private var presence
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
@@ -147,6 +165,7 @@ struct AppRootView: View {
     @State private var pendingBackup: Data?
     @State private var confirmRestore = false
     @State private var error: String?
+    @State private var pendingInviteCode: String?
     var body: some View {
         Group {
             if usesSidebar {
@@ -284,9 +303,18 @@ struct AppRootView: View {
         .onOpenURL { url in
             if url.scheme == AuthManager.authCallbackURLScheme, url.host == AuthManager.authCallbackHost {
                 Task { await auth.handleAuthCallback(url: url) }
+            } else if let code = InviteLink.code(from: url) {
+                pendingInviteCode = code
             } else {
                 incomingURL = url; sheet = .add
             }
+        }
+        .sheet(item: Binding(get: { pendingInviteCode.map { IdentifiableCode(value: $0) } }, set: { if $0 == nil { pendingInviteCode = nil } })) { code in
+            InviteRedeemSheet(code: code.value)
+        }
+        .onChange(of: presenceSignal) { _, signal in presence.publish(isPracticing: signal.running, pieceID: signal.pieceID) }
+        .onChange(of: auth.state) { _, state in
+            if case .guest = state { presence.stopPublishing(); presence.stopObservingAll() }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let message = store.errorMessage {
@@ -314,6 +342,7 @@ struct AppRootView: View {
         switch destination {
         case .today: TodayView(onOpenPiece: openPiece, onAddPiece: { sheet = .add }, onContinueWarmup: { practicingWarmup = true })
         case .pieces: LibraryView(onOpenPiece: openPiece, onAddPiece: { sheet = .add })
+        case .friends: FriendsView()
         case .warmups: WarmupsView(onStartPractice: { practicingWarmup = true })
         case .progress: PracticeProgressView()
         case .history: HistoryView()
@@ -359,6 +388,69 @@ struct AppRootView: View {
     private func prepareExport() {
         do { backup = try NativeLibraryFiles(store: store).makeBackup(); exporting = true }
         catch { self.error = error.localizedDescription }
+    }
+    /// Drives `PresenceService.publish` (spec §5a "practicing now"): live while any set is actively
+    /// running, anywhere in the app — not scoped to the Friends tab being visible, the same way the
+    /// bottom-of-screen active-set dock above isn't. A plain `Bool`/`UUID?` pair wrapped in one
+    /// `Equatable` struct so `onChange` fires once per real transition, not once per unrelated
+    /// `PracticeStore` mutation.
+    private var presenceSignal: PresenceSignal {
+        PresenceSignal(running: store.activeSet?.status == .running, pieceID: store.activeSet?.configuration.pieceID)
+    }
+}
+
+private struct PresenceSignal: Equatable { var running: Bool; var pieceID: UUID? }
+private struct IdentifiableCode: Identifiable, Equatable { let value: String; var id: String { value } }
+
+/// Confirms and redeems an invite link (spec §5b) opened from outside the app
+/// (`praelude://invite/<code>`) or pasted/typed in. Redeeming implies mutual consent — the backend
+/// goes straight to an accepted friendship, no separate accept step (see `redeem_invite_code` in
+/// `supabase/migrations/20260926220006_social.sql`), so this sheet's own "Add friend" tap is the one
+/// confirmation before that happens.
+private struct InviteRedeemSheet: View {
+    let code: String
+    @Environment(SocialService.self) private var social
+    @Environment(AuthManager.self) private var auth
+    @Environment(\.dismiss) private var dismiss
+    @State private var redeeming = false
+    @State private var result: ProfileCard?
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Spacer()
+                if case .signedIn = auth.state {
+                    if let result {
+                        PraeludeIcon(glyph: .verdictClean, size: 40).foregroundStyle(PraeludeColor.ink)
+                        Text("You and \(result.displayNameOrUsernameOrFallback) are friends.").font(.headline)
+                        Button("Done") { dismiss() }.buttonStyle(.praeludePrimary).frame(maxWidth: 260)
+                    } else {
+                        Text("Add friend from invite link?").font(.headline)
+                        if let error { ErrorMessage(message: error) }
+                        Button("Add friend") { Task { await redeem() } }.buttonStyle(.praeludePrimary).frame(maxWidth: 260).disabled(redeeming)
+                        Button("Cancel") { dismiss() }.buttonStyle(.praeludeQuiet).frame(maxWidth: 260)
+                    }
+                } else {
+                    Text("Sign in to accept this invite.").font(.headline)
+                    NavigationLink("Account and sync") { AccountView() }.buttonStyle(.praeludePrimary).frame(maxWidth: 260)
+                }
+                Spacer()
+            }
+            .padding(24)
+            .navigationTitle("Invite").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+        }
+        .presentationDetents([.medium])
+    }
+    private func redeem() async {
+        redeeming = true
+        guard let friendID = await social.redeemInviteCode(code) else {
+            redeeming = false; error = social.lastError ?? "That invite link isn't valid."
+            return
+        }
+        result = await social.profileCard(for: friendID)
+        redeeming = false
     }
 }
 
