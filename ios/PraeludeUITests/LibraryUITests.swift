@@ -100,11 +100,17 @@ final class LibraryUITests: XCTestCase {
         recitalRow.press(forDuration: 0.15)
         collapseSidebarIfShown(app)
         let pieceRow = app.buttons.matching(identifier: "pieceRow").firstMatch
-        // Selecting an empty folder filters every piece out of the current (Active) tab.
-        XCTAssertTrue(app.staticTexts["Recital"].waitForExistence(timeout: 5), "The active-filter chip must show the folder's name")
-        XCTAssertFalse(pieceRow.exists, "No piece has been added to the new folder yet")
+        // Selecting an empty folder filters every piece out of the current (Active) tab. Wait on the
+        // chip's own "Clear … filter" control, not a bare "Recital" text: the Folders sheet's row
+        // carries that same text, so while the sheet is still dismissing a text match can pass
+        // before the filter has been applied to the list underneath.
+        let clearFilter = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Clear Recital filter")).firstMatch
+        XCTAssertTrue(clearFilter.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Recital"].exists, "The active-filter chip must show the folder's name")
+        let emptied = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: pieceRow)
+        XCTAssertEqual(XCTWaiter.wait(for: [emptied], timeout: 5), .completed, "No piece has been added to the new folder yet")
         screenshot("library-folder-filter")
-        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Clear Recital filter")).firstMatch.press(forDuration: 0.15)
+        clearFilter.press(forDuration: 0.15)
         XCTAssertTrue(pieceRow.waitForExistence(timeout: 5), "Clearing the filter must restore the full Active list")
     }
 
