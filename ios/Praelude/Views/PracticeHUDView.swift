@@ -63,8 +63,13 @@ struct PracticeHUDView: View {
         VStack(spacing: 6) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(active.currentStage?.name ?? passageTitle).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    if let ladderRung { Text("Rung \(ladderRung.rung) of \(ladderRung.total)").font(.caption).foregroundStyle(PraeludeColor.inkTertiary) }
+                    Text(passageTitle).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    HStack(spacing: 6) {
+                        if let stageName = active.currentStage?.name {
+                            Text(stageName).font(.caption).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
+                        }
+                        if let ladderRung { Text("Rung \(ladderRung.rung) of \(ladderRung.total)").font(.caption).foregroundStyle(PraeludeColor.inkTertiary) }
+                    }
                 }
                 Spacer(minLength: 8)
                 Button { collapsed = true } label: { Image(systemName: "chevron.down").frame(width: 32, height: 32) }
