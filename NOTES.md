@@ -3638,3 +3638,6 @@ clippy `--all-targets --all-features` clean, tsc clean.
 - Build4 guarded physical installation completed19:14 EDT: all seven original library files match
   pre/post copies exactly; no import/reset. Automatic launch was denied. Never infer first launch or
   schema4 migration from install success; user unlock/trust/open remains separate.
+- After the initial automatic-launch denial, Christian opened build4 without a trust prompt. Read-only
+  device copy confirms schema4 and the three existing pieces/ten historical sets; no cause is inferred
+  for the earlier launch denial. Mac import and piano/two-device acceptance remain separate.

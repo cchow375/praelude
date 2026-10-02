@@ -22,8 +22,11 @@
     "installed": true,
     "ownedLibraryFilesMatched": 7,
     "preLaunchSchema": 3,
-    "launch": "denied; user unlock/trust/open required",
-    "macImport": false
+    "launch": "opened by user without trust prompt; schema4 read-only verified",
+    "macImport": false,
+    "observedSchema": 4,
+    "pieces": 3,
+    "historicalSets": 10
   },
   "migrationDryRun": {
     "originalBytes": 85079,

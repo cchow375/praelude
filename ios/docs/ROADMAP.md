@@ -128,3 +128,5 @@ Christian's explicit request to get the app onto the iPad now. Signed Release ex
 Core356, service2211, Python53, native runtime12 and largest-text300BPM checks pass.
 
 **Next steps:** open the installed app and practice; import the reviewed Mac transfer afterward.
+
+**First-open follow-up:** Christian opened the installed app without a trust prompt. Read-only verification confirms2.0.0/build4, schema4, three existing mobile pieces and ten historical sets. Mac import remains pending; piano/audio/two-device acceptance remains separate.

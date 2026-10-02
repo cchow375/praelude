@@ -12,6 +12,8 @@
 
 ### 2026-10-02 · Mobile build4 pianist workflow and metronome follow-up
 
+- **First open confirmed:** Christian opened build4 without a trust prompt; read-only device verification confirms2.0.0/build4, schema4, three existing pieces and ten historical sets. Mac import still pending.
+
 - **Immediate iPad priority:** Christian requested installation now so he can practice and explicitly deprioritized phone work. Further optional UI runs are deferred; guarded same-bundle build4 installation is complete at19:14 EDT, with all seven pre/post library files exactly matched. Automatic launch was denied; unlock/trust/open remains the user step.
 
 - **Why:** Christian requested further hidden-error and real practice-friction fixes before importing, with functionality first and a restrained native Apple/Glass interface. The plugged-in iPad is now ready after Xcode preparation; installed2.0/build3 and a complete seven-file private backup are confirmed.

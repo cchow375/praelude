@@ -145,3 +145,5 @@ saving a grade. Keep playing when locked preserves an already-running click whil
 resume the set when you return. A foreground pause or finished set stops its click.
 
 **Installed mobile update October2:** 2.0.0/build4 is on the iPad with all seven original library files preserved. Automatic launch was denied; unlock and tap Praelude, trusting your developer only if iOS prompts. Physical schema4 migration is not yet observed. Mac import remains for after practice.
+
+**First open now verified:** Christian opened build4 without a trust prompt; the device library is schema4 with the three existing pieces and ten historical sets present. Mac import remains pending.

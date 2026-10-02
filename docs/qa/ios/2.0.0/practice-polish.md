@@ -118,3 +118,5 @@ October9 at22:26:44 UTC. Automatic launch was denied; no security cause is assum
 trust if prompted and direct opening remain necessary. Physical migration is not claimed from
 installation; the pre-launch ledger remains schema3. No Mac import, reset or restored replacement.
 Exact sanitized artifact/check results: [verification manifest](practice-polish-verification.json).
+
+**First-open follow-up:** Christian opened the installed app without a trust prompt. Read-only verification confirms2.0.0/build4, schema4, three existing mobile pieces and ten historical sets. Mac import remains pending; piano/audio/two-device acceptance remains separate.
