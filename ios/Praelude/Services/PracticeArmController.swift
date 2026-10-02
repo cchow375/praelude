@@ -28,6 +28,8 @@ final class PracticeArmController {
     private var pendingTempo: [UUID: Double] = [:]
     private var pendingStages: [UUID: [VariantStage]] = [:]
     private var pendingHands: [UUID: String] = [:]
+    private var chosenConfigurations: [UUID: PracticeConfiguration] = [:]
+    private(set) var errorMessage: String?
 
     /// §11 R1/R2/R6-R13: every other rule that fired for the just-ended set's passage, as dismissible
     /// one-line prompts. §10c's single headline (`nextStep`) is kept separate and never duplicated
@@ -59,18 +61,19 @@ final class PracticeArmController {
         // right after a set): always stale once anything is armed again, same-target or not.
         lastColdGradeDecision = nil
         guard let passage else {
-            configuration = PracticeConfiguration(pieceID: pieceID, focus: "Pulse")
+            configuration = chosenConfigurations[pieceID] ?? PracticeConfiguration(pieceID: pieceID, focus: "Pulse")
             awaitingColdGrade = false
             return
         }
         let context = RuleContext(state: store.state, now: Date())
         var draft = PracticeRulesEngine.defaultConfiguration(for: passage.id, context: context)
             ?? PracticeConfiguration(pieceID: pieceID, passageID: passage.id, focus: passage.focus)
+        if let chosen = chosenConfigurations[passage.id] { draft = chosen }
         if let tempo = pendingTempo[passage.id] { draft.startBPM = tempo; draft.targetBPM = max(draft.targetBPM, tempo) }
         if let stages = pendingStages[passage.id] { draft.stages = stages }
         if let hands = pendingHands[passage.id] { draft.hands = hands }
         configuration = draft
-        awaitingColdGrade = PracticeRulesEngine.isColdAttemptEligible(passageID: passage.id, context: context)
+        awaitingColdGrade = context.settings.r3Enabled && PracticeRulesEngine.isColdAttemptEligible(passageID: passage.id, context: context)
     }
 
     func clearArm() {
@@ -92,40 +95,41 @@ final class PracticeArmController {
     /// `PracticeUXHelpers.verdict(for:)`) rather than a separate pre-check, so grading cold is the
     /// same one tap/word as recording the set's own first repetition, not an extra step.
     @discardableResult
-    func start(grade: ColdGrade? = nil, store: PracticeStore, runtime: PracticeRuntime) throws -> Bool {
+    func start(grade: ColdGrade? = nil, skippingColdGrade: Bool = false, store: PracticeStore, runtime: PracticeRuntime) throws -> Bool {
         guard let configuration else { return false }
-        if awaitingColdGrade {
-            guard let grade, let passage else { return false }
-            try store.startSet(configuration)
-            applyColdGrade(grade, passage: passage, tempo: configuration.startBPM, store: store)
-            // The grade itself (schedule/learning-state update, R3+R4 events) is already fully applied
-            // and durable at this point — clear the gate *before* `runtime.record`, not after, so a
-            // throw from recording the attempt (e.g. the metronome momentarily at a different tempo)
-            // can never leave this stuck `true` with a set already running underneath it. A retried
-            // "Clean" then correctly falls through to a plain verdict recording instead of trying (and
-            // failing) to start a second set on top of the first — see "(C) Audit.md"'s broken-half-state
-            // finding.
+        if awaitingColdGrade && !skippingColdGrade {
+            guard let grade, passage != nil else { return false }
+            try runtime.validateAttemptTempo(configuration.startBPM)
+            let eventID = UUID()
+            let application = try store.startColdGradedSet(configuration, grade: grade, eventID: eventID)
+            applyConfigurationOverride(configuration)
             awaitingColdGrade = false
-            _ = try runtime.record(PracticeUXHelpers.verdict(for: grade))
+            lastColdGradeDecision = application.decisions.last
+            if let after = store.activeSet {
+                var before = after
+                before.attempts = []
+                before = PracticeEngine.project(before)
+                runtime.confirmCommittedAttempt(before: before, after: after,
+                                                verdict: PracticeUXHelpers.verdict(for: grade), eventID: eventID)
+            }
             return true
         }
         try store.startSet(configuration)
+        applyConfigurationOverride(configuration)
+        awaitingColdGrade = false
         return true
     }
 
-    private func applyColdGrade(_ grade: ColdGrade, passage: Passage, tempo: Double, store: PracticeStore) {
-        let context = RuleContext(state: store.state, now: Date())
-        guard let application = PracticeRulesEngine.applyColdGrade(passageID: passage.id, grade: grade, tempo: tempo, context: context) else { return }
-        try? store.recordColdGrade(application.record)
-        var updated = passage
-        updated.learningState = application.newLearningState
-        updated.schedule = application.newSchedule
-        updated.updatedAt = Date()
-        try? store.savePassage(updated, replacing: passage)
-        for decision in application.decisions { try? store.recordRuleEvent(decision.asRuleEvent(overridden: false)) }
-        // R4's decision (the more informative "next review in N days"/"back to Learning" line) when
-        // present, otherwise R3's own — `.decisions` is always `[r3]` or `[r3, r4]`, in that order.
-        lastColdGradeDecision = application.decisions.last
+    /// A deliberate setup choice survives switching away/back and repeating a set in this score
+    /// window. Starting a set is what persists its configuration; an unstarted draft earns nothing.
+    func applyConfigurationOverride(_ value: PracticeConfiguration) {
+        var value = value
+        if value.basis == .totalPlays { value.targetBPM = value.startBPM; value.stages = [] }
+        value.tempoChanges = []
+        let key = value.passageID ?? value.pieceID
+        chosenConfigurations[key] = value
+        pendingTempo[key] = nil; pendingStages[key] = nil; pendingHands[key] = nil
+        if pieceID == value.pieceID, passage?.id == value.passageID { configuration = value }
     }
 
     /// §10c/§11: call once a set ends (completed, or manually stopped) to populate the headline
@@ -173,23 +177,17 @@ final class PracticeArmController {
     /// chain) need more player input than a single tap can supply; their callers open the relevant
     /// editor themselves after calling this, which only logs the acceptance for those two.
     func accept(_ decision: Decision, store: PracticeStore) {
+        errorMessage = nil
+        if case .suggestJoin(let passageIDs) = decision.outcome {
+            do { _ = try store.joinPassages(passageIDs) }
+            catch { errorMessage = error.localizedDescription; return }
+        }
         suggestions.removeAll { $0.id == decision.id }
         if nextStep?.id == decision.id { nextStep = nil }
         try? store.recordRuleEvent(decision.asRuleEvent(overridden: false))
         switch decision.outcome {
-        case .suggestJoin(let passageIDs):
-            guard passageIDs.count == 2,
-                  let a = store.state.passages.first(where: { $0.id == passageIDs[0] }),
-                  let b = store.state.passages.first(where: { $0.id == passageIDs[1] }) else { return }
-            let joined = Passage(pieceID: a.pieceID, title: "\(a.title) + \(b.title)",
-                                  startMeasure: a.startMeasure, endMeasure: b.endMeasure,
-                                  page: min(a.page, b.page), focus: a.focus, regions: a.regions + b.regions,
-                                  joinedFromPassageIDs: [a.id, b.id])
-            try? store.savePassage(joined)
-            var archivedA = a; archivedA.archived = true; archivedA.updatedAt = Date()
-            var archivedB = b; archivedB.archived = true; archivedB.updatedAt = Date()
-            try? store.savePassage(archivedA, replacing: a)
-            try? store.savePassage(archivedB, replacing: b)
+        case .suggestJoin:
+            break // The atomic join above must succeed before accepting the suggestion.
         case .suggestSubPassage(let region):
             guard let passageID = decision.passageID,
                   let source = store.state.passages.first(where: { $0.id == passageID }) else { return }

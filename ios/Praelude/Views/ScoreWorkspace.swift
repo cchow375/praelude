@@ -47,6 +47,7 @@ struct ScoreWorkspace: View {
     @State private var drawAfterDismiss: Passage?
     @State private var confirmDiscardSelection = false
     @State private var selectedPassage: Passage?
+    @State private var pendingPracticePassage: Passage?
     @State private var sheet: ScoreSheet?
     /// §11 R8: "after Sloppy, optional tap where it broke" — offers the tap-to-mark control below the
     /// HUD; `markup.breakPointArmed` is the separate "currently waiting for that tap on the score"
@@ -223,7 +224,6 @@ struct ScoreWorkspace: View {
                                         practiceDock.fixedSize(horizontal: false, vertical: true)
                                     }
                                     .frame(height: min(520, geometry.size.height * 0.6))
-                                    .praeludeScoreChrome()
                                     .accessibilityIdentifier("accessiblePracticeControls")
                                 }
                             } else { withFeedback { practiceDock } }
@@ -302,8 +302,11 @@ struct ScoreWorkspace: View {
             if let passage = drawAfterDismiss { drawAfterDismiss = nil; markup.begin(passage, baseline: savedPassages.first { $0.id == passage.id }) }
         }) { item in
             switch item {
-            case .setup: SetComposerView(pieceID: pieceID, passage: selectedPassage, onStarted: { refreshAudio() })
-            case .passages: PassagePickerView(pieceID: pieceID, currentPage: page, onSelect: selectPassage,
+            case .setup: SetComposerView(pieceID: pieceID, passage: selectedPassage,
+                                         initialConfiguration: arm.configuration,
+                                         onConfigured: { arm.applyConfigurationOverride($0) }, onStarted: { refreshAudio() })
+            case .passages: PassagePickerView(pieceID: pieceID, currentPage: sourcePage(forDisplayPage: page) ?? 0,
+                                              selectedPassageID: selectedPassage?.id, onSelect: selectPassage,
                                               onDraw: { passage in drawAfterDismiss = passage ?? newPassage() })
             case .passageDetails:
                 if let selectedPassage {
@@ -323,6 +326,17 @@ struct ScoreWorkspace: View {
             case .pageTools: PageToolsView(pieceID: pieceID, pageCount: max(1, piece?.pageCount ?? 1))
             }
         }
+        .confirmationDialog("Switch practice passage?", isPresented: Binding(get: { pendingPracticePassage != nil }, set: { if !$0 { pendingPracticePassage = nil } }), titleVisibility: .visible, presenting: pendingPracticePassage) { passage in
+            Button("Finish current set and switch") {
+                do {
+                    try store.endSet()
+                    metronome.stop()
+                    selectIdlePassage(passage)
+                    pendingPracticePassage = nil
+                } catch { self.error = error.localizedDescription }
+            }
+            Button("Keep current passage", role: .cancel) { pendingPracticePassage = nil }
+        } message: { passage in Text("Saved repetitions stay with the current passage. Then prepare \(passage.title).") }
         .confirmationDialog("Discard these passage edits?", isPresented: $confirmDiscardSelection, titleVisibility: .visible) {
             Button("Discard edits", role: .destructive) { markup.finish() }
             Button("Keep editing", role: .cancel) {}
@@ -615,7 +629,7 @@ struct ScoreWorkspace: View {
                     flashedCommandID: VoiceConfirmationPlayer.shared.lastCommandID,
                     onVerdict: record, onUndo: { perform { try runtime.undo() } }, onTogglePause: togglePause,
                     onStop: stopPractice, onFinishSession: { perform { try endSessionAndShare(); metronome.stop() } },
-                    onAnotherSet: { perform { try store.endSet(); rearm() } },
+                    onAnotherSet: repeatSet,
                     onToggleMetronome: {
                         if let set = store.activeSet, !set.isComplete { metronome.setTempo(set.currentBPM) }
                         metronome.toggle()
@@ -646,6 +660,7 @@ struct ScoreWorkspace: View {
                         .font(.caption).frame(minHeight: 32)
                 }.buttonStyle(.plain).foregroundStyle(PraeludeColor.inkSecondary).accessibilityIdentifier("choosePassage")
             }
+            if let failure = arm.errorMessage { ErrorMessage(message: failure) }
             if let failure = store.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
             if let failure = metronome.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
             if let failure = speech.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
@@ -665,16 +680,35 @@ struct ScoreWorkspace: View {
         .padding(.horizontal, sizeClass == .regular ? 24 : 16).padding(.vertical, 14)
         .frame(maxWidth: sizeClass == .regular ? 760 : .infinity)
         .frame(maxWidth: .infinity)
-        .praeludeScoreChrome()
-        .praeludeHairline(.top)
+        .praeludeFloatingControls()
     }
     /// §10a: tap 1. Both an on-score box tap and a Passages-list row land here, arming rule defaults
     /// immediately so the very next tap (or "Start") is tap 2 — no modal in between.
     private func selectPassage(_ passage: Passage) {
+        if let active, !active.isComplete, active.configuration.passageID != passage.id {
+            pendingPracticePassage = passage
+            return
+        }
+        if active?.isComplete == true {
+            do { try store.endSet() } catch { self.error = error.localizedDescription; return }
+        }
+        selectIdlePassage(passage)
+    }
+    private func selectIdlePassage(_ passage: Passage) {
+        guard markup.flushInk() else { return }
         selectedPassage = passage
         page = displayPage(forSourcePage: passage.page)
         savePage(page)
         rearmIfIdle()
+    }
+    private func repeatSet() {
+        guard let completed = active else { return }
+        perform {
+            let value = completed.nextSetConfiguration
+            try store.endSet()
+            arm.applyConfigurationOverride(value)
+            rearm()
+        }
     }
     private func rearm() {
         arm.arm(pieceID: pieceID, passage: selectedPassage, store: store)
@@ -855,19 +889,10 @@ struct ScoreWorkspace: View {
     }
     /// §10a tap 2 (touch or "Start"/a cold grade word). Mirrors `PracticeArmView.start(grade:)` —
     /// kept separate because voice dispatch lives here, not inside that view.
-    private func armStart(grade: ColdGrade? = nil) {
+    private func armStart(grade: ColdGrade? = nil, skippingColdGrade: Bool = false) {
         perform {
-            // Retune *before* `arm.start`, not after: a cold grade's own first attempt is recorded
-            // inside `arm.start` itself (`PracticeArmController.start(grade:...)` calls
-            // `runtime.record`), which refuses to record while the audible click is still at some
-            // other tempo. Retuning only afterward left that very first recording throw — "the click
-            // was restored to your set tempo" — on a set that had *just* started, an unrecoverable
-            // half-state (cold grade + schedule already saved, but no attempt) — see "(C) Audit.md".
-            if let configuration = arm.configuration {
-                metronome.setTempo(configuration.startBPM)
-                if configuration.useMetronome { metronome.start() } else { metronome.stop() }
-            }
-            guard try arm.start(grade: grade, store: store, runtime: runtime) else { return }
+            guard try arm.start(grade: grade, skippingColdGrade: skippingColdGrade, store: store, runtime: runtime) else { return }
+            refreshAudio()
             // A cold grade is the set's first recorded attempt too (§9/R3) — it deserves the same
             // auto page-turn treatment as every later verdict, not just attempt #2 onward.
             if grade != nil { advancePassagePageIfNeeded() }
@@ -888,7 +913,7 @@ struct ScoreWorkspace: View {
         if store.activeSet == nil || store.activeSet?.isComplete == true, var configuration = arm.configuration {
             configuration.startBPM = min(max(configuration.startBPM + delta, 20), 300)
             if configuration.targetBPM < configuration.startBPM { configuration.targetBPM = configuration.startBPM }
-            arm.configuration = configuration
+            arm.applyConfigurationOverride(configuration)
         } else if let active {
             adjustRunningTempo(active.currentBPM + delta)
         }
@@ -897,11 +922,7 @@ struct ScoreWorkspace: View {
         perform { try store.adjustActiveTempo(bpm) }
     }
     private func refreshAudio() {
-        guard let active else { return }
-        if active.status == .running {
-            metronome.setTempo(active.currentBPM)
-            if active.configuration.useMetronome && !metronome.isPlaying { metronome.start() }
-        } else { metronome.stop() }
+        runtime.refreshMetronome(for: active)
     }
     private func handleVoice(_ command: VoiceCommand) {
         // A modal editor owns its own input; speech never writes through an open setup sheet.
@@ -918,12 +939,12 @@ struct ScoreWorkspace: View {
         case .undo: if active != nil { perform { try runtime.undo() } }
         case .pause: if active != nil { perform { try store.pause() } }
         case .resume: if active != nil { perform { try store.resume() } }
-        case .start: if idle { armStart() }
+        case .start: if idle { armStart(skippingColdGrade: true) }
         case .stop: if active != nil { stopPractice() }
         case .next:
             // No session-queue feature exists yet (out of this track's scope); "Next" is defined as
             // moving straight on to another set on the same passage once this one is complete.
-            if let active, active.isComplete { perform { try store.endSet() }; rearm(); armStart() }
+            if let active, active.isComplete { repeatSet(); if store.activeSet == nil { armStart(skippingColdGrade: true) } }
         case .slower: nudgeTempo(-5)
         case .faster: nudgeTempo(5)
         case .metronomeStart:
@@ -936,7 +957,7 @@ struct ScoreWorkspace: View {
                 if var configuration = arm.configuration {
                     configuration.startBPM = bpm
                     if configuration.targetBPM < bpm { configuration.targetBPM = bpm }
-                    arm.configuration = configuration
+                    arm.applyConfigurationOverride(configuration)
                 }
             } else if let active, active.status == .running || active.status == .paused {
                 // §10a: a spoken tempo is a direct gesture-equivalent command, not blocked by a modal

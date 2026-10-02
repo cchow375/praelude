@@ -182,7 +182,7 @@ final class MobileMarkupUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["0 of 5 clean"].exists)
         let click = app.buttons["openMetronome"]; settle(click, app: app); click.press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["toggleMetronome"].waitForExistence(timeout: 8))
-        XCTAssertFalse(app.sliders["sliderTempo"].isEnabled, "An active set owns the click tempo")
+        XCTAssertTrue(app.buttons["Increase tempo by 1"].isEnabled, "Active tempo edits are durable and remain reachable")
         app.buttons["toggleMetronome"].press(forDuration: 0.15)
         XCTAssertEqual(app.buttons["toggleMetronome"].label, "Stop")
         shot("16-configured-metronome")

@@ -5,6 +5,7 @@ struct SetComposerView: View {
     @Environment(MetronomeService.self) private var metronome
     @Environment(\.dismiss) private var dismiss
     @State private var focus: String
+    @State private var goal = SetGoal.tempo
     @State private var basis: CompletionBasis = .cleanStreak
     @State private var targetCount = 5
     @State private var startBPM = 60.0
@@ -23,18 +24,33 @@ struct SetComposerView: View {
     /// name, since `WarmupsPiece` has no title worth surfacing here (see `WarmupsView`).
     let displayTitle: String?
     let onStarted: () -> Void
+    let onConfigured: ((PracticeConfiguration) -> Void)?
 
     /// `initialFocus`/`initialBPM` seed sensible defaults for a caller that already knows them (a
     /// warmup's name and its kind-appropriate starting tempo, `WarmupCatalog.defaultBPM`) without
     /// changing anything about how `start()` builds the `PracticeConfiguration` below.
     init(pieceID: UUID, passage: Passage? = nil, displayTitle: String? = nil, initialFocus: String? = nil,
-         initialBPM: Double? = nil, onStarted: @escaping () -> Void) {
+         initialBPM: Double? = nil, initialConfiguration: PracticeConfiguration? = nil,
+         onConfigured: ((PracticeConfiguration) -> Void)? = nil, onStarted: @escaping () -> Void) {
         self.pieceID = pieceID
         self.passage = passage
         self.displayTitle = displayTitle
         self.onStarted = onStarted
+        self.onConfigured = onConfigured
         _focus = State(initialValue: initialFocus ?? passage?.focus ?? "Pulse")
         if let initialBPM { _startBPM = State(initialValue: initialBPM); _targetBPM = State(initialValue: initialBPM) }
+        if let value = initialConfiguration {
+            _focus = State(initialValue: value.focus); _goal = State(initialValue: value.goal)
+            _basis = State(initialValue: value.basis); _targetCount = State(initialValue: value.targetCount)
+            _startBPM = State(initialValue: value.startBPM); _targetBPM = State(initialValue: value.targetBPM)
+            _useMetronome = State(initialValue: value.useMetronome)
+            _useLadder = State(initialValue: value.targetBPM > value.startBPM)
+            switch value.tempoStep {
+            case .fixed(let amount): _percentageStep = State(initialValue: false); _stepAmount = State(initialValue: amount)
+            case .percent(let amount): _percentageStep = State(initialValue: true); _stepAmount = State(initialValue: amount)
+            }
+            _hands = State(initialValue: value.hands); _stages = State(initialValue: value.stages)
+        }
     }
 
     private var currentSetPreventsStart: Bool {
@@ -58,8 +74,14 @@ struct SetComposerView: View {
                     }
                     .padding(.vertical, 4)
                     PracticeFocusField(focus: $focus)
-                    Stepper(value: $targetCount, in: 1...100) {
-                        LabeledContent(basis == .cleanStreak ? "Clean target" : "Total plays", value: "\(targetCount)")
+                    if stages.isEmpty || basis == .totalPlays {
+                        Stepper(value: $targetCount, in: 1...100) {
+                            LabeledContent(basis == .cleanStreak ? "Clean target" : "Total plays", value: "\(targetCount)")
+                        }
+                    } else {
+                        NavigationLink { VariantEditorView(stages: $stages) } label: {
+                            LabeledContent("Edit stage targets", value: "\(stages.count) stages")
+                        }.accessibilityIdentifier("composerStageTargets")
                     }
                     if let passageID = passage?.id { LastRecordingCard(passageID: passageID) }
                 }
@@ -75,6 +97,9 @@ struct SetComposerView: View {
 
                 Section {
                     DisclosureGroup("Set rules") {
+                        Picker("Goal", selection: $goal) {
+                            ForEach(SetGoal.allCases, id: \.self) { value in Text(PracticeArmView.goalLabel(value)).tag(value) }
+                        }
                         Picker("Count", selection: $basis) {
                             Text("Clean streak").tag(CompletionBasis.cleanStreak)
                             Text("Total plays").tag(CompletionBasis.totalPlays)
@@ -133,7 +158,7 @@ struct SetComposerView: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Button(action: start) {
-                    Label("Start set", systemImage: "play.fill")
+                    Label(onConfigured == nil ? "Start set" : "Use settings", systemImage: onConfigured == nil ? "play.fill" : "checkmark")
                         .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.praeludePrimary)
@@ -160,12 +185,13 @@ struct SetComposerView: View {
         defer { saving = false }
         let configuration = PracticeConfiguration(
             pieceID: pieceID, passageID: passage?.id,
-            focus: focus.trimmingCharacters(in: .whitespacesAndNewlines),
+            focus: focus.trimmingCharacters(in: .whitespacesAndNewlines), goal: goal,
             basis: basis, targetCount: targetCount, startBPM: startBPM,
             targetBPM: basis == .cleanStreak && useLadder ? max(startBPM, targetBPM) : startBPM,
             tempoStep: percentageStep ? .percent(stepAmount) : .fixed(stepAmount),
             stages: basis == .cleanStreak ? stages : [], hands: hands, useMetronome: useMetronome
         )
+        if let onConfigured { onConfigured(configuration); dismiss(); return }
         do {
             try store.startSet(configuration)
             metronome.setTempo(startBPM)
@@ -210,18 +236,6 @@ struct VariantEditorView: View {
 
     var body: some View {
         Form {
-            if !store.state.routines.isEmpty {
-                Section("Saved routines") {
-                    Menu("Apply a routine", systemImage: "list.bullet.rectangle") {
-                        ForEach(store.state.routines) { routine in
-                            Button(routine.name) {
-                                stages = routine.stages.map { VariantStage(name: $0.name, targetCount: $0.targetCount) }
-                                savedMessage = nil
-                            }
-                        }
-                    }
-                }
-            }
             Section {
                 if stages.isEmpty {
                     Text("No variants yet. Add the order you want to practice.")
@@ -244,6 +258,36 @@ struct VariantEditorView: View {
                 Text("In order")
             } footer: {
                 Text("Each stage has its own clean target. Use Edit to reorder or remove stages. Applying a routine replaces this draft chain.")
+            }
+
+            Section {
+                ForEach(PracticeTechnique.allCases) { technique in
+                    Button {
+                        stages.append(contentsOf: technique.stages(targetCount: target))
+                        savedMessage = nil
+                    } label: {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Label(technique.title, systemImage: "plus.circle")
+                                .font(.headline).foregroundStyle(.primary)
+                            Text(technique.instruction).font(.subheadline).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+                    }.disabled(stages.count + technique.stageNames.count > 24)
+                        .accessibilityIdentifier("technique_\(technique.id)")
+                }
+            } header: { Text("Try a technique") } footer: {
+                Text("Choose what fits this passage. A choice adds an editable chain using the clean target below. It does not change tempo, hands or the score automatically.")
+            }
+            if !store.state.routines.isEmpty {
+                Section("Saved routines") {
+                    Menu("Apply a routine", systemImage: "list.bullet.rectangle") {
+                        ForEach(store.state.routines) { routine in
+                            Button(routine.name) {
+                                stages = routine.stages.map { VariantStage(name: $0.name, targetCount: $0.targetCount) }
+                                savedMessage = nil
+                            }
+                        }
+                    }
+                }
             }
 
             Section("Add a variant") {
@@ -281,7 +325,7 @@ struct VariantEditorView: View {
             }
             if let errorMessage { Section { ErrorMessage(message: errorMessage) } }
         }
-        .navigationTitle("Variants")
+        .navigationTitle("Practice techniques")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { EditButton() } }
         .alert("Save routine", isPresented: $savingRoutine) {

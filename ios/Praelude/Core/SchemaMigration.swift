@@ -9,6 +9,13 @@ extension Date {
 }
 
 enum SchemaMigration {
+    /// Schema4 protects durable, in-set tempo edits from readers that would discard them.
+    /// No historical contracts, reps, clocks, identities or reward values are rewritten.
+    static func migrateToCurrent(_ state: LibraryState, at date: Date) -> LibraryState {
+        var migrated = migrateToSchema3(state, at: date)
+        migrated.schemaVersion = max(migrated.schemaVersion, LibraryState.currentSchemaVersion)
+        return migrated
+    }
     /// Losslessly upgrades a decoded schema1 or schema2 `LibraryState` to schema3. Every schema2
     /// field already decodes into its schema3 shape for free (see each type's `decodeIfPresent`
     /// fallbacks); the two exceptions handled here are `scoreDrawings` → `inkStrokes`, whose
@@ -16,8 +23,7 @@ enum SchemaMigration {
     /// `LibraryState.init(from:)` decoded as `.praeludeEpochSentinel` and this function now stamps
     /// with the single, consistent timestamp of this migration event.
     ///
-    /// Pure and idempotent: migrating an already-schema3 state (no sentinels left) only sets
-    /// `schemaVersion = 3`, which it already was.
+    /// Pure and idempotent; never downgrade a newer library's format marker.
     static func migrateToSchema3(_ state: LibraryState, at date: Date) -> LibraryState {
         var state = state
         // `decodeBackup`/`restoreBackup` call this on every state they read, already-schema3 or not,
@@ -59,7 +65,7 @@ enum SchemaMigration {
             state.profile.updatedAt = date
             state.profile.joinDate = date
         }
-        state.schemaVersion = 3
+        state.schemaVersion = max(3, state.schemaVersion)
         return state
     }
 

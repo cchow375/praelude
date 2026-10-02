@@ -2,42 +2,44 @@ import SwiftUI
 
 // MARK: - Praelude Design System — Typography
 //
-// One characterful engraving face for display text and numerals: Bodoni Moda, a Didone whose
-// high-contrast, plate-cut strokes read the way engraved music and title pages do. Paired with
-// the system SF Pro workhorse for every other piece of UI text, so Dynamic Type keeps working
-// exactly as iOS expects. Bodoni Moda ships as one variable font (weight 400–900); SwiftUI's
-// `fontWeight(_:)` drives its weight axis, so a single bundled file covers every weight used here.
-//
-// Bodoni Moda carries the OpenType `tnum` (tabular figures) feature — verified with fontTools
-// before bundling — so tempo, streak and BPM numerals line up as they change instead of
-// reflowing. `.monospacedDigit()` requests that feature from whichever font is active; it is
-// applied everywhere numerals appear, including on system-font text that already supports it.
+// System typography keeps controls familiar and readable from the bench. Rounded SF numerals
+// stay tabular as tempo/progress changes; both headings and numerals follow Dynamic Type.
+// Bravura remains reserved for actual musical notation symbols.
 
 enum PraeludeFont {
-    /// Bodoni Moda's verified PostScript name (its `fvar` named instances carry no name-table
-    /// entries of their own, so the base instance's PostScript name is the reliable lookup key;
-    /// `.fontWeight(_:)` still drives the variable axis from there).
-    static let displayName = "BodoniModa-Regular"
     static let musicGlyphName = "Bravura"
 
-    /// The engraving face for a section or moment that deserves presence — a screen's hero
-    /// title, not routine UI text. Pair with `.fontWeight(_:)`.
-    static func display(_ size: CGFloat) -> Font { .custom(displayName, size: size) }
+    static func display(_ size: CGFloat) -> Font { .system(size: size) }
 
     /// Large tabular numerals — tempo, streak, BPM, level. Always monospaced-digit so a value
     /// changing from "9" to "10" doesn't shift anything next to it.
-    static func numeral(_ size: CGFloat) -> Font { .custom(displayName, size: size) }
+    static func numeral(_ size: CGFloat) -> Font { .system(size: size, design: .rounded) }
+}
+
+private struct PraeludeScaledType: ViewModifier {
+    @ScaledMetric private var size: CGFloat
+    let weight: Font.Weight
+    let numerals: Bool
+
+    init(size: CGFloat, weight: Font.Weight, numerals: Bool) {
+        _size = ScaledMetric(wrappedValue: size, relativeTo: size >= 32 ? .largeTitle : .title3)
+        self.weight = weight; self.numerals = numerals
+    }
+    func body(content: Content) -> some View {
+        content.font(.system(size: size, weight: weight, design: numerals ? .rounded : .default))
+            .monospacedDigit()
+    }
 }
 
 extension View {
-    /// A display heading in the engraving face.
+    /// A native system heading that follows the user's text size.
     func praeludeDisplay(_ size: CGFloat, weight: Font.Weight = .semibold) -> some View {
-        font(PraeludeFont.display(size)).fontWeight(weight)
+        modifier(PraeludeScaledType(size: size, weight: weight, numerals: false))
     }
 
     /// A large, deliberate, tabular numeral (tempo/streak/BPM/level).
     func praeludeNumeral(_ size: CGFloat, weight: Font.Weight = .semibold) -> some View {
-        font(PraeludeFont.numeral(size)).fontWeight(weight).monospacedDigit()
+        modifier(PraeludeScaledType(size: size, weight: weight, numerals: true))
     }
 }
 

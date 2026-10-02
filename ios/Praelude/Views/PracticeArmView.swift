@@ -23,33 +23,35 @@ struct PracticeArmView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if arm.awaitingColdGrade {
-                coldGradeSection
-            } else if arm.configuration != nil {
-                HStack(spacing: 12) {
+            if arm.configuration != nil {
+                let headerLayout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
+                headerLayout {
                     header
-                    Spacer(minLength: 0)
-                    if !setupExpanded {
-                        HStack(spacing: 3) {
-                            TempoDial(bpm: startBPMBinding(configBinding), numeralSize: 22, compact: true)
-                            Text("BPM").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
-                        }
+                    HStack(spacing: 8) {
+                        TempoDial(bpm: startBPMBinding(configBinding), numeralSize: 22, compact: true)
+                        Text("BPM").font(.caption).foregroundStyle(.secondary)
+                        Button { setupExpanded.toggle() } label: {
+                            Image(systemName: setupExpanded ? "chevron.down" : "slider.horizontal.3")
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityLabel(setupExpanded ? "Hide practice options" : "Show practice options")
+                            .accessibilityIdentifier("armToggleOptions")
                     }
-                    Button { setupExpanded.toggle() } label: {
-                        Image(systemName: setupExpanded ? "chevron.down" : "slider.horizontal.3")
-                            .frame(width: 44, height: 44).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityLabel(setupExpanded ? "Hide practice options" : "Show practice options")
-                        .accessibilityIdentifier("armToggleOptions")
                 }
-                if setupExpanded {
-                    quickConditions
-                    tempoRow
-                }
-                HStack(spacing: 12) {
-                    Button("More options", action: onOpenAdvanced).buttonStyle(.praeludeQuiet).fixedSize(horizontal: true, vertical: false)
-                    Button(action: { start() }) {
-                        Label("Start", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 36)
-                    }.buttonStyle(.praeludePrimary).accessibilityIdentifier("armStartSet")
+                if setupExpanded { quickConditions; tempoRow }
+                if arm.awaitingColdGrade { coldGradeSection }
+                let actionLayout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
+                actionLayout {
+                    Button {
+                        variantDraft = configBinding.wrappedValue.stages
+                        showVariants = true
+                    } label: { Label("Techniques", systemImage: "list.bullet") }
+                        .buttonStyle(.praeludeQuiet).accessibilityIdentifier("armVariants")
+                    Button("More options", action: onOpenAdvanced).buttonStyle(.praeludeQuiet)
+                    if !arm.awaitingColdGrade {
+                        Button(action: { start() }) {
+                            Label("Start", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 44)
+                        }.buttonStyle(.praeludePrimary).accessibilityIdentifier("armStartSet")
+                    }
                 }
             }
             if let error { ErrorMessage(message: error) }
@@ -62,7 +64,10 @@ struct PracticeArmView: View {
                 VariantEditorView(stages: $variantDraft)
                     .toolbar { ToolbarItem(placement: .confirmationAction) {
                         Button("Done") {
-                            if let passage { arm.applyStagesOverride(variantDraft, passageID: passage.id) }
+                            var value = configBinding.wrappedValue
+                            value.stages = variantDraft
+                            if !variantDraft.isEmpty { value.basis = .cleanStreak }
+                            arm.applyConfigurationOverride(value)
                             showVariants = false
                         }
                     } }
@@ -74,6 +79,10 @@ struct PracticeArmView: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(passage?.title ?? "Whole piece").font(.headline)
             Text(passage?.locationLabel ?? pieceSubtitle).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
+            if let value = arm.configuration {
+                Text("\(Self.goalLabel(value.goal)) · \(value.hands) · \(value.targetSummary)" + (value.useMetronome && metronome.groupedCompoundPulse ? " · dotted-quarter pulse" : ""))
+                    .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("armedConditions")
+            }
         }
     }
 
@@ -97,20 +106,20 @@ struct PracticeArmView: View {
                 // §11 R5: the streak/plays target itself, not just the ± control — `.labelsHidden()`
                 // here previously hid this chip's whole label (its *only* visible text), leaving just
                 // "− +" with no indication of what was being adjusted. See "(C) Audit.md".
-                Stepper(value: targetCountBinding(configuration), in: 1...100) {
-                    quickChip("\(configuration.wrappedValue.targetCount) \(configuration.wrappedValue.basis == .cleanStreak ? "clean" : "plays")")
-                }.fixedSize().accessibilityIdentifier("armTargetCount")
-                if configuration.wrappedValue.basis == .cleanStreak {
-                    Toggle(isOn: ladderBinding) { quickChip("Ladder") }
-                        .toggleStyle(.button).accessibilityIdentifier("armLadder")
-                }
-                if passage != nil {
+                if configuration.wrappedValue.stages.isEmpty {
+                    Stepper(value: targetCountBinding(configuration), in: 1...100) {
+                        quickChip(configuration.wrappedValue.targetSummary)
+                    }.fixedSize().accessibilityIdentifier("armTargetCount")
+                } else {
                     Button {
                         variantDraft = configuration.wrappedValue.stages
                         showVariants = true
-                    } label: {
-                        quickChip(configuration.wrappedValue.stages.isEmpty ? "No variants" : "\(configuration.wrappedValue.stages.count) variants")
-                    }.accessibilityIdentifier("armVariants")
+                    } label: { quickChip("Edit stage targets") }
+                        .accessibilityIdentifier("armStageTargets")
+                }
+                if configuration.wrappedValue.basis == .cleanStreak {
+                    Toggle(isOn: ladderBinding) { quickChip("Ladder") }
+                        .toggleStyle(.button).accessibilityIdentifier("armLadder")
                 }
                 Menu {
                     ForEach(handsChoices, id: \.self) { choice in
@@ -141,8 +150,7 @@ struct PracticeArmView: View {
     /// an extra third step (see `PracticeArmController.arm`'s doc comment).
     private var coldGradeSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            header
-            Text("First time today on this passage. How did it go cold?")
+            Text("First attempt today: play it once, then report how it went.")
                 .font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
             let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 10))
             layout {
@@ -150,13 +158,9 @@ struct PracticeArmView: View {
                 coldButton(.shaky, title: "Shaky", glyph: .verdictSloppy)
                 coldButton(.clean, title: "Clean", glyph: .verdictClean, primary: true)
             }
-            HStack(spacing: 12) {
-                Button("More options", action: onOpenAdvanced).buttonStyle(.praeludeQuiet)
-                Spacer(minLength: 0)
-                // §9: a way out besides picking a grade — see "(C) Audit.md".
-                Button("Skip grading") { arm.skipColdGrade() }
-                    .font(.caption).foregroundStyle(PraeludeColor.inkSecondary).accessibilityIdentifier("skipColdGrade")
-            }
+            Button("Start without grading") { start(skippingColdGrade: true) }
+                .buttonStyle(.praeludeQuiet).frame(minHeight: 44)
+                .accessibilityIdentifier("skipColdGrade")
         }
     }
 
@@ -181,7 +185,7 @@ struct PracticeArmView: View {
 
     private var configBinding: Binding<PracticeConfiguration> {
         Binding(get: { arm.configuration ?? PracticeConfiguration(pieceID: arm.pieceID ?? UUID(), focus: "Pulse") },
-                set: { arm.configuration = $0 })
+                set: { arm.applyConfigurationOverride($0) })
     }
 
     private var ladderBinding: Binding<Bool> {
@@ -199,7 +203,7 @@ struct PracticeArmView: View {
 
     private var handsChoices: [String] { ["Both hands", "Right hand", "Left hand", "Hands separately"] }
 
-    private static func goalLabel(_ goal: SetGoal) -> String {
+    static func goalLabel(_ goal: SetGoal) -> String {
         switch goal {
         case .tempo: "Tempo"
         case .notesAndAccuracy: "Notes & accuracy"
@@ -211,18 +215,13 @@ struct PracticeArmView: View {
         }
     }
 
-    private func start(grade: ColdGrade? = nil) {
+    private func start(grade: ColdGrade? = nil, skippingColdGrade: Bool = false) {
         do {
-            // Retune *before* `arm.start`, not after — mirrors `ScoreWorkspace.armStart`'s own fix
-            // (see its doc comment): a cold grade's first attempt is recorded *inside* `arm.start`
-            // itself, which refuses to record while the audible click is still at some other tempo.
-            // This is the touch path for the very same buttons that fix covers for voice — both had
-            // the identical ordering bug. See "(C) Audit.md".
-            if let configuration = arm.configuration {
-                metronome.setTempo(configuration.startBPM)
-                if configuration.useMetronome { metronome.start() } else { metronome.stop() }
+            guard try arm.start(grade: grade, skippingColdGrade: skippingColdGrade, store: store, runtime: runtime) else { return }
+            if let set = store.activeSet {
+                metronome.setTempo(set.currentBPM)
+                if set.status == .running && set.configuration.useMetronome { metronome.start() } else { metronome.stop() }
             }
-            guard try arm.start(grade: grade, store: store, runtime: runtime) else { return }
             onStarted()
         } catch { self.error = error.localizedDescription }
     }

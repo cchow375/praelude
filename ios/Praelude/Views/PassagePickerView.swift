@@ -11,14 +11,19 @@ struct PassagePickerView: View {
     @State private var renameText = ""
     @State private var splittingPassage: Passage?
     @State private var mergingPassage: Passage?
+    @State private var search = ""
     let pieceID: UUID
     let currentPage: Int
+    var selectedPassageID: UUID? = nil
     let onSelect: (Passage) -> Void
     var onDraw: (Passage?) -> Void = { _ in }
     private var piece: Piece? { store.pieces.first { $0.id == pieceID } }
     // §8: `deletePassage` archives (tombstones) rather than erasing, so every list must filter it out.
     private var passages: [Passage] {
-        store.state.passages.filter { $0.pieceID == pieceID && !$0.archived }.sorted {
+        store.state.passages.filter {
+            $0.pieceID == pieceID && !$0.archived && (search.isEmpty ||
+                ($0.title + " " + $0.locationLabel + " " + $0.focus).localizedCaseInsensitiveContains(search))
+        }.sorted {
             $0.page == $1.page ? $0.title.localizedStandardCompare($1.title) == .orderedAscending : $0.page < $1.page
         }
     }
@@ -26,46 +31,23 @@ struct PassagePickerView: View {
         NavigationStack {
             List {
                 if let errorMessage { ErrorMessage(message: errorMessage) }
-                if passages.isEmpty {
+                if passages.isEmpty && search.isEmpty {
                     PraeludeEmptyState(title: "Mark what you want to practice", symbol: "rectangle.dashed",
                                       message: "Draw lightly highlighted boxes on the score. Add as many as you need, then tap Done.",
                                       actionTitle: "Draw a passage", action: { draw(nil) })
                         .listRowBackground(Color.clear).listRowSeparator(.hidden)
                 }
-                ForEach(passages) { passage in
-                    Button { onSelect(passage); dismiss() } label: {
-                        HStack(spacing: 14) {
-                            if let piece, let url = NativeLibraryFiles(store: store).scoreURL(for: piece) {
-                                PassagePreview(url: url, passage: passage).frame(width: 96, height: 76)
-                            }
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(passage.title).font(.headline).foregroundStyle(.primary)
-                                Text(passage.locationLabel).font(.subheadline).foregroundStyle(.secondary)
-                                Text(passage.focus).font(.caption).foregroundStyle(.secondary)
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }.padding(.vertical, 6).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityIdentifier("savedPassage_\(passage.id)")
-                    .contextMenu {
-                        Button("Rename", systemImage: "pencil") { renameText = passage.title; renamingPassage = passage }
-                        Menu("Recolor", systemImage: "paintpalette") {
-                            Button("No color") { recolor(passage, to: nil) }
-                            ForEach(AnnotationColor.allCases) { color in Button(color.label) { recolor(passage, to: color) } }
-                        }
-                        Button("Edit boxes", systemImage: "rectangle.dashed") { draw(passage) }
-                        Button("Edit details", systemImage: "slider.horizontal.3") { editingPassage = passage }
-                        if passage.regions.count > 1 { Button("Split off boxes…", systemImage: "square.split.2x1") { splittingPassage = passage } }
-                        if passages.contains(where: { $0.id != passage.id && $0.pieceID == passage.pieceID }) {
-                            Button("Merge with…", systemImage: "square.stack") { mergingPassage = passage }
-                        }
-                        Button("Delete passage", systemImage: "trash", role: .destructive) { pendingDelete = passage }
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button("Delete", systemImage: "trash", role: .destructive) { pendingDelete = passage }
-                        Button("Boxes", systemImage: "rectangle.dashed") { draw(passage) }.tint(PraeludeColor.ink)
-                        Button("Details", systemImage: "slider.horizontal.3") { editingPassage = passage }.tint(PraeludeColor.inkSecondary)
-                    }
+                if passages.isEmpty && !search.isEmpty {
+                    Text("No matching passages. Try a name, measure or focus.").foregroundStyle(.secondary)
+                }
+                if !currentPagePassages.isEmpty {
+                    Section("On this page") { passageRows(currentPagePassages) }
+                }
+                if !otherPassages.isEmpty {
+                    Section(currentPagePassages.isEmpty ? "Saved passages" : "Other pages") { passageRows(otherPassages) }
                 }
             }
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Name, measures or focus")
             .navigationTitle("Passages").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
@@ -98,6 +80,44 @@ struct PassagePickerView: View {
             } message: { _ in Text("Recorded practice keeps its original visual target. This removes the saved shortcut.") }
         }
     }
+    private var currentPagePassages: [Passage] { passages.filter { $0.regions.isEmpty ? $0.page == currentPage : $0.regions.contains { $0.page == currentPage } } }
+    private var otherPassages: [Passage] { passages.filter { passage in !currentPagePassages.contains { $0.id == passage.id } } }
+    private func passageRows(_ values: [Passage]) -> some View {
+        ForEach(values) { passage in
+            Button { onSelect(passage); dismiss() } label: {
+                HStack(spacing: 14) {
+                    if let piece, let url = NativeLibraryFiles(store: store).scoreURL(for: piece) {
+                        PassagePreview(url: url, passage: passage).frame(width: 96, height: 76)
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(passage.title).font(.headline).foregroundStyle(.primary)
+                        Text(passage.locationLabel).font(.subheadline).foregroundStyle(.secondary)
+                        Text(passage.focus).font(.caption).foregroundStyle(.secondary)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    if selectedPassageID == passage.id { Image(systemName: "checkmark").foregroundStyle(.primary) }
+                }.padding(.vertical, 6).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityIdentifier("savedPassage_\(passage.id)")
+                    .contextMenu {
+                        Button("Rename", systemImage: "pencil") { renameText = passage.title; renamingPassage = passage }
+                        Menu("Recolor", systemImage: "paintpalette") {
+                            Button("No color") { recolor(passage, to: nil) }
+                            ForEach(AnnotationColor.allCases) { color in Button(color.label) { recolor(passage, to: color) } }
+                        }
+                        Button("Edit boxes", systemImage: "rectangle.dashed") { draw(passage) }
+                        Button("Edit details", systemImage: "slider.horizontal.3") { editingPassage = passage }
+                        if passage.regions.count > 1 { Button("Split off boxes…", systemImage: "square.split.2x1") { splittingPassage = passage } }
+                        if passages.contains(where: { $0.id != passage.id && $0.pieceID == passage.pieceID }) {
+                            Button("Merge with…", systemImage: "square.stack") { mergingPassage = passage }
+                        }
+                        Button("Delete passage", systemImage: "trash", role: .destructive) { pendingDelete = passage }
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button("Delete", systemImage: "trash", role: .destructive) { pendingDelete = passage }
+                        Button("Boxes", systemImage: "rectangle.dashed") { draw(passage) }.tint(PraeludeColor.ink)
+                        Button("Details", systemImage: "slider.horizontal.3") { editingPassage = passage }.tint(PraeludeColor.inkSecondary)
+                    }
+                }
+            }
     private func draw(_ passage: Passage?) { onDraw(passage); dismiss() }
     private func recolor(_ passage: Passage, to color: AnnotationColor?) {
         var edited = passage; edited.color = color?.rawValue; edited.updatedAt = Date()

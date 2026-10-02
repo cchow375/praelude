@@ -10,6 +10,9 @@ public enum PracticeEngine {
               configuration.tempoStep.amount.isFinite, (1...100).contains(configuration.tempoStep.amount),
               !configuration.focus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               configuration.focus.count <= 500, configuration.hands.count <= 100,
+              configuration.tempoChanges.count <= 100001,
+              configuration.tempoChanges.allSatisfy({ $0.bpm.isFinite && (20...300).contains($0.bpm) && (0...100000).contains($0.afterAttemptCount) }),
+              zip(configuration.tempoChanges, configuration.tempoChanges.dropFirst()).allSatisfy({ $0.afterAttemptCount < $1.afterAttemptCount }),
               configuration.stages.count <= 24,
               configuration.stages.allSatisfy({ !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.name.count <= 100 && (1...100).contains($0.targetCount) }) else {
             throw PracticeError.invalid("Choose 1–100 repetitions, a tempo from 20–300 BPM, and valid variant names.")
@@ -25,7 +28,20 @@ public enum PracticeEngine {
         set.currentBPM = configuration.startBPM; set.streak = 0; set.totalPlays = 0
         set.stageIndex = 0; set.completedStages = 0
         var complete = false
-        for attempt in set.attempts where attempt.undoneAt == nil {
+        var targetBPM = configuration.targetBPM
+        var changeIndex = 0
+        func applyChanges(at boundary: Int) {
+            while changeIndex < configuration.tempoChanges.count,
+                  configuration.tempoChanges[changeIndex].afterAttemptCount == boundary {
+                let change = configuration.tempoChanges[changeIndex]
+                set.currentBPM = change.bpm
+                targetBPM = max(targetBPM, change.bpm)
+                changeIndex += 1
+            }
+        }
+        for (index, attempt) in set.attempts.enumerated() {
+            applyChanges(at: index)
+            guard attempt.undoneAt == nil else { continue }
             if attempt.verdict == .reset {
                 // A deliberate reset restarts current-rung clean work, preserving recorded volume.
                 set.streak = 0; set.stageIndex = 0; set.completedStages = 0; complete = false
@@ -57,11 +73,12 @@ public enum PracticeEngine {
                     continue
                 }
             }
-            if set.currentBPM < configuration.targetBPM {
-                set.currentBPM = configuration.tempoStep.next(after: set.currentBPM, target: configuration.targetBPM)
+            if set.currentBPM < targetBPM {
+                set.currentBPM = configuration.tempoStep.next(after: set.currentBPM, target: targetBPM)
                 set.streak = 0; set.stageIndex = 0; set.completedStages = 0
             } else { complete = true }
         }
+        applyChanges(at: set.attempts.count)
         if complete { set.status = .completed }
         else if original.status == .completed { set.status = .paused; set.endedAt = nil; set.lastCheckpoint = nil }
         return set

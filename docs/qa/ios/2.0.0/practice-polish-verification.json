@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "build": 4,
+  "schema": 4,
+  "developmentCandidate": true,
+  "base": "25fa176",
+  "inputFingerprint": "308ae46bf13f50bf4594f49864bcbf163f96edb6c61784586ef695fcbd34b123",
+  "binarySHA256": "3690cb158ce5dc53729d583a52b900408d4e33e594be81bb2be324830eda1b55",
+  "minimumOS": "17.0",
+  "testFixturesAbsent": true,
+  "checks": {
+    "core": 356,
+    "serviceAssertions": 2211,
+    "python": 53,
+    "nativeRuntime": 12,
+    "currentUITests": {
+      "maxTempoAXDarkOpaque": "passed",
+      "normalMetronomeToolbar": "unaccepted"
+    }
+  },
+  "physical": {
+    "installed": true,
+    "ownedLibraryFilesMatched": 7,
+    "preLaunchSchema": 3,
+    "launch": "denied; user unlock/trust/open required",
+    "macImport": false
+  },
+  "migrationDryRun": {
+    "originalBytes": 85079,
+    "unchangedScalarValues": 3447
+  }
+}

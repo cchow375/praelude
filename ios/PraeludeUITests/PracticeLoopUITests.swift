@@ -267,9 +267,9 @@ final class PracticeLoopUITests: XCTestCase {
         let app = launch()
         openScore(app)
         app.buttons["openMetronome"].press(forDuration: 0.15)
-        let slider = app.sliders["sliderTempo"]
-        XCTAssertTrue(slider.waitForExistence(timeout: 10), app.debugDescription)
-        slider.adjust(toNormalizedSliderPosition: 1.0) // 300 bpm — guaranteed to differ from the 60 bpm a never-practiced passage arms at.
+        let increase = app.buttons["Increase tempo by 5"]
+        XCTAssertTrue(increase.waitForExistence(timeout: 10), app.debugDescription)
+        increase.press(forDuration: 0.15) // A deliberate different tempo from the passage's default.
         app.buttons["toggleMetronome"].press(forDuration: 0.15)
         XCTAssertEqual(app.buttons["toggleMetronome"].label, "Stop", "The click must actually be playing for this to reproduce the bug.\n\(app.debugDescription)")
         screenshot("loop-09-metronome-forced-mismatch", app: app)
@@ -278,8 +278,11 @@ final class PracticeLoopUITests: XCTestCase {
         let coldClean = app.buttons["coldGrade_clean"]
         XCTAssertTrue(coldClean.waitForExistence(timeout: 15), app.debugDescription)
         coldClean.press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15),
-                      "Cold-grading must retune the click before recording, never leave the prompt stuck on a conflict.\n\(app.debugDescription)")
+        let mismatch = app.staticTexts["The click was restored to your set tempo. Repeat the passage before recording it."]
+        XCTAssertTrue(mismatch.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(coldClean.exists, "A mismatched first attempt must retain the grade prompt without saving a different BPM.")
+        coldClean.press(forDuration: 0.15) // The player reports a new attempt after the click was restored.
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
         ensureExpanded(app)
         XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 15),
                       "The cold grade's own first attempt must actually be recorded, not lost to a tempo-mismatch throw.\n\(app.debugDescription)")
@@ -435,4 +438,100 @@ final class PracticeLoopUITests: XCTestCase {
         XCTAssertTrue(app.buttons["hudCollapse"].waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertTrue(app.staticTexts["2 of 5 clean"].waitForExistence(timeout: 15), "A verdict must still record while collapsed.\n\(app.debugDescription)")
     }
+    @MainActor func testTechniqueChoicePreservesColdGateAndRepeatSettings() {
+        let app = launch(); openScore(app); choosePassage(app)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["armedConditions"].exists)
+        app.buttons["armVariants"].press(forDuration: 0.15)
+        let choice = app.buttons["technique_rhythmPair"]
+        XCTAssertTrue(choice.waitForExistence(timeout: 10), app.debugDescription)
+        choice.press(forDuration: 0.15)
+        let decrease = app.steppers.firstMatch.buttons["Decrement"]
+        XCTAssertTrue(decrease.waitForExistence(timeout: 10), app.debugDescription)
+        decrease.press(forDuration: 0.15) // First stage 2; the other two remain 3.
+        screenshot("practice-technique-editable-chain", app: app)
+        app.buttons["Done"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["armedConditions"].label.contains("3 stages"), app.debugDescription)
+        app.buttons["More options"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 10))
+        app.buttons["confirmStartSet"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 10), "Editing settings must retain the first-attempt choice.")
+        screenshot("practice-selected-technique-before-grading", app: app)
+        app.buttons["skipColdGrade"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 10), app.debugDescription)
+        ensureExpanded(app)
+        XCTAssertTrue(app.staticTexts["0 of 2 clean"].exists, "Starting without grading must not invent a repetition.")
+        for _ in 0..<8 { app.buttons["verdict_clean"].press(forDuration: 0.15) }
+        XCTAssertTrue(app.staticTexts["Set complete"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["Another set"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["armedConditions"].label.contains("3 stages"))
+        screenshot("practice-repeated-technique-settings", app: app)
+    }
+
+    @MainActor func testPassageSearchFindsTheCurrentSection() {
+        let app = launch(); openScore(app)
+        let passages = app.buttons["passages"]
+        XCTAssertTrue(passages.waitForExistence(timeout: 10))
+        passages.press(forDuration: 0.15)
+        let search = app.searchFields.firstMatch
+        if !search.waitForExistence(timeout: 3), passages.isHittable { passages.press(forDuration: 0.15) }
+        XCTAssertTrue(search.waitForExistence(timeout: 10), app.debugDescription)
+        search.press(forDuration: 0.15); search.typeText("Evenness")
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "savedPassage_")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        screenshot("practice-search-current-page-section", app: app)
+        row.press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor func testSwitchingVisualSectionsRequiresFinishingTheCurrentSet() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--reset", "--seed", "--seed-sections"]
+        app.launch(); openScore(app); choosePassage(app)
+        app.buttons["skipColdGrade"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 10))
+        app.buttons["verdict_clean"].press(forDuration: 0.15)
+        app.buttons["passages"].press(forDuration: 0.15)
+        let next = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Phrase connection")).firstMatch
+        XCTAssertTrue(next.waitForExistence(timeout: 10), app.debugDescription)
+        next.press(forDuration: 0.15)
+        let finish = app.buttons["Finish current set and switch"]
+        XCTAssertTrue(finish.waitForExistence(timeout: 10), app.debugDescription)
+        screenshot("practice-explicit-section-switch", app: app)
+        app.buttons["Keep current passage"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 10))
+        app.buttons["passages"].press(forDuration: 0.15)
+        XCTAssertTrue(next.waitForExistence(timeout: 10)); next.press(forDuration: 0.15)
+        XCTAssertTrue(finish.waitForExistence(timeout: 10)); finish.press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Phrase connection"].exists)
+        screenshot("practice-visual-next-section-ready", app: app)
+    }
+
+    @MainActor func testLargestTextDarkOpaquePracticeControlsRemainReachable() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--reset", "--seed", "--seed-sections", "--audit-dark", "--audit-accessibility",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch(); openScore(app); choosePassage(app)
+        screenshot("practice-largest-text-dark-opaque-ready", app: app)
+        let scroll = app.scrollViews["accessiblePracticeControls"]
+        let ungraded = app.buttons["skipColdGrade"]
+        for _ in 0..<6 where !ungraded.isHittable { scroll.swipeUp() }
+        XCTAssertTrue(ungraded.isHittable, app.debugDescription)
+        ungraded.press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 10))
+        for identifier in ["verdict_clean", "verdict_sloppy", "verdict_again", "undoRep", "pausePractice", "stopSet"] {
+            let button = app.buttons[identifier]
+            for _ in 0..<6 where !button.isHittable { scroll.swipeUp() }
+            XCTAssertTrue(button.isHittable, identifier + "\n" + app.debugDescription)
+            XCTAssertGreaterThanOrEqual(button.frame.minX, app.frame.minX)
+            XCTAssertLessThanOrEqual(button.frame.maxX, app.frame.maxX)
+        }
+        screenshot("practice-largest-text-dark-opaque-running", app: app)
+    }
+
 }

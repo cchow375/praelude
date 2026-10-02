@@ -1,12 +1,19 @@
 # Praelude — Flaws, Risks & Honest Limits
 
-**Last updated: 2026-09-14. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
+**Last updated: 2026-10-02. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
 
 **Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
 
 This is the no-faking register. Never delete a flaw silently; resolved defects retain their diagnosis, fix and commit. Historical version references below are dated evidence, not the current installed boundary.
 
 **Current acceptance:** v11.1 source/browser checks and exact native installation pass; native audible quality, voice/chime overlap, sustained motivation, microphone/Steinway, real mapping, cover-picker and Windows acceptance remain open. Score/Variants now render in the freshly installed app. Earlier release limitations below are retained as dated evidence.
+
+## Mobile build4 follow-up (2026-10-02)
+
+- **B120 — Tempo edits reinterpreted previously earned practice.** Changing startBPM and replaying old reps could turn a requested64→65 into69 and rewind/reclassify stages. Durable boundary-anchored tempo events preserve the original contract, actual attempt tempos and earned progress through Undo/reopen. Repeat/relaunch defaults also need the current effective ceiling. Source fix implemented; final scoped checks/commit pending. Schema4 and backupv3 protect the new semantics from older readers; mixed-version cloud clients remain unsupported.
+- **B121 — Suggested visual join could hide both original targets.** Duplicate box IDs rejected the new passage while swallowed save errors still archived both sources. One atomic merge with fresh region identities now retains sources on failure. Source/core/native checks and guarded installation pass; fixing commit pending; hardware acceptance remains open.
+- **B122 — First-attempt grading could partially save.** Set, grade, schedule, rule events and first rep used separate writes with ignored errors. They now commit together; a failed write leaves the original ledger/arm intact. A playing click at a different tempo requires a deliberate new cold attempt before any grade is saved. Source/core/native checks and guarded installation pass; fixing commit pending; hardware acceptance remains open.
+- **B123 — Practice convenience and metronome control gaps.** Before-grade settings were hidden, More options/another set discarded chosen settings, active passage taps could change visible target without changing the ledger, and passages lacked search/current-page priority. Technique chains showed an unused general count instead of actual stage targets. Count-in/lock choices were hidden, the background pause could silence requested lock playback, 6/8 dotted pulse was unclear, click edits restarted beat1 and custom mute could silence count-in. Candidate fixes these paths; current QA retains actual passes, failures and physical timing/voice/locked-screen limits. Core/native runtime and largest-text checks pass; build4 installed with exact data preservation. Normal toolbar-opening automation remains unaccepted; further phone work deferred at user request. Fixing commit pending.
 
 ## Mobile 2.0 findings (2026-10-02)
 

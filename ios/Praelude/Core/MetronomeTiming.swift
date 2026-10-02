@@ -63,3 +63,15 @@ public enum MetronomeClock {
         return (beat, pulse, continuous - floor(continuous))
     }
 }
+
+/// Preserve the musical position of a running sample-clock loop when its tempo changes.
+/// The audio node starts a new sample epoch, but its PCM is rotated by this offset and the
+/// display clock adds the same offset. No synthetic downbeat is inserted by a tempo gesture.
+public enum MetronomePlaybackPhase {
+    public static func rescaledOffset(sampleTime: Int64, previousBarFrames: Int64, nextBarFrames: Int64) -> Int64 {
+        guard sampleTime >= 0, previousBarFrames > 0, nextBarFrames > 0 else { return 0 }
+        let value = Double(sampleTime) / Double(previousBarFrames) * Double(nextBarFrames)
+        guard value.isFinite, value < Double(Int64.max) else { return 0 }
+        return Int64(value.rounded())
+    }
+}

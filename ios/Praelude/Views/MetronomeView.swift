@@ -8,8 +8,15 @@ struct MetronomeView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tool = MetronomeTool.metronome
-    private var lockedTempo: Bool { store.activeSet != nil && store.activeSet?.isComplete != true }
-    private var beatName: String { switch metronome.denominator { case 2: "half note"; case 8: "eighth note"; default: "quarter note" } }
+    @State private var tempoError: String?
+    private var activeTempo: Bool { store.activeSet.map { $0.status == .running || $0.status == .paused } ?? false }
+    private var tempoBinding: Binding<Double> {
+        Binding(get: { activeTempo ? store.activeSet!.currentBPM : metronome.bpm }, set: { value in changeTempo(value) })
+    }
+    private var beatName: String {
+        if metronome.groupedCompoundPulse { return "dotted quarter note" }
+        switch metronome.denominator { case 2: return "half note"; case 8: return "eighth note"; default: return "quarter note" }
+    }
 
     var body: some View {
         NavigationStack {
@@ -40,31 +47,14 @@ struct MetronomeView: View {
         return Form {
                 Section {
                     VStack(spacing: 20) {
-                        VStack(spacing: 2) {
-                            Text("\(Int(metronome.bpm))")
-                                .praeludeNumeral(76, weight: .bold)
-                                .foregroundStyle(PraeludeColor.ink)
-                                .contentTransition(.numericText()).accessibilityLabel("\(Int(metronome.bpm)) beats per minute")
-                            Text("BEATS PER MINUTE").font(.caption.weight(.medium)).tracking(1.2).foregroundStyle(PraeludeColor.inkSecondary)
-                        }
-                        HStack(spacing: 14) {
-                            Button { metronome.setTempo(metronome.bpm - 1) } label: {
-                                Image(systemName: "minus")
-                            }.buttonStyle(.praeludeEdgeControl).accessibilityLabel("Decrease tempo")
-                            Slider(value: $metronome.bpm, in: 20...300, step: 1)
-                                .accessibilityLabel("Tempo").accessibilityIdentifier("sliderTempo")
-                            Button { metronome.setTempo(metronome.bpm + 1) } label: {
-                                Image(systemName: "plus")
-                            }.buttonStyle(.praeludeEdgeControl).accessibilityLabel("Increase tempo")
-                        }.disabled(lockedTempo)
-                        if lockedTempo {
-                            Label("Tempo follows your practice set.", systemImage: "lock.fill")
-                                .font(.footnote).foregroundStyle(PraeludeColor.inkSecondary)
+                        TempoDial(bpm: tempoBinding, numeralSize: 64, onTapTempo: { tapTempo() })
+                        Text("\(beatName.capitalized) = \(Int(tempoBinding.wrappedValue.rounded()))")
+                            .font(.callout).foregroundStyle(.secondary)
+                        if activeTempo {
+                            Text("Tempo changes are saved to this set. Your recorded reps and variant progress stay in place.")
+                                .font(.footnote).foregroundStyle(.secondary)
                         }
                         HStack(spacing: 12) {
-                            Button { metronome.tap() } label: {
-                                Text("Tap tempo").frame(maxWidth: .infinity, minHeight: 28)
-                            }.buttonStyle(.praeludeQuiet).disabled(lockedTempo)
                             Button {
                                 if let active = store.activeSet, !active.isComplete { metronome.setTempo(active.currentBPM) }
                                 metronome.toggle()
@@ -78,11 +68,24 @@ struct MetronomeView: View {
 
                 Section {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], spacing: 8) {
-                        ForEach(0..<metronome.beatsPerBar, id: \.self) { index in beatButton(index) }
+                        ForEach(0..<metronome.pulsesPerBar, id: \.self) { index in beatButton(index) }
                     }.padding(.vertical, 4)
                     if metronome.isPlaying && !reduceMotion {
                         ProgressView(value: metronome.beatProgress).tint(.secondary).accessibilityHidden(true)
                     }
+                    Menu {
+                        ForEach([2, 3, 4, 5], id: \.self) { beats in
+                            Button("\(beats)/4") { metronome.setMeter(beats: beats, denominator: 4) }
+                        }
+                        ForEach([6, 9, 12], id: \.self) { beats in
+                            Button("\(beats)/8 · dotted-quarter pulse") {
+                                metronome.setMeter(beats: beats, denominator: 8)
+                                metronome.groupedCompoundPulse = true
+                            }
+                        }
+                        Button("7/8 · eighth-note pulse") { metronome.setMeter(beats: 7, denominator: 8) }
+                    } label: { Label("Common meters", systemImage: "music.note") }
+                        .accessibilityIdentifier("meterPresets")
                     Picker("Beats per bar", selection: $metronome.beatsPerBar) {
                         ForEach(1...12, id: \.self) { Text("\($0)").tag($0) }
                     }
@@ -91,12 +94,16 @@ struct MetronomeView: View {
                         Text("Quarter note · 4").tag(4)
                         Text("Eighth note · 8").tag(8)
                     }
+                    if metronome.supportsCompoundPulse {
+                        Toggle("Count dotted-quarter pulses", isOn: $metronome.groupedCompoundPulse)
+                            .accessibilityIdentifier("compoundPulse")
+                    }
                     LabeledContent("Time signature", value: "\(metronome.beatsPerBar)/\(metronome.denominator)")
                     Button("Reset accents") { metronome.resetAccents() }
                 } header: {
                     Text("Meter & accents")
                 } footer: {
-                    Text("Tap a beat to cycle accent, silence, and regular beat. Tempo counts each \(beatName); subdivisions divide that beat.")
+                    Text("Tap a beat to cycle accent, silence, and regular beat. Tempo counts each \(beatName); subdivisions divide that pulse. In compound meters, choose dotted-quarter pulses to follow the larger beat.")
                 }
 
                 Section {
@@ -108,6 +115,24 @@ struct MetronomeView: View {
                 } footer: {
                     Text(metronome.subdivision == 1 ? "One click per beat." : "\(metronome.subdivision) even clicks per beat. The main beat stays prominent.")
                 }
+
+                Section {
+                    Picker("Count-in", selection: $metronome.countInBars) {
+                        Text("Off").tag(0)
+                        ForEach(1...4, id: \.self) { Text("\($0) \($0 == 1 ? "bar" : "bars")").tag($0) }
+                    }.accessibilityIdentifier("countInBars")
+                    Toggle("Keep playing when locked", isOn: $metronome.keepRunningWhenLocked)
+                        .accessibilityIdentifier("keepMetronomeRunning")
+                } header: { Text("Starting & locking") }
+                  footer: { Text("Count-in plays once on Start, using audible main beats. A count-in change applies the next time you start. Practice pauses when the app backgrounds; this option keeps only the click playing.") }
+                if metronome.isCountingIn {
+                    Section { Label("Count-in · enter on the next first beat", systemImage: "hourglass") }
+                } else if metronome.isDropoutSilent {
+                    Section { Label("Silent bars · keep your pulse", systemImage: "speaker.slash") }
+                } else if metronome.pulseAccents.allSatisfy({ $0 == .muted }) {
+                    Section { Text("Every beat is silent. Tap a beat above to restore its click.").foregroundStyle(.secondary) }
+                }
+                if let tempoError { Section { Text(tempoError).foregroundStyle(.red) } }
 
                 Section("Click sound") {
                     Picker("Sound", selection: $metronome.sound) {
@@ -141,10 +166,10 @@ struct MetronomeView: View {
     }
 
     private func beatButton(_ index: Int) -> some View {
-        let accent = metronome.accents[index]
+        let accent = metronome.pulseAccents[index]
         let current = metronome.isPlaying && metronome.beat == index + 1
         let pulseOn = current && metronome.beatProgress < 0.22
-        return Button { metronome.cycleAccent(at: index) } label: {
+        return Button { metronome.cyclePulseAccent(at: index) } label: {
             VStack(spacing: 5) {
                 Text("\(index + 1)").font(.body.weight(current ? .bold : .medium).monospacedDigit())
                 Image(systemName: accent == .accented ? "chevron.up" : accent == .muted ? "speaker.slash.fill" : "circle.fill")
@@ -161,4 +186,21 @@ struct MetronomeView: View {
         .accessibilityLabel("Beat \(index + 1), \(accent.title)")
         .accessibilityHint("Tap to change the accent")
     }
+    private func changeTempo(_ value: Double) {
+        do {
+            if activeTempo { try store.adjustActiveTempo(value) }
+            metronome.setTempo(activeTempo ? store.activeSet!.currentBPM : value)
+            tempoError = nil
+        } catch { tempoError = error.localizedDescription }
+    }
+
+    private func tapTempo() {
+        guard let value = metronome.tappedTempo() else { return }
+        do {
+            if activeTempo { try store.adjustActiveTempo(value) }
+            metronome.applyTappedTempo(value)
+            tempoError = nil
+        } catch { tempoError = error.localizedDescription }
+    }
+
 }

@@ -1,5 +1,7 @@
 # Mobile 2.0 overview and October 2 verification
 
+**Current follow-up:** [build4/schema4 pianist workflow polish](practice-polish.md). The build3 evidence below is the earlier snapshot review and remains historical.
+
 **Development candidate: 2.0.0/build3/schema3.** Base before this session: `8c87409`. Implementation: `635a5ae`.
 The [verification manifest](verification.json) records exact Release input/binary fingerprints and scoped check results.
 User request: bring Mac scores/practice data to iOS and review current Supabase/native app for real pianist practicality.

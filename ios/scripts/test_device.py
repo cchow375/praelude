@@ -233,9 +233,22 @@ class DeviceSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(device.DeviceError, "practice set is running"):
             self.execute()
         self.assert_no_install()
-        for schema in (True, 4):
+        for schema in (True, 5):
             with self.assertRaisesRegex(device.DeviceError, "unsupported format"):
                 device.validate_library(json.dumps({"schemaVersion": schema}).encode())
+
+    def test_schema4_tempo_library_is_preserved_and_running_set_still_blocks(self):
+        state = {"schemaVersion": 4, "activeSet": None, "history": [{"configuration": {"tempoChanges": [{"afterAttemptCount": 2, "bpm": 65}]}}]}
+        original = json.dumps(state).encode()
+        self.runner.files["library.json"] = original
+        self.execute()
+        self.assertEqual(self.runner.files["library.json"], original)
+        copies = list((self.root.parent / "releases/ios-device-backups").glob("*/Praelude/library.json"))
+        self.assertEqual(len(copies), 2)
+        self.assertTrue(all(path.read_bytes() == original for path in copies))
+        self.runner.files["library.json"] = json.dumps({"schemaVersion": 4, "activeSet": {"status": "running"}}).encode()
+        with self.assertRaisesRegex(device.DeviceError, "practice set is running"):
+            self.execute()
 
     def test_corrupt_ledger_is_preserved_and_blocks_update(self):
         self.runner.files["library.json"] = b"broken ledger"

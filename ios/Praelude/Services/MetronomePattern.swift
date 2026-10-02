@@ -17,6 +17,12 @@ struct MetronomeSettings: Codable, Equatable, Sendable {
     var beatsPerBar = 4
     var denominator = 4
     var subdivision = 1
+    /// 1 = written note, 3 = dotted-quarter pulse in 6/8, 9/8 or 12/8.
+    var beatGrouping = 1
+    var supportsCompoundPulse: Bool { denominator == 8 && [6, 9, 12].contains(beatsPerBar) }
+    var pulsesPerBar: Int { beatsPerBar / beatGrouping }
+    var pulseAccents: [BeatAccent] { stride(from: 0, to: beatsPerBar, by: beatGrouping).map { accents[$0] } }
+    var barDurationSeconds: Double { 60 / bpm * Double(pulsesPerBar) }
     var accents: [BeatAccent] = [.accented, .regular, .regular, .regular]
     var sound = MetronomeSound.wood
     var volume = 0.7
@@ -32,12 +38,12 @@ struct MetronomeSettings: Codable, Equatable, Sendable {
         version == 1 && bpm.isFinite && (20...300).contains(bpm) && (1...12).contains(beatsPerBar)
             && [2, 4, 8].contains(denominator) && (1...4).contains(subdivision)
             && accents.count == beatsPerBar && volume.isFinite && (0...1).contains(volume)
-            && (0...4).contains(countInBars)
+            && (0...4).contains(countInBars) && (beatGrouping == 1 || (beatGrouping == 3 && supportsCompoundPulse))
     }
 
     private enum CodingKeys: String, CodingKey {
         case version, bpm, beatsPerBar, denominator, subdivision, accents, sound, volume, haptics,
-             countInBars, keepRunningWhenLocked
+             countInBars, keepRunningWhenLocked, beatGrouping
     }
     init() {}
     init(from decoder: Decoder) throws {
@@ -54,6 +60,7 @@ struct MetronomeSettings: Codable, Equatable, Sendable {
         // Absent from any settings blob persisted before count-in/background-audio shipped.
         countInBars = try values.decodeIfPresent(Int.self, forKey: .countInBars) ?? 0
         keepRunningWhenLocked = try values.decodeIfPresent(Bool.self, forKey: .keepRunningWhenLocked) ?? false
+        beatGrouping = try values.decodeIfPresent(Int.self, forKey: .beatGrouping) ?? 1
     }
     static func accents(for beats: Int, denominator: Int) -> [BeatAccent] {
         guard (1...12).contains(beats) else { return [] }
@@ -72,6 +79,7 @@ struct MetronomeSettings: Codable, Equatable, Sendable {
 /// Rejects double taps and averages a bounded recent window. No audio or UI clock dependence.
 struct TapTempoEstimator {
     private var taps: [TimeInterval] = []
+    mutating func reset() { taps.removeAll() }
     mutating func tap(at time: TimeInterval) -> Double? {
         guard time.isFinite, time >= 0 else { return nil }
         if let last = taps.last {
@@ -159,5 +167,15 @@ struct MetronomePattern {
     private enum PatternError: LocalizedError {
         case invalidConfiguration
         var errorDescription: String? { "The metronome audio configuration is invalid." }
+    }
+}
+
+/// Rotate a rendered loop without introducing a click at the beginning of a new player epoch.
+enum MetronomeSamples {
+    static func rotated(_ samples: [Float], startingAt offset: Int) -> [Float] {
+        guard !samples.isEmpty, offset >= 0 else { return samples }
+        let index = offset % samples.count
+        guard index > 0 else { return samples }
+        return Array(samples[index...]) + Array(samples[..<index])
     }
 }

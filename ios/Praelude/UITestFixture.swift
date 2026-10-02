@@ -1,10 +1,16 @@
 #if DEBUG
 import Foundation
 import UIKit
+import SwiftUI
 
 /// Disposable UI-test content only. A normal install always starts blank.
 @MainActor
 enum UITestFixture {
+    static func configureMetronomeForAudit(_ metronome: MetronomeService) {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("--uitesting"), arguments.contains("--audit-max-tempo") else { return }
+        metronome.setTempo(300)
+    }
     /// Explicit, disposable simulator audit only. The caller must supply a readable copy; this
     /// path never runs in Release or against the ordinary app store.
     static func installDesktopTransferIfRequested(into store: PracticeStore) {
@@ -68,9 +74,28 @@ enum UITestFixture {
             }
             try data.write(to: url, options: .atomic)
             let id = try NativeLibraryFiles(store: store).importPDF(url, title: "Practice study", composer: "Praelude test score")
-            try store.savePassage(Passage(pieceID: id, title: "Evenness and pulse", startMeasure: 1, endMeasure: 4, page: 1, focus: "Pulse"))
+            let sections = ProcessInfo.processInfo.arguments.contains("--uitesting") && ProcessInfo.processInfo.arguments.contains("--seed-sections")
+            try store.savePassage(Passage(pieceID: id, title: "Evenness and pulse", startMeasure: 1, endMeasure: 4, page: 1, focus: "Pulse",
+                regions: sections ? [PassageRegion(page: 1, x: 0.05, y: 0.16, width: 0.9, height: 0.13)] : []))
+            if sections {
+                try store.savePassage(Passage(pieceID: id, title: "Phrase connection", startMeasure: 5, endMeasure: 8, page: 1, focus: "Phrasing",
+                    regions: [PassageRegion(page: 1, x: 0.05, y: 0.35, width: 0.9, height: 0.13)]))
+            }
             try store.addPiece(Piece(title: "Scale practice", composer: "Technique"))
         } catch { assertionFailure("UI fixture failed: \(error)") }
+    }
+}
+/// Traits are scoped to the disposable UI-test root. Ordinary Debug and all Release launches use
+/// their normal system preferences; no simulator or physical-device setting is written.
+extension View {
+    @ViewBuilder func uiTestAuditAppearance() -> some View {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--uitesting"), arguments.contains("--audit-accessibility") {
+            self.environment(\.praeludeAuditOpaqueSurface, true)
+                .preferredColorScheme(arguments.contains("--audit-dark") ? .dark : nil)
+        } else if arguments.contains("--uitesting"), arguments.contains("--audit-dark") {
+            self.preferredColorScheme(.dark)
+        } else { self }
     }
 }
 #endif

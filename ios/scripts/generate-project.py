@@ -309,7 +309,7 @@ app_config = configs(
         "INFOPLIST_FILE": "Praelude/Info.plist",
         "GENERATE_INFOPLIST_FILE": "NO",
         "MARKETING_VERSION": "2.0.0",
-        "CURRENT_PROJECT_VERSION": "3",
+        "CURRENT_PROJECT_VERSION": "4",
         "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
         "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
         "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",

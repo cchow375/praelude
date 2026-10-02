@@ -4,7 +4,7 @@
 
 ## Separate iPhone/iPad development candidate
 
-The installed Mac instructions and Matches line below still describe v11.1.0/schema21. Mobile source is now **2.0.0/build3/schema3 DEVELOPMENT CANDIDATE**, not a verified October 2 physical install. Its current workflow is documented in `ios/docs/USING_MOBILE.md`; historical September 14 device evidence is in `docs/qa/ios/1.1.0/`.
+The installed Mac instructions and Matches line below still describe v11.1.0/schema21. Mobile source is now **2.0.0/build4/schema4 DEVELOPMENT CANDIDATE**, not a verified October 2 physical install. Its current workflow is documented in `ios/docs/USING_MOBILE.md`; historical September 14 device evidence is in `docs/qa/ios/1.1.0/`.
 
 Phone tabs are Today, Pieces, Warmups, Progress and More. On iPad, the sidebar exposes every section. Settings → Import from Mac opens a reviewed transfer from Files and adds compatible scores, passage boxes, pencil marks and goals without replacing mobile data. Progress → Mac practice record retains original Mac history and all table records. Supabase sync covers supported native records and private score/recording storage; original Mac archive, goals/routines and continuous desktop sync remain separate.
 
@@ -131,3 +131,17 @@ Choose the profile button, enter a **Display name**, and **Save profile**. This 
 ## Next steps
 
 Practise a real passage using honest verdicts and keep unfinished work paused. Real installed Score/Variants already pass; actual cover selection/save/restart still needs acceptance. Only Christian can judge whether the new room and interface make sustained practice better. A Git clone on another Mac is a development checkout, not a transfer of this Mac's practice history or scores; follow the repository's `docs/NEW_MAC_SETUP.md` and do not copy the live database without a separately verified migration plan.
+
+## Mobile build4 candidate controls (separate from installed Mac)
+
+The current native candidate uses passage search/current-page groups, explicit finish-and-switch, retained set settings and optional editable Techniques. Metronome exposes count-in, compound dotted pulse and lock playback; in-set tempo changes retain earned progress. Schema4 migration preserves originals; tempo-history backups require version3. These are source controls pending physical installation; the installed Mac Matches line above remains unchanged.
+
+### Build4 technique and lock details (candidate)
+
+A technique chain shows its actual clean count per stage; use Edit stage targets to change each one.
+The general target count applies only when there is no chain. If a playing metronome differs from the
+armed tempo, reporting the first attempt corrects the click and asks you to repeat the passage before
+saving a grade. Keep playing when locked preserves an already-running click while practice pauses;
+resume the set when you return. A foreground pause or finished set stops its click.
+
+**Installed mobile update October2:** 2.0.0/build4 is on the iPad with all seven original library files preserved. Automatic launch was denied; unlock and tap Praelude, trusting your developer only if iOS prompts. Physical schema4 migration is not yet observed. Mac import remains for after practice.

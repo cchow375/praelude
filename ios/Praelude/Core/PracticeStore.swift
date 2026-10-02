@@ -32,12 +32,12 @@ import Observation
                 guard data.count <= 64 * 1024 * 1024 else { throw PracticeError.invalid("The practice library exceeds the supported size.") }
                 var restored = try Self.decoder().decode(LibraryState.self, from: data)
                 try Self.validate(restored)
-                let needsMigration = restored.schemaVersion < 3
+                let needsMigration = restored.schemaVersion < LibraryState.currentSchemaVersion
                 if needsMigration {
-                    // Preserve the exact pre-migration bytes before schema3 is ever written, whether
-                    // the source was schema1 or schema2 (hard rule: never lose user data).
+                    // Preserve exact original bytes before publishing a newer format, including
+                    // schema3, whose older readers cannot retain durable in-set tempo edits.
                     preservedOriginalURL = try preserveOriginal(prefix: "library-schema\(restored.schemaVersion)")
-                    restored = SchemaMigration.migrateToSchema3(restored, at: now())
+                    restored = SchemaMigration.migrateToCurrent(restored, at: now())
                 }
                 // Never credit time while the app was absent. Persist this pause before exposing it.
                 if needsMigration || restored.activeSet?.status == .running {
@@ -608,6 +608,37 @@ import Observation
         }
         return created
     }
+    /// Creates a fresh larger practice target while retaining the two original shortcuts and their
+    /// history as archived rows. Copies need fresh mark IDs; the entire join is one durable write.
+    @discardableResult public func joinPassages(_ ids: [UUID]) throws -> Passage {
+        let date = now()
+        var joined: Passage!
+        try transaction { next in
+            guard ids.count == 2, Set(ids).count == 2,
+                  let aIndex = next.passages.firstIndex(where: { $0.id == ids[0] && !$0.archived }),
+                  let bIndex = next.passages.firstIndex(where: { $0.id == ids[1] && !$0.archived }),
+                  next.passages[aIndex].pieceID == next.passages[bIndex].pieceID else {
+                throw PracticeError.invalid("Choose two live passages from the same piece.")
+            }
+            let a = next.passages[aIndex], b = next.passages[bIndex]
+            let regions = (a.regions + b.regions).map {
+                PassageRegion(page: $0.page, x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+            }
+            joined = Passage(pieceID: a.pieceID, title: "\(a.title) + \(b.title)",
+                             startMeasure: [a.startMeasure, b.startMeasure].compactMap { $0 }.min(),
+                             endMeasure: [a.endMeasure, b.endMeasure].compactMap { $0 }.max(),
+                             page: regions.map(\.page).min() ?? min(a.page, b.page), focus: a.focus,
+                             regions: regions, joinedFromPassageIDs: ids)
+            for index in [aIndex, bIndex] {
+                next.passages[index].archived = true
+                next.passages[index].deletedAt = date
+                next.passages[index].updatedAt = date
+            }
+            next.passages.append(joined)
+        }
+        return joined
+    }
+
     /// §8/R2 "join the seams": folds `secondaryIDs` into `primary`. `primary` keeps its own id,
     /// title, learning state and schedule — it is the survivor a caller keeps navigating to. Every
     /// secondary passage's regions move (not copy) into `primary`, so the global mark-id-uniqueness
@@ -649,25 +680,58 @@ import Observation
 
     public func startSet(_ configuration: PracticeConfiguration) throws {
         let date = now()
+        try transaction { next in try Self.beginSet(configuration, in: &next, at: date) }
+    }
+
+    /// The first verdict, learning schedule and new set are one durable mutation. A failed write
+    /// leaves all of them unchanged, so the same visible cold prompt can safely be retried.
+    @discardableResult public func startColdGradedSet(_ configuration: PracticeConfiguration, grade: ColdGrade,
+                                                      eventID: UUID = UUID()) throws -> ColdGradeApplication {
+        let date = now()
+        var result: ColdGradeApplication!
         try transaction { next in
-            var configuration = configuration
-            configuration.passageSnapshot = configuration.passageID.flatMap { id in next.passages.first { $0.id == id && $0.pieceID == configuration.pieceID } }
-            try PracticeEngine.validate(configuration)
-            if let active = next.activeSet {
-                guard active.status == .completed else { throw PracticeError.conflict("Pause or finish your current set before starting another.") }
-                next.history.append(active); next.activeSet = nil
+            guard let passageID = configuration.passageID,
+                  let passageIndex = next.passages.firstIndex(where: { $0.id == passageID && !$0.archived }),
+                  let application = PracticeRulesEngine.applyColdGrade(passageID: passageID, grade: grade,
+                    tempo: configuration.startBPM, context: RuleContext(state: next, now: date)) else {
+                throw PracticeError.conflict("This passage is no longer eligible for a first-attempt grade. Choose it again to refresh practice options.")
             }
-            let sessionID: UUID
-            if let session = next.sessions.last, session.endedAt == nil,
-               session.pieceID == configuration.pieceID,
-               Calendar.current.isDate(session.startedAt, inSameDayAs: date) { sessionID = session.id }
-            else {
-                for index in next.sessions.indices where next.sessions[index].endedAt == nil { next.sessions[index].endedAt = date }
-                let session = PracticeSession(pieceID: configuration.pieceID, focus: configuration.focus, startedAt: date)
-                next.sessions.append(session); sessionID = session.id
-            }
-            next.activeSet = ActiveSet(sessionID: sessionID, configuration: configuration, startedAt: date)
+            try Self.beginSet(configuration, in: &next, at: date)
+            next.coldGrades.append(application.record)
+            next.passages[passageIndex].learningState = application.newLearningState
+            next.passages[passageIndex].schedule = application.newSchedule
+            next.passages[passageIndex].updatedAt = date
+            next.ruleEvents.append(contentsOf: application.decisions.map { $0.asRuleEvent(overridden: false) })
+            var set = next.activeSet!
+            set.attempts.append(Attempt(id: eventID, verdict: PracticeUXHelpers.verdict(for: grade), date: date,
+                                       bpm: set.currentBPM, stageIndex: set.stageIndex))
+            set = PracticeEngine.project(set)
+            if set.status == .completed { set.endedAt = date; set.lastCheckpoint = nil }
+            next.activeSet = set
+            result = application
         }
+        return result
+    }
+
+    private static func beginSet(_ configuration: PracticeConfiguration, in next: inout LibraryState, at date: Date) throws {
+        var configuration = configuration
+        configuration.tempoChanges = [] // A new set gets its own tempo-event boundaries.
+        configuration.passageSnapshot = configuration.passageID.flatMap { id in next.passages.first { $0.id == id && $0.pieceID == configuration.pieceID } }
+        try PracticeEngine.validate(configuration)
+        if let active = next.activeSet {
+            guard active.status == .completed else { throw PracticeError.conflict("Pause or finish your current set before starting another.") }
+            next.history.append(active); next.activeSet = nil
+        }
+        let sessionID: UUID
+        if let session = next.sessions.last, session.endedAt == nil,
+           session.pieceID == configuration.pieceID,
+           Calendar.current.isDate(session.startedAt, inSameDayAs: date) { sessionID = session.id }
+        else {
+            for index in next.sessions.indices where next.sessions[index].endedAt == nil { next.sessions[index].endedAt = date }
+            let session = PracticeSession(pieceID: configuration.pieceID, focus: configuration.focus, startedAt: date)
+            next.sessions.append(session); sessionID = session.id
+        }
+        next.activeSet = ActiveSet(sessionID: sessionID, configuration: configuration, startedAt: date)
     }
 
     /// Returns false for an already committed event. Callers must reward only true results.
@@ -700,19 +764,8 @@ import Observation
             next.activeSet = set
         }
     }
-    /// R6 in-set slow-down, and a direct tempo gesture/voice command while a set is running or
-    /// paused (§10a: "tempo in one gesture... never a modal"). Unlike `record`, this never touches
-    /// attempts/streak.
-    ///
-    /// `currentBPM` is never writable on its own: `validate(_:)` requires it (and streak/totalPlays/
-    /// stageIndex/completedStages) to always exactly equal a fresh `PracticeEngine.project` replay of
-    /// `configuration` + `attempts` — the same invariant `record`/`undo` already rely on. So this
-    /// moves `configuration.startBPM` (the one tempo input that replay actually reads) to `bpm`
-    /// instead, and re-derives the rest from there, the same way any other set mutation does. A
-    /// `.totalPlays` basis set requires a single fixed tempo (`PracticeEngine.validate`), so its
-    /// `targetBPM` always moves in lockstep; a `.cleanStreak` ladder only ever has its `targetBPM`
-    /// raised to keep it reachable, never lowered — a demotion should still leave the original ceiling
-    /// in place to climb back toward.
+    /// Record tempo edits at their original boundary. Rewriting the original start tempo would
+    /// replay earned ladder advances on top of the requested BPM and silently change history.
     public func adjustActiveTempo(_ bpm: Double) throws {
         try transaction { next in
             guard var set = next.activeSet, set.status == .running || set.status == .paused else {
@@ -720,10 +773,13 @@ import Observation
             }
             guard bpm.isFinite else { throw PracticeError.invalid("Choose a tempo from 20–300 BPM.") }
             let clamped = min(max(bpm, 20), 300)
-            set.configuration.startBPM = clamped
-            if set.configuration.basis == .totalPlays || set.configuration.targetBPM < clamped {
-                set.configuration.targetBPM = clamped
-            }
+            guard clamped != set.currentBPM else { return }
+            // Repeated drag changes before the next attempt are one boundary; keep its final
+            // requested value rather than producing thousands of redundant configuration events.
+            let change = SetTempoChange(bpm: clamped, afterAttemptCount: set.attempts.count)
+            if set.configuration.tempoChanges.last?.afterAttemptCount == set.attempts.count {
+                set.configuration.tempoChanges[set.configuration.tempoChanges.count - 1] = change
+            } else { set.configuration.tempoChanges.append(change) }
             next.activeSet = PracticeEngine.project(set)
         }
     }
@@ -1049,7 +1105,7 @@ import Observation
     public static func decodeBackup(_ data: Data) throws -> LibraryState {
         guard data.count <= 64 * 1024 * 1024 else { throw PracticeError.invalid("The practice library exceeds the supported 64 MB size.") }
         let state = try decoder().decode(LibraryState.self, from: data); try validate(state)
-        return SchemaMigration.migrateToSchema3(state, at: Date())
+        return SchemaMigration.migrateToCurrent(state, at: Date())
     }
     /// Add a desktop snapshot without replacing mobile records, preferences, active history or
     /// rewards. Existing stable IDs win: a repeated import cannot overwrite an edited target.
@@ -1075,7 +1131,7 @@ import Observation
         guard state.activeSet == nil else { throw PracticeError.conflict("End your current set before restoring a backup.") }
         guard restored.activeSet?.status != .running else { throw PracticeError.invalid("This backup contains a running set. Pause it on the source device before exporting.") }
         try Self.validate(restored)
-        let migrated = SchemaMigration.migrateToSchema3(restored, at: now())
+        let migrated = SchemaMigration.migrateToCurrent(restored, at: now())
         if isReadOnly { try recoverUnreadableLibrary(with: migrated); return }
         try transaction { next in next = migrated }
     }
@@ -1162,7 +1218,7 @@ import Observation
         // Bounds also keep calendar formatting and duration-to-Int conversions safe for imported data.
         func date(_ value: Date) -> Bool { value.timeIntervalSince1970.isFinite && (0...4_102_444_800).contains(value.timeIntervalSince1970) }
         let maximumFocusedSeconds: Double = 100 * 366 * 24 * 60 * 60
-        try require((1...3).contains(state.schemaVersion) && state.revision >= 0, "This practice library uses an unsupported format.")
+        try require((1...LibraryState.currentSchemaVersion).contains(state.schemaVersion) && state.revision >= 0, "This practice library uses an unsupported format.")
         try require(state.revision < Int.max - 1 && state.pieces.count <= 10000 && state.passages.count <= 100000 && state.history.count <= 100000 && state.sessions.count <= 100000 && state.goals.count <= 10000 && state.routines.count <= 10000, "The library contains more records than this version supports.")
         try require(unique(state.pieces.map(\.id)) && unique(state.passages.map(\.id)) && unique(state.sessions.map(\.id)) && unique(state.goals.map(\.id)) && unique(state.routines.map(\.id)), "The library contains duplicate record identifiers.")
         try require(unique(state.desktopImports.map(\.id)) && state.desktopImports.allSatisfy {
@@ -1235,6 +1291,8 @@ import Observation
         try require(state.history.allSatisfy { $0.status == .ended || $0.status == .completed }, "History contains an unfinished set.")
         try require(state.activeSet?.status != .ended, "An ended set cannot be active.")
         for set in sets {
+            try require(state.schemaVersion >= 4 || set.configuration.tempoChanges.isEmpty,
+                        "Durable tempo changes require the newer practice library format.")
             try PracticeEngine.validate(set.configuration)
             try require(pieceIDs.contains(set.configuration.pieceID) && sessionIDs.contains(set.sessionID), "A practice set references a missing piece or session.")
             if let passageID = set.configuration.passageID {
@@ -1248,6 +1306,7 @@ import Observation
             try require((set.status == .running) == (set.lastCheckpoint != nil), "A practice set has inconsistent pause state.")
             try require((set.status == .completed || set.status == .ended) == (set.endedAt != nil), "A practice set has inconsistent completion timing.")
             try require(set.attempts.count <= 100000 && unique(set.configuration.stages.map(\.id)), "A practice set contains too many attempts or duplicate variant identifiers.")
+            try require(set.configuration.tempoChanges.allSatisfy { $0.afterAttemptCount <= set.attempts.count }, "A tempo change lies beyond the saved attempt log.")
             for attempt in set.attempts {
                 try require(date(attempt.date) && attempt.undoneAt.map(date) != false && attempt.bpm.isFinite && (20...300).contains(attempt.bpm) && (0...max(0, set.configuration.stages.count - 1)).contains(attempt.stageIndex), "A practice event has invalid timing, tempo, or variant attribution.")
             }

@@ -9,15 +9,17 @@ final class PracticeArmControllerTests: XCTestCase {
     private struct Fixture {
         let store: PracticeStore
         let runtime: PracticeRuntime
+        let metronome: MetronomeService
         let arm: PracticeArmController
     }
 
     @MainActor
-    private func fixture(now: @escaping () -> Date = Date.init) throws -> Fixture {
+    private func fixture(now: @escaping () -> Date = Date.init,
+                         writeData: @escaping (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }) throws -> Fixture {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Praelude-Arm-\(UUID().uuidString)", isDirectory: true)
         let suite = "Praelude-Arm-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        let store = PracticeStore(directory: directory, now: now)
+        let store = PracticeStore(directory: directory, now: now, writeData: writeData)
         let metronome = MetronomeService(defaults: defaults)
         let speech = SpeechCommandService()
         let feedback = FeedbackService(defaults: defaults)
@@ -28,7 +30,7 @@ final class PracticeArmControllerTests: XCTestCase {
             UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: directory)
         }
-        return Fixture(store: store, runtime: runtime, arm: PracticeArmController())
+        return Fixture(store: store, runtime: runtime, metronome: metronome, arm: PracticeArmController())
     }
 
     @MainActor
@@ -415,4 +417,78 @@ final class PracticeArmControllerTests: XCTestCase {
         let updated = try XCTUnwrap(fixture.store.state.passages.first { $0.id == passage.id })
         XCTAssertNotNil(updated.parkedUntil, "R9's own outcome (.park) must still apply when accepted from the headline")
     }
+    @MainActor func testOneTapUngradedStartLogsNoInventedRepAndKeepsChosenConditions() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        var configuration = try XCTUnwrap(fixture.arm.configuration)
+        configuration.targetCount = 7
+        configuration.startBPM = 84; configuration.targetBPM = 84
+        configuration.stages = PracticeTechnique.hands.stages(targetCount: 2)
+        configuration.hands = "Left hand"
+        fixture.arm.applyConfigurationOverride(configuration)
+        XCTAssertTrue(try fixture.arm.start(skippingColdGrade: true, store: fixture.store, runtime: fixture.runtime))
+        XCTAssertTrue(fixture.store.activeSet?.attempts.isEmpty == true)
+        XCTAssertTrue(fixture.store.state.coldGrades.isEmpty)
+        XCTAssertFalse(fixture.arm.awaitingColdGrade)
+        try fixture.store.endSet()
+        fixture.arm.arm(pieceID: piece.id, passage: nil, store: fixture.store)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.targetCount, 7)
+        XCTAssertEqual(fixture.arm.configuration?.stages, configuration.stages)
+        XCTAssertEqual(fixture.arm.configuration?.hands, "Left hand")
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 84)
+        XCTAssertTrue(fixture.arm.awaitingColdGrade)
+    }
+
+    @MainActor func testDisabledColdRuleDoesNotLeaveAnImpossibleGradeGate() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        var settings = fixture.store.state.ruleSettings
+        settings.r3Enabled = false
+        try fixture.store.updateRuleSettings(settings)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertFalse(fixture.arm.awaitingColdGrade)
+        XCTAssertTrue(try fixture.arm.start(store: fixture.store, runtime: fixture.runtime))
+        XCTAssertTrue(fixture.store.state.coldGrades.isEmpty)
+    }
+
+    @MainActor func testFailedColdCommitRetainsPromptAndEmitsNoAcceptedGrade() throws {
+        var fail = false
+        let fixture = try fixture(writeData: { data, url in
+            if fail { throw CocoaError(.fileWriteOutOfSpace) }; try data.write(to: url, options: .atomic)
+        })
+        let (piece, passage) = try addPassage(fixture.store)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        let state = fixture.store.state, bytes = try Data(contentsOf: fixture.store.fileURL)
+        fail = true
+        XCTAssertThrowsError(try fixture.arm.start(grade: .clean, store: fixture.store, runtime: fixture.runtime))
+        XCTAssertTrue(fixture.arm.awaitingColdGrade)
+        XCTAssertNil(fixture.arm.lastColdGradeDecision)
+        XCTAssertEqual(fixture.store.state, state)
+        XCTAssertEqual(try Data(contentsOf: fixture.store.fileURL), bytes)
+        fail = false
+        XCTAssertTrue(try fixture.arm.start(grade: .clean, store: fixture.store, runtime: fixture.runtime))
+        XCTAssertEqual(fixture.store.activeSet?.attempts.count, 1)
+        XCTAssertEqual(fixture.store.state.coldGrades.count, 1)
+    }
+
+    @MainActor func testColdGradeAtAMismatchedAudibleTempoKeepsEveryRecordUnchangedUntilRepeated() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        fixture.metronome.setTempo(80); fixture.metronome.start()
+        XCTAssertTrue(fixture.metronome.isPlaying, fixture.metronome.errorMessage ?? "Native click must start")
+        let state = fixture.store.state, bytes = try Data(contentsOf: fixture.store.fileURL)
+        XCTAssertThrowsError(try fixture.arm.start(grade: .clean, store: fixture.store, runtime: fixture.runtime))
+        XCTAssertEqual(fixture.metronome.bpm, 60)
+        XCTAssertTrue(fixture.arm.awaitingColdGrade)
+        XCTAssertNil(fixture.arm.lastColdGradeDecision)
+        XCTAssertEqual(fixture.store.state, state)
+        XCTAssertEqual(try Data(contentsOf: fixture.store.fileURL), bytes)
+        XCTAssertTrue(try fixture.arm.start(grade: .clean, store: fixture.store, runtime: fixture.runtime))
+        XCTAssertEqual(fixture.store.activeSet?.attempts.map(\.bpm), [60])
+        XCTAssertEqual(fixture.store.state.coldGrades.map(\.tempo), [60])
+    }
+
 }

@@ -16,64 +16,86 @@ final class PracticeCoreTests: XCTestCase {
         return (store, directory)
     }
 
-    /// `adjustActiveTempo` (R6 in-set slow-down, and a direct gesture/voice tempo change while
-    /// running — "(C) Audit.md"): `currentBPM` is never independently writable, so this moves
-    /// `configuration.startBPM` instead and re-derives everything else through the same
-    /// `PracticeEngine.project` replay `record`/`undo` already use — `validate(_:)` requires the two
-    /// to always agree.
-    @MainActor func testAdjustActiveTempoMovesStartBPMAndKeepsTheLadderValid() async throws {
+    @MainActor func testAdjustActiveTempoPreservesInitialContractAndReachableLadder() async throws {
         let (store, directory) = try fixture(target: 10, start: 100, end: 100)
         defer { try? FileManager.default.removeItem(at: directory) }
-        // Lowering a ladder (cleanStreak) set leaves its original ceiling in place to climb back to.
-        try store.adjustActiveTempo(96)
-        XCTAssertEqual(store.activeSet?.currentBPM, 96)
-        XCTAssertEqual(store.activeSet?.configuration.startBPM, 96)
-        XCTAssertEqual(store.activeSet?.configuration.targetBPM, 100, "Lowering must not also lower the ceiling")
-        // Raising back past that ceiling raises it too, so it never falls behind the floor.
-        try store.adjustActiveTempo(110)
-        XCTAssertEqual(store.activeSet?.currentBPM, 110)
-        XCTAssertEqual(store.activeSet?.configuration.targetBPM, 110)
-        // Clamped to the engine's valid BPM range.
-        try store.adjustActiveTempo(400)
-        XCTAssertEqual(store.activeSet?.currentBPM, 300)
-        try store.adjustActiveTempo(5)
-        XCTAssertEqual(store.activeSet?.currentBPM, 20)
+        for requested in [96.0, 110, 400, 5] {
+            try store.adjustActiveTempo(requested)
+            XCTAssertEqual(store.activeSet?.currentBPM, min(300, max(20, requested)))
+            XCTAssertEqual(store.activeSet?.configuration.startBPM, 100)
+            XCTAssertEqual(store.activeSet?.configuration.targetBPM, 100)
+        }
     }
 
-    @MainActor func testAdjustActiveTempoKeepsATotalPlaysSetsFixedTempoInLockstep() async throws {
+    @MainActor func testAdjustActiveTempoKeepsTotalPlaysContractAndActualAttemptTempos() async throws {
         let (store, directory) = try fixture(target: 4, basis: .totalPlays, start: 80, end: 80)
         defer { try? FileManager.default.removeItem(at: directory) }
-        // `PracticeEngine.validate` requires targetBPM == startBPM for a `.totalPlays` set; lowering
-        // only the start (leaving the old target behind) would violate that on the very next save.
+        try store.record(.clean)
         try store.adjustActiveTempo(72)
-        XCTAssertEqual(store.activeSet?.configuration.startBPM, 72)
-        XCTAssertEqual(store.activeSet?.configuration.targetBPM, 72)
+        try store.record(.clean)
         try store.adjustActiveTempo(90)
-        XCTAssertEqual(store.activeSet?.configuration.startBPM, 90)
-        XCTAssertEqual(store.activeSet?.configuration.targetBPM, 90)
+        XCTAssertEqual(store.activeSet?.currentBPM, 90)
+        XCTAssertEqual(store.activeSet?.configuration.startBPM, 80)
+        XCTAssertEqual(store.activeSet?.configuration.targetBPM, 80)
+        XCTAssertEqual(store.activeSet?.attempts.map(\.bpm), [80, 72])
+        try store.undo()
+        XCTAssertEqual(store.activeSet?.currentBPM, 90)
+        XCTAssertEqual(store.activeSet?.totalPlays, 1)
     }
 
     @MainActor func testAdjustActiveTempoWorksWhilePausedAndRejectsAnEndedSet() async throws {
         let (store, directory) = try fixture(target: 10, start: 100, end: 100)
         defer { try? FileManager.default.removeItem(at: directory) }
-        try store.pause()
-        try store.adjustActiveTempo(90)
-        XCTAssertEqual(store.activeSet?.currentBPM, 90, "A paused set's tempo is still adjustable")
-        try store.resume()
-        try store.endSet()
-        XCTAssertThrowsError(try store.adjustActiveTempo(80), "No running or paused set left to adjust")
+        try store.pause(); try store.adjustActiveTempo(90)
+        XCTAssertEqual(store.activeSet?.currentBPM, 90)
+        try store.resume(); try store.endSet()
+        XCTAssertThrowsError(try store.adjustActiveTempo(80))
     }
 
-    /// R6 (§11) end-to-end through the store: three resets in a row, each peaking under half the
-    /// goal, must be reflected in a re-derivable `currentBPM`, not merely a value that happens to
-    /// look right until the next save re-validates it.
-    @MainActor func testAdjustActiveTempoSurvivesAPersistReloadRoundTrip() async throws {
-        let (store, directory) = try fixture(target: 10, start: 100, end: 100)
+    @MainActor func testAdjustLadderAfterEarnedAdvanceIsExactAcrossUndoReopenAndSync() async throws {
+        let (store, directory) = try fixture(target: 2, start: 60, end: 80)
         defer { try? FileManager.default.removeItem(at: directory) }
-        try store.adjustActiveTempo(96)
+        try store.record(.clean); try store.record(.clean)
+        XCTAssertEqual(store.activeSet?.currentBPM, 64)
+        try store.adjustActiveTempo(65)
+        XCTAssertEqual(store.activeSet?.currentBPM, 65, "A +1 must not replay another earned +4")
+        XCTAssertEqual(store.activeSet?.configuration.startBPM, 60)
+        XCTAssertEqual(store.activeSet?.totalPlays, 2)
+        try store.record(.clean)
+        XCTAssertEqual(store.activeSet?.attempts.map(\.bpm), [60, 60, 65])
+        XCTAssertEqual(store.activeSet?.streak, 1)
+        try store.adjustActiveTempo(63)
+        XCTAssertEqual(store.activeSet?.streak, 1, "Tempo edits preserve human verdict counters")
+        try store.undo()
+        XCTAssertEqual(store.activeSet?.currentBPM, 63)
+        XCTAssertEqual(store.activeSet?.totalPlays, 2)
         let reopened = PracticeStore(directory: directory)
-        XCTAssertEqual(reopened.activeSet?.currentBPM, 96)
-        XCTAssertEqual(reopened.activeSet?.configuration.startBPM, 96)
+        XCTAssertEqual(reopened.activeSet?.currentBPM, 63)
+        let original = try XCTUnwrap(reopened.activeSet)
+        let row = SetSyncRow(original)
+        let data = try JSONEncoder().encode(row)
+        let restoredRow = try JSONDecoder().decode(SetSyncRow.self, from: data)
+        var mirrored = try XCTUnwrap(restoredRow.coreValue)
+        mirrored.attempts = original.attempts
+        XCTAssertEqual(PracticeEngine.project(mirrored), original)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNil(json["tempo_changes"], "The backend receives no unknown column")
+        let tempoJSON = try XCTUnwrap(json["tempo_step"] as? [String: Any])
+        XCTAssertNotNil(tempoJSON["fixed"])
+        XCTAssertNotNil(tempoJSON["tempoChanges"])
+    }
+
+    @MainActor func testTempoEditDoesNotRewindEarnedVariantStage() async throws {
+        let (store, directory) = try fixture(target: 2, start: 60, end: 80,
+                                            stages: [VariantStage(name: "Dotted", targetCount: 2), VariantStage(name: "Straight", targetCount: 2)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try store.record(.clean); try store.record(.clean); try store.record(.clean)
+        let before = try XCTUnwrap(store.activeSet)
+        try store.adjustActiveTempo(59)
+        XCTAssertEqual(store.activeSet?.stageIndex, before.stageIndex)
+        XCTAssertEqual(store.activeSet?.completedStages, before.completedStages)
+        XCTAssertEqual(store.activeSet?.streak, before.streak)
+        XCTAssertEqual(store.activeSet?.currentBPM, 59)
     }
 
     /// R5 (§11): "Again" is neutral — it neither counts toward nor resets the streak, for a plain
@@ -511,7 +533,7 @@ final class PracticeCoreTests: XCTestCase {
         let migrationDate = Date(timeIntervalSince1970: 1_800_000_000)
         let migrated = PracticeStore(directory: directory, now: { migrationDate })
         XCTAssertFalse(migrated.isReadOnly)
-        XCTAssertEqual(migrated.state.schemaVersion, 3)
+        XCTAssertEqual(migrated.state.schemaVersion, LibraryState.currentSchemaVersion)
         XCTAssertEqual(migrated.state.revision, store.state.revision + 1)
         XCTAssertEqual(migrated.state.passages.count, 1)
         let migratedPassage = try XCTUnwrap(migrated.state.passages.first)
@@ -537,7 +559,7 @@ final class PracticeCoreTests: XCTestCase {
         let reopened = PracticeStore(directory: directory)
         XCTAssertEqual(reopened.state, migrated.state)
         XCTAssertNil(reopened.preservedOriginalURL, "Schema three must not migrate again")
-        XCTAssertEqual(try PracticeStore.decodeBackup(original).schemaVersion, 3)
+        XCTAssertEqual(try PracticeStore.decodeBackup(original).schemaVersion, LibraryState.currentSchemaVersion)
     }
 
     @MainActor func testSchema2MigrationConvertsScoreDrawingsToInkStrokesLosslessly() async throws {
@@ -554,7 +576,7 @@ final class PracticeCoreTests: XCTestCase {
         let migrationDate = Date(timeIntervalSince1970: 1_800_000_001)
         let migrated = PracticeStore(directory: directory, now: { migrationDate })
         XCTAssertFalse(migrated.isReadOnly)
-        XCTAssertEqual(migrated.state.schemaVersion, 3)
+        XCTAssertEqual(migrated.state.schemaVersion, LibraryState.currentSchemaVersion)
         XCTAssertEqual(migrated.state.passages.count, 1)
         XCTAssertEqual(migrated.state.passages[0].regions.count, 1, "Schema2 regions survive untouched")
         XCTAssertEqual(migrated.state.passages[0].createdAt, migrationDate, "A schema2 passage never had a createdAt either")
@@ -594,7 +616,7 @@ final class PracticeCoreTests: XCTestCase {
         let migrationDate = Date(timeIntervalSince1970: 1_800_000_002)
         let migrated = PracticeStore(directory: directory, now: { migrationDate })
         XCTAssertFalse(migrated.isReadOnly)
-        XCTAssertEqual(migrated.state.schemaVersion, 3)
+        XCTAssertEqual(migrated.state.schemaVersion, LibraryState.currentSchemaVersion)
 
         let activeSnapshot = try XCTUnwrap(migrated.state.activeSet?.configuration.passageSnapshot)
         XCTAssertEqual(activeSnapshot.id, activePassage.id)
@@ -632,7 +654,7 @@ final class PracticeCoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: XCTUnwrap(writeFailure.preservedOriginalURL)), original)
         XCTAssertThrowsError(try writeFailure.addPiece(Piece(title: "Cannot overwrite")))
         let retried = PracticeStore(directory: directory)
-        XCTAssertFalse(retried.isReadOnly); XCTAssertEqual(retried.state.schemaVersion, 3)
+        XCTAssertFalse(retried.isReadOnly); XCTAssertEqual(retried.state.schemaVersion, LibraryState.currentSchemaVersion)
     }
 
     @MainActor func testOptionalMeasuresAndVisualRegionBoundsRejectWithoutChangingDisk() async throws {

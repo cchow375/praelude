@@ -42,11 +42,9 @@ extension PracticeRulesEngine {
 
     // MARK: - §10a default set configuration
 
-    /// §10a: "defaults from rules and the last session" — carries goal, completion basis, tempo step
-    /// and hands/parts wording forward from the player's last set on this passage (a plain starting
-    /// point when there is none), and applies R5's streak target for the passage's current learning
-    /// state. "Goals without tempo default click off" (§10b) falls straight out of
-    /// `useMetronome: goal == .tempo`.
+    /// A saved set retains the player's chosen count, technique chain and click conditions. R5
+    /// supplies an initial count only when this target has no saved set; it never overwrites a
+    /// deliberate previous choice. Tempo boundaries are cleared for the new set's empty rep log.
     ///
     /// Deliberately does *not* also apply R7's speed-up: R7 is "one-tap override, logged" like every
     /// other rule in §11, and `computeAfterSet`/`PracticeArmController.accept` already offer and stage
@@ -57,6 +55,11 @@ extension PracticeRulesEngine {
     public static func defaultConfiguration(for passageID: UUID, context: RuleContext) -> PracticeConfiguration? {
         guard let passage = context.passages.first(where: { $0.id == passageID }), !passage.archived else { return nil }
         let lastSet = allSets(forPassage: passageID, context: context).last
+        if let lastSet {
+            var value = lastSet.nextSetConfiguration
+            value.focus = passage.focus
+            return value
+        }
         let goal = lastSet?.configuration.goal ?? .tempo
         let basis = lastSet?.configuration.basis ?? .cleanStreak
         let targetCount = r5StreakTarget(for: passage.learningState, settings: context.settings)

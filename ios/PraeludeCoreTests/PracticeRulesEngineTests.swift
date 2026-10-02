@@ -721,9 +721,9 @@ final class PracticeRulesEngineTests: XCTestCase {
         XCTAssertNotNil(PracticeRulesEngine.evaluateR7SpeedUp(passageID: passage.id, context: context))
         let result = try XCTUnwrap(PracticeRulesEngine.defaultConfiguration(for: passage.id, context: context))
         let expected = PracticeConfiguration(pieceID: piece.id, passageID: passage.id, focus: "Pulse", goal: .notesAndAccuracy,
-                                              basis: .totalPlays, targetCount: 3, startBPM: 120, targetBPM: 125,
+                                              basis: .totalPlays, targetCount: 5, startBPM: 120, targetBPM: 120,
                                               tempoStep: .percent(5), hands: "Right hand", useMetronome: false)
-        XCTAssertEqual(result, expected, "carries goal/basis/tempoStep/hands/tempo forward, applies R5's Review target, turns the click off for a non-tempo goal, and never auto-applies R7")
+        XCTAssertEqual(result, expected, "retains the chosen count and conditions, normalizes the fixed tempo, and never auto-applies R7")
     }
 
     /// Regression for "(C) Audit.md": `defaultConfiguration` used to fold R7's speed-up in directly,

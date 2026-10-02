@@ -35,7 +35,7 @@ extension InstrumentFamily {
         case .strings: return "waveform"
         case .woodwinds: return "wind"
         case .brass: return "megaphone"
-        case .percussion: return "drum"
+        case .percussion: return "music.note"
         case .voice: return "music.mic"
         case .pluckedStrings: return "guitars"
         case .other: return "ellipsis.circle"

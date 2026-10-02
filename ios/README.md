@@ -1,6 +1,6 @@
 # Praelude Mobile
 
-**2.0.0/build3 · schema3 · DEVELOPMENT CANDIDATE · updated 2026-10-02.**
+**2.0.0/build4 · schema4 · DEVELOPMENT CANDIDATE · updated 2026-10-02.**
 Native SwiftUI/PDFKit/PencilKit for iPhone/iPad on iOS17+. Source now includes Supabase accounts,
 private PDF/recording storage and supported native-record sync, multi-instrument practice,
 passage learning rules, warmups, score organization/annotation, notebook, history, rewards and social views.
@@ -9,6 +9,36 @@ The installed Mac remains v11.1.0/schema21. These source features are not a phys
 The pianist supplies every verdict; Praelude never interprets piano audio as musical performance.
 Score reading remains page-based; feedback must follow durable practice saves. Touch/offline guest use
 works without an account. Optional voice uses the on-device command vocabulary.
+
+## October 2 follow-up — build4 practice polish
+
+Current source is **2.0.0/build4/schema4**, a development candidate. Search saved passages by name;
+passages on the current source page appear first. Switching away from a running set requires an
+explicit Finish and switch; Cancel keeps the current target. Setup and optional Techniques are
+available before the first-attempt grade. Editable choices include rhythm pairs, hands separately
+then together, passage joins, slow connected playing, touch contrast and memory checkpoints.
+They suggest actions and never grade piano audio or change tempo without your choice.
+
+More options carries the entire current draft; Use settings returns to the arm screen. Another set
+and voice Next retain your chosen target count, hands, stages, tempo and metronome choices. Start
+without grading records no invented attempt. Cold grading and visual passage joins now commit
+atomically, retaining the original state on failed saves. Active tempo edits retain earlier attempt
+BPM, stage/streak and Undo history instead of replaying from a rewritten starting tempo.
+
+Metronome exposes Count-in Off/1–4 bars and Keep playing when locked, custom beat accents, sound,
+subdivision and grouped compound pulse. In 6/8, 9/8 and 12/8 the optional dotted-quarter pulse is
+labeled explicitly; triplet subdivisions supply the written eighths. Muted patterns still have audible
+main-beat count-in. Count-in changes apply on next Start. Ordinary click edits retain bar phase;
+route/session interruptions remain a physical-device acceptance gate.
+
+Practice controls use native SF text and one system Liquid Glass layer on iOS26+, system material
+on older iOS and an opaque accessibility fallback. Music stays opaque. Schema4 preserves the exact
+older ledger before migrating; tempo histories require backup version3. Older apps refuse newer
+local formats; participating sync clients must be current. See the [follow-up QA](../docs/qa/ios/2.0.0/practice-polish.md)
+for verification and remaining hardware/backend limits.
+
+**Next steps:** finish current-source native/Release checks, guarded same-bundle update, then the
+musician-controlled Mac import and actual piano-session/two-device acceptance.
 
 ## Bring your Mac library
 
@@ -71,10 +101,22 @@ retries files. Account switching is blocked when this device's library belongs t
 Actual hosted/two-device convergence, backend independent page clocks, file-version invalidation,
 cloud goals/routines, integrated original-history analytics and ongoing desktop sync remain open.
 
-October2 device status found no connected hardware. The last documented physical install is
-September14 1.1/build2 with complete file preservation and a pending controlled launch/trust boundary.
+October2 device inventory now confirms the connected iPad runs 2.0.0/build3. Xcode preparation
+resolved the initial disconnected development tunnel; a full private backup precedes any update.
 Use `npm run ios:status` to recheck and `npm run ios:refresh -- --device "YOUR IPAD NAME"` for the guarded
 same-bundle update once connected. Never uninstall/reset to make an update or import easier.
 
 **Next steps:** guarded physical update/import, then score/ink/voice/hardware and real-account
 second-device synchronization acceptance. Do not label the candidate shipped.
+
+## October2 physical update at19:14 EDT
+
+2.0.0/build4 is installed over the existing iPad app. All seven original library files match complete
+pre/post-install copies exactly. The pre-launch ledger is schema3; current-data migration rehearsal
+preserved all3,447 scalar values and the exact original file. iOS denied automatic launch: unlock and
+tap Praelude, completing Developer App trust only if prompted. Actual launch/schema4 migration and
+physical piano acceptance remain pending. No Mac import. Further phone acceptance is deferred at
+Christian's explicit request to get the app onto the iPad now. Signed Release excludes test fixtures;
+Core356, service2211, Python53, native runtime12 and largest-text300BPM checks pass.
+
+**Next steps:** open the installed app and practice; import the reviewed Mac transfer afterward.

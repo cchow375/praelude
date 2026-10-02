@@ -8,6 +8,7 @@ import SwiftUI
 /// (§3d: "start/stop, metronome toggle, tempo, verdict fallback, undo always one tap" — collapsing
 /// the HUD must never take any of those below one tap away).
 struct PracticeHUDView: View {
+    @Environment(MetronomeService.self) private var metronome
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("ios.hudCollapsed") private var collapsed = false
@@ -50,7 +51,7 @@ struct PracticeHUDView: View {
     var onDismissPulseCheck: () -> Void = {}
 
     private var ladderRung: (rung: Int, total: Int)? {
-        PracticeUXHelpers.ladderRung(startBPM: active.configuration.startBPM, targetBPM: active.configuration.targetBPM,
+        PracticeUXHelpers.ladderRung(startBPM: active.configuration.startBPM, targetBPM: active.effectiveTargetBPM,
                                       currentBPM: active.currentBPM, step: active.configuration.tempoStep)
     }
 
@@ -102,17 +103,26 @@ struct PracticeHUDView: View {
                 Button { collapsed = true } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).contentShape(Rectangle()) }
                     .accessibilityLabel("Collapse HUD").accessibilityIdentifier("hudCollapse")
             }
-            HStack(alignment: .center, spacing: 20) {
-                (Text("\(active.progressCount)").font(PraeludeFont.numeral(48)).fontWeight(.bold)
-                 + Text(" / \(active.requiredCount)").font(PraeludeFont.numeral(24)).fontWeight(.medium))
+            let readoutLayout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(alignment: .center, spacing: 20))
+            readoutLayout {
+                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                    Text("\(active.progressCount)").praeludeNumeral(48, weight: .bold)
+                    Text(" / \(active.requiredCount)").praeludeNumeral(24, weight: .medium)
+                }
                     .foregroundStyle(PraeludeColor.ink).monospacedDigit()
                     .contentTransition(.numericText())
                     .accessibilityIdentifier("repProgress")
-                    .accessibilityLabel("\(active.progressCount) of \(active.requiredCount) \(active.configuration.basis == .cleanStreak ? "clean" : "plays")")
+                    .accessibilityRepresentation {
+                        Text("\(active.progressCount) of \(active.requiredCount) \(active.configuration.basis == .cleanStreak ? "clean" : "plays")")
+                            .accessibilityIdentifier("repProgress")
+                    }
                 Spacer(minLength: 0)
                 // §10a "tempo in one gesture... never a modal" applies even mid-set: drag/±1/±5 must
                 // stay live, not merely a locked, dimmed readout — see "(C) Audit.md".
-                TempoDial(bpm: Binding(get: { active.currentBPM }, set: onAdjustTempo), numeralSize: 44)
+                VStack(spacing: 2) {
+                    TempoDial(bpm: Binding(get: { active.currentBPM }, set: onAdjustTempo), numeralSize: 44)
+                    if metronome.groupedCompoundPulse { Text("Dotted-quarter pulse").font(.caption).foregroundStyle(.secondary) }
+                }
             }
         }
     }

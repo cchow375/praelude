@@ -14,6 +14,7 @@ final class MetronomeService {
             let value = min(300, max(20, newValue))
             guard value != settings.bpm else { return }
             settings.bpm = value
+            if !estimatingTap { tapEstimator.reset() }
             settingsChanged()
         }
     }
@@ -38,6 +39,20 @@ final class MetronomeService {
         get { settings.denominator }
         set { guard [2, 4, 8].contains(newValue) else { return }; setMeter(beats: beatsPerBar, denominator: newValue) }
     }
+    var supportsCompoundPulse: Bool { settings.supportsCompoundPulse }
+    var groupedCompoundPulse: Bool {
+        get { settings.beatGrouping == 3 }
+        set {
+            let group = newValue && supportsCompoundPulse ? 3 : 1
+            guard settings.beatGrouping != group else { return }
+            settings.beatGrouping = group
+            tapEstimator.reset()
+            resetAccents()
+        }
+    }
+    var pulsesPerBar: Int { settings.pulsesPerBar }
+    var pulseAccents: [BeatAccent] { settings.pulseAccents }
+    var barDurationSeconds: Double { settings.barDurationSeconds }
     var sound: MetronomeSound {
         get { settings.sound }
         set { guard settings.sound != newValue else { return }; settings.sound = newValue; settingsChanged() }
@@ -62,7 +77,7 @@ final class MetronomeService {
             let value = min(4, max(0, newValue))
             guard value != settings.countInBars else { return }
             settings.countInBars = value
-            settingsChanged()
+            persistSettings()
         }
     }
     /// When on, backgrounding the app (including locking the screen) leaves the click running,
@@ -94,17 +109,18 @@ final class MetronomeService {
     @ObservationIgnored private var barFrames: AVAudioFramePosition = 1
     @ObservationIgnored private var lastAbsoluteBeat: Int64?
     @ObservationIgnored private var tapEstimator = TapTempoEstimator()
+    @ObservationIgnored private var estimatingTap = false
+    @ObservationIgnored private var clockOffsetFrames: Int64 = 0
+    @ObservationIgnored private var scheduledPulsesPerBar = 4
+    @ObservationIgnored private var configurationPosition: (frames: Int64, pausedAt: TimeInterval)?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let settingsKey = "praelude.ios.metronome.v1"
     @ObservationIgnored private let beatHaptic = UIImpactFeedbackGenerator(style: .soft)
     @ObservationIgnored private var rebuilding = false
     @ObservationIgnored private var audioRequiresRelaunch = false
     @ObservationIgnored private var resumeAfterInterruption = false
-    /// The count-in actually scheduled for the *current* sample-clock epoch (see `playBar`) — 0 on
-    /// a live rebuild while already playing, even when `settings.countInBars > 0`, so a tempo/meter/
-    /// dropout-plan change mid-play doesn't replay the count-in. `startDisplayUpdates` reads this
-    /// rather than `settings.countInBars` directly so the displayed "counting in" state always
-    /// matches what was actually scheduled for this epoch.
+    /// The count-in belongs to the current epoch. Phase-preserving edits retain its clock offset;
+    /// explicit meter/dropout restarts omit it. Changing the preference affects only the next Start.
     @ObservationIgnored private var scheduledCountInBars = 0
 
     init(defaults: UserDefaults = .standard) {
@@ -127,7 +143,7 @@ final class MetronomeService {
                 guard self.resumeAfterInterruption else { return }
                 self.resumeAfterInterruption = false
                 let options = notification.interruptionOptions.map { AVAudioSession.InterruptionOptions(rawValue: $0) } ?? []
-                guard options.contains(.shouldResume) else { return }
+                guard options.contains(.shouldResume), self.keepRunningWhenLocked || UIApplication.shared.applicationState == .active else { return }
                 self.errorMessage = nil
                 self.start()
             @unknown default: break
@@ -181,6 +197,7 @@ final class MetronomeService {
     }
 
     func stop() {
+        resumeAfterInterruption = false
         isPlaying = false
         displayTask?.cancel()
         displayTask = nil
@@ -192,6 +209,8 @@ final class MetronomeService {
         isCountingIn = false
         isDropoutSilent = false
         scheduledCountInBars = 0
+        clockOffsetFrames = 0
+        configurationPosition = nil
         lastAbsoluteBeat = nil
         AudioSessionCoordinator.shared.release(.metronome)
     }
@@ -206,12 +225,24 @@ final class MetronomeService {
         guard plan == nil || plan?.isValid == true, plan != dropoutPlan else { return }
         dropoutPlan = plan
         guard isPlaying else { return }
-        do { try playBar(); beat = 1 }
+        do { try playBar(preservePhase: false); beat = 1 }
         catch { stopWithReason("The metronome could not update: \(error.localizedDescription)") }
     }
 
     func tap() {
+        estimatingTap = true
+        defer { estimatingTap = false }
         if let value = tapEstimator.tap(at: ProcessInfo.processInfo.systemUptime) { setTempo(value) }
+    }
+
+    /// Computes a tap without touching audio. Active practice callers commit it durably first.
+    func tappedTempo() -> Double? {
+        tapEstimator.tap(at: ProcessInfo.processInfo.systemUptime)
+    }
+    func applyTappedTempo(_ value: Double) {
+        estimatingTap = true
+        defer { estimatingTap = false }
+        setTempo(value)
     }
 
     func setMeter(beats: Int, denominator: Int) {
@@ -219,8 +250,10 @@ final class MetronomeService {
         guard beats != settings.beatsPerBar || denominator != settings.denominator else { return }
         settings.beatsPerBar = beats
         settings.denominator = denominator
+        if !settings.supportsCompoundPulse { settings.beatGrouping = 1 }
+        tapEstimator.reset()
         settings.accents = MetronomeSettings.accents(for: beats, denominator: denominator)
-        settingsChanged()
+        if settings.beatGrouping == 3 { resetAccents() } else { settingsChanged() }
     }
 
     func cycleAccent(at index: Int) {
@@ -229,8 +262,13 @@ final class MetronomeService {
         settingsChanged()
     }
 
+    func cyclePulseAccent(at index: Int) { cycleAccent(at: index * settings.beatGrouping) }
+
     func resetAccents() {
         settings.accents = MetronomeSettings.accents(for: beatsPerBar, denominator: denominator)
+        if settings.beatGrouping == 3 {
+            for index in stride(from: 3, to: beatsPerBar, by: 3) { settings.accents[index] = .regular }
+        }
         settingsChanged()
     }
 
@@ -242,48 +280,79 @@ final class MetronomeService {
     private func settingsChanged() {
         persistSettings()
         guard isPlaying else { return }
-        do { try playBar(); beat = 1 }
+        do { try playBar() }
         catch { stopWithReason("The metronome could not update: \(error.localizedDescription)") }
     }
 
-    private func playBar() throws {
+    private func playBar(preservePhase: Bool = true) throws {
         rebuilding = true
         defer { rebuilding = false }
-        player.stop()
-        engine.stop()
-        lastAbsoluteBeat = nil
-        engine.disconnectNodeOutput(player)
-        sampleRate = max(8_000, AVAudioSession.sharedInstance().sampleRate)
-        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
+        let rate = max(8_000, AVAudioSession.sharedInstance().sampleRate)
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) else {
             throw MetronomeError.invalidAudioFormat
         }
-        let pattern = try MetronomePattern(bpm: bpm, beatsPerBar: beatsPerBar,
-                                          subdivision: subdivision, sampleRate: sampleRate, accents: settings.accents, sound: settings.sound)
-        barFrames = AVAudioFramePosition(pattern.frameCount)
+        let pattern = try MetronomePattern(bpm: bpm, beatsPerBar: pulsesPerBar,
+                                          subdivision: subdivision, sampleRate: rate, accents: pulseAccents, sound: settings.sound)
+        let nextBarFrames = Int64(pattern.frameCount)
+        let cycleBars = dropoutPlan?.cycleBars ?? 1
+        // A pathological 128-bar, 20-BPM plan otherwise allocates nearly a gigabyte on the main
+        // actor. Actual practice plans are short; refuse oversized PCM before allocating it.
+        guard pattern.frameCount <= 16_000_000 / cycleBars else { throw MetronomeError.patternTooLong }
         let bar = pattern.renderSamples()
-        engine.connect(player, to: engine.mainMixerNode, format: format)
-        engine.prepare()
-        try engine.start()
-        // A count-in plays the ordinary bar once, unlooped, then the (possibly dropout-cycled)
-        // music queues right behind it — `scheduleBuffer(at: nil)` plays buffers back-to-back in
-        // the order scheduled, so no manual timestamp arithmetic is needed for a sample-accurate join.
-        // Only on a fresh start, not a live rebuild (`isPlaying` is still false here only when this
-        // call came from `start()`) — otherwise every tempo nudge or dropout-plan update while
-        // already playing would replay the count-in.
-        scheduledCountInBars = !isPlaying && settings.countInBars > 0 ? settings.countInBars : 0
-        if scheduledCountInBars > 0 {
-            let countIn = try makeBuffer(format: format, samples: Array(repeating: bar, count: scheduledCountInBars).flatMap { $0 })
-            player.scheduleBuffer(countIn, at: nil, options: [])
+        var cycle = [Float](repeating: 0, count: pattern.frameCount * cycleBars)
+        for index in 0..<cycleBars where !(dropoutPlan?.isSilent(barIndex: Int64(index)) ?? false) {
+            cycle.replaceSubrange((index * pattern.frameCount)..<((index + 1) * pattern.frameCount), with: bar)
         }
-        let cycle: [Float]
-        if let plan = dropoutPlan, plan.isValid {
-            let silentBar = [Float](repeating: 0, count: pattern.frameCount)
-            cycle = Array(repeating: bar, count: plan.barsOn).flatMap { $0 } + Array(repeating: silentBar, count: plan.barsOff).flatMap { $0 }
-        } else {
-            cycle = bar
+        let continuing = isPlaying && engine.isRunning && sampleRate == rate
+        var offset: Int64 = 0
+        let canPreserve = isPlaying && preservePhase && scheduledPulsesPerBar == pulsesPerBar
+            && (continuing || configurationPosition != nil)
+        let countInBars = isPlaying ? (canPreserve ? scheduledCountInBars : 0) : settings.countInBars
+        if canPreserve {
+            var oldFrames: Int64?
+            if let position = configurationPosition {
+                let elapsed = max(0, ProcessInfo.processInfo.systemUptime - position.pausedAt)
+                oldFrames = position.frames + Int64((elapsed * sampleRate).rounded())
+            } else if let nodeTime = player.lastRenderTime,
+                      let time = player.playerTime(forNodeTime: nodeTime), time.sampleTime >= 0 {
+                oldFrames = time.sampleTime + clockOffsetFrames
+            }
+            if let oldFrames {
+                offset = MetronomePlaybackPhase.rescaledOffset(sampleTime: oldFrames,
+                                                                previousBarFrames: barFrames, nextBarFrames: nextBarFrames)
+            }
         }
-        let loop = try makeBuffer(format: format, samples: cycle)
-        player.scheduleBuffer(loop, at: nil, options: .loops)
+        configurationPosition = nil
+        // Stop only the node for ordinary controls: the engine/session stays active. Rotate the
+        // new sample-clock loop to its current bar phase, so a drag doesn't hammer new downbeats.
+        player.stop()
+        if !continuing {
+            engine.stop()
+            engine.disconnectNodeOutput(player)
+            engine.connect(player, to: engine.mainMixerNode, format: format)
+            engine.prepare()
+            try engine.start()
+        }
+        sampleRate = rate
+        barFrames = nextBarFrames
+        scheduledPulsesPerBar = pulsesPerBar
+        scheduledCountInBars = countInBars
+        clockOffsetFrames = offset
+        if !canPreserve { lastAbsoluteBeat = nil }
+        let countInFrames = Int64(countInBars) * nextBarFrames
+        if offset < countInFrames {
+            // Count-in is audible even when the practice accents are intentionally all silent.
+            // Only plain main beats, so a dense subdivision does not obscure the entry count.
+            let plain = try MetronomePattern(bpm: bpm, beatsPerBar: pulsesPerBar, subdivision: 1,
+                                            sampleRate: rate, sound: sound).renderSamples()
+            let remaining = Int(countInFrames - offset)
+            var countIn = [Float](repeating: 0, count: remaining)
+            for index in 0..<remaining { countIn[index] = plain[(Int(offset) + index) % plain.count] }
+            player.scheduleBuffer(try makeBuffer(format: format, samples: countIn), at: nil, options: [])
+        }
+        let musicOffset = Int(max(0, offset - countInFrames) % Int64(cycle.count))
+        cycle = MetronomeSamples.rotated(cycle, startingAt: musicOffset)
+        player.scheduleBuffer(try makeBuffer(format: format, samples: cycle), at: nil, options: .loops)
         player.volume = Float(settings.volume)
         player.play()
     }
@@ -310,15 +379,15 @@ final class MetronomeService {
                 guard !Task.isCancelled, let self, self.isPlaying else { return }
                 guard let nodeTime = self.player.lastRenderTime,
                       let time = self.player.playerTime(forNodeTime: nodeTime), time.sampleTime >= 0,
-                      let position = MetronomeClock.position(sampleTime: time.sampleTime, barFrames: self.barFrames,
-                                                              beatsPerBar: self.beatsPerBar, subdivision: self.subdivision,
+                      let position = MetronomeClock.position(sampleTime: time.sampleTime + self.clockOffsetFrames, barFrames: self.barFrames,
+                                                              beatsPerBar: self.scheduledPulsesPerBar, subdivision: self.subdivision,
                                                               countInBars: self.scheduledCountInBars, dropoutPlan: self.dropoutPlan)
                 else { continue }
                 if position.absoluteBeatIndex != self.lastAbsoluteBeat {
                     self.lastAbsoluteBeat = position.absoluteBeatIndex
                     self.beatSequence &+= 1
-                    if self.hapticsEnabled, !position.isSilentBar, self.settings.accents[position.beat - 1] != .muted {
-                        self.beatHaptic.impactOccurred(intensity: self.settings.accents[position.beat - 1] == .accented ? 0.8 : 0.4)
+                    if self.hapticsEnabled, !position.isSilentBar, self.pulseAccents[position.beat - 1] != .muted {
+                        self.beatHaptic.impactOccurred(intensity: self.pulseAccents[position.beat - 1] == .accented ? 0.8 : 0.4)
                     }
                 }
                 self.beat = position.beat
@@ -332,6 +401,10 @@ final class MetronomeService {
 
     private func pauseEngineForConfiguration() {
         guard isPlaying else { return }
+        if let nodeTime = player.lastRenderTime,
+           let time = player.playerTime(forNodeTime: nodeTime), time.sampleTime >= 0 {
+            configurationPosition = (time.sampleTime + clockOffsetFrames, ProcessInfo.processInfo.systemUptime)
+        }
         player.stop()
         engine.stop()
     }
@@ -358,7 +431,12 @@ final class MetronomeService {
     }
 
     private enum MetronomeError: LocalizedError {
-        case invalidAudioFormat
-        var errorDescription: String? { "No compatible audio output is available." }
+        case invalidAudioFormat, patternTooLong
+        var errorDescription: String? {
+            switch self {
+            case .invalidAudioFormat: "No compatible audio output is available."
+            case .patternTooLong: "This pulse-check cycle is too long. Use fewer bars or a faster tempo."
+            }
+        }
     }
 }

@@ -3610,3 +3610,31 @@ clippy `--all-targets --all-features` clean, tsc clean.
   2026-08-21 backup and this ship Christian added a piece and practised twice (9→10 pieces,
   1,710→1,814 reps). Rehearsing against the stale copy would have proven nothing about the data
   actually being migrated.
+
+
+## Mobile build4 pianist workflow (2026-10-02)
+
+- Active tempo edits are attempt-boundary events, not changes to the original starting contract.
+  Rewriting startBPM replays ladder achievements and turns a requested64→65 into69; events retain
+  earlier rep BPM, Undo and earned progress. New sets clear these events and normalize their ceiling.
+- Cold grade/start/first rep and visual joins are single ledger transactions. Save failures retain
+  idle/selected state and source passages. Reusing visual region IDs would break snapshot identity.
+- User choices carry forward; R5 auto defaults only apply to an initial setup. Fixed-total tempo
+  equals current tempo; clean-streak end tempo uses the effective ceiling after manual adjustments.
+- Schema4 migration preserves the exact pre-upgrade file. Backup version3 protects optional tempo
+  event history from older decoders; cloud tempo JSON remains readable by older clients that ignore
+  optional keys, so mixed-version live convergence is unaccepted.
+- Ordinary PCM reconfiguration rotates the current bar rather than restarting beat1. Audio-session
+  changes resume at elapsed phase, but OS route/capture changes can cause a brief output gap;
+  real-device metronome/locked-screen/voice-over-piano acceptance remains separate.
+- System Glass is availability-gated at iOS26; the connected iPad runs18.7.8 and uses Material.
+  SF interactive typography and an opaque accessibility fallback replace ornamental control text.
+- USB/Xcode availability did not initially imply CoreDevice DDI readiness. Opening Xcode and letting
+  device preparation finish resolved it; do not bypass the helper's full backup/readiness gates.
+- Parallel stale native builds exhausted memory and yielded mixed incremental linker objects after
+  source edits. Terminating xcodebuild alone can leave compiler children; inspect full `ps -ww` args
+  and match only the task's exact derived paths. Final tests serialize builds, and the device helper
+  bounds Xcode/Swift compiler jobs to two without changing optimization or product behavior.
+- Build4 guarded physical installation completed19:14 EDT: all seven original library files match
+  pre/post copies exactly; no import/reset. Automatic launch was denied. Never infer first launch or
+  schema4 migration from install success; user unlock/trust/open remains separate.

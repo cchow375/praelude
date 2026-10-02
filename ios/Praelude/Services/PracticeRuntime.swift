@@ -64,6 +64,15 @@ final class PracticeRuntime {
         syncRecording() // Covers relaunching mid-set (a paused set is restored active on launch).
     }
 
+    /// A first-attempt grade must describe the tempo that was actually audible. Restore a
+    /// mismatched click for the next attempt, but do not commit the just-reported repetition.
+    func validateAttemptTempo(_ bpm: Double) throws {
+        if metronome.isPlaying, abs(metronome.bpm - bpm) > 0.001 {
+            metronome.setTempo(bpm)
+            throw PracticeError.conflict("The click was restored to your set tempo. Repeat the passage before recording it.")
+        }
+    }
+
     /// The ledger commits first. Only its newly saved event may trigger transient feedback.
     @discardableResult
     func record(_ verdict: Verdict, eventID: UUID = UUID()) throws -> Bool {
@@ -83,9 +92,18 @@ final class PracticeRuntime {
         checkR6SlowDown(for: store.activeSet, justRecorded: verdict)
         if verdict == .reset { feedback.stop(); return true }
         checkPulseCheck(for: store.activeSet)
-        guard let before, let after = store.activeSet, after.id == before.id,
+        if let before, let after = store.activeSet {
+            confirmCommittedAttempt(before: before, after: after, verdict: verdict, eventID: eventID)
+        }
+        return true
+    }
+
+    /// A cold grade uses one Store transaction; acknowledge its saved attempt without writing
+    /// another repetition. The feedback service deduplicates the committed event identifier.
+    func confirmCommittedAttempt(before: ActiveSet, after: ActiveSet, verdict: Verdict, eventID: UUID) {
+        guard after.id == before.id,
               after.attempts.contains(where: { $0.id == eventID && $0.undoneAt == nil }),
-              let feedbackVerdict = FeedbackVerdict(rawValue: verdict.rawValue) else { return true }
+              let feedbackVerdict = FeedbackVerdict(rawValue: verdict.rawValue) else { return }
         let effective = after.attempts.filter { $0.undoneAt == nil && $0.verdict != .reset }
         let setbacks = effective.reversed().prefix { $0.verdict == .sloppy || $0.verdict == .again }.count
         feedback.emit(PracticeFeedbackInput(
@@ -97,7 +115,21 @@ final class PracticeRuntime {
             hasVariants: !after.configuration.stages.isEmpty, nextVariant: after.currentStage?.name,
             bpm: after.currentBPM
         ))
-        return true
+    }
+
+    /// A background pause checkpoints the ledger without silencing an explicitly requested
+    /// locked-screen click. Manual foreground pauses, finished sets and absent sets still stop it.
+    /// The optional foreground value lets lifecycle tests exercise the real view/runtime boundary.
+    func refreshMetronome(for set: ActiveSet?, applicationIsActive: Bool? = nil) {
+        guard let set else { metronome.stop(); return }
+        if set.status == .running {
+            metronome.setTempo(set.currentBPM)
+            if set.configuration.useMetronome && !metronome.isPlaying { metronome.start() }
+        } else if set.status == .paused && metronome.keepRunningWhenLocked &&
+                    !(applicationIsActive ?? (UIApplication.shared.applicationState == .active)) {
+            // Keep the existing click only; a background refresh never starts or resumes audio.
+            return
+        } else { metronome.stop() }
     }
 
     func undo() throws {
@@ -189,8 +221,7 @@ final class PracticeRuntime {
         // tempo/meter change is a rare edge case this timer does not chase; the worst case is the
         // HUD/dropout clearing a little early or late, never a stuck or crashing state, and
         // `syncPulseCheck()` still clears it immediately once the set itself stops being current.
-        let beatsPerBar = max(1, metronome.beatsPerBar)
-        let barSeconds = metronome.bpm > 0 ? 60.0 / metronome.bpm * Double(beatsPerBar) : 0
+        let barSeconds = metronome.barDurationSeconds
         let duration = barSeconds * Double(max(0, plan.totalBars))
         pulseCheckTask?.cancel()
         pulseCheckTask = Task { [weak self] in

@@ -206,6 +206,7 @@ def build_app(runner: Runner, ios_root: Path, udid: str) -> Path:
     runner.run([
         "xcodebuild", "-project", str(ios_root / "Praelude.xcodeproj"), "-scheme", "Praelude",
         "-configuration", "Release", "-sdk", "iphoneos", "-destination", f"id={udid}",
+        "-jobs", "2", "OTHER_SWIFT_FLAGS=$(inherited) -j2 -driver-batch-count 2",
         "-derivedDataPath", str(ios_root / "DeviceDerivedData"),
         "-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration", "build",
     ], "Release build/signing failed. Open Praelude.xcodeproj, sign in under Xcode > Settings > "
@@ -246,7 +247,7 @@ def remote_library_files(runner: Runner, identifier: str) -> dict[str, dict]:
 def validate_library(data: bytes) -> dict:
     try:
         state = json.loads(data)
-        if not isinstance(state, dict) or type(state.get("schemaVersion")) is not int or state.get("schemaVersion") not in (1, 2, 3):
+        if not isinstance(state, dict) or type(state.get("schemaVersion")) is not int or state.get("schemaVersion") not in (1, 2, 3, 4):
             raise ValueError()
         active = state.get("activeSet")
         if active is not None and (not isinstance(active, dict) or

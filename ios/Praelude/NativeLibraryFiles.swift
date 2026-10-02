@@ -144,9 +144,10 @@ struct NativeLibraryFiles {
         if snapshot.activeSet?.status == .running {
             snapshot.activeSet?.status = .paused; snapshot.activeSet?.lastCheckpoint = nil
         }
-        // Older mobile builds ignore unknown recording/archive fields in v1. Mark backups
-        // requiring those files as v2 so an old restore refuses instead of silently losing them.
-        let version = recordings.isEmpty && desktopArchives.isEmpty ? 1 : 2
+        // Older readers must refuse before writing rather than discard durable new semantics.
+        let hasTempoChanges = snapshot.activeSet?.configuration.tempoChanges.isEmpty == false
+            || snapshot.history.contains { !$0.configuration.tempoChanges.isEmpty }
+        let version = hasTempoChanges ? 3 : (recordings.isEmpty && desktopArchives.isEmpty ? 1 : 2)
         let payload = NativeBackup(version: version, library: snapshot, scores: files, covers: covers, desktopArchives: desktopArchives, recordings: recordings)
         let data = try JSONEncoder().encode(payload)
         guard data.count <= 280_000_000 else { throw PracticeError.invalid("This library exceeds the supported 280 MB backup size.") }
@@ -156,7 +157,7 @@ struct NativeLibraryFiles {
         guard data.count <= 280_000_000 else { throw PracticeError.invalid("Choose a Praelude backup smaller than 280 MB.") }
         guard store.activeSet == nil else { throw PracticeError.conflict("Finish your current set before restoring a backup.") }
         var backup = try JSONDecoder().decode(NativeBackup.self, from: data)
-        guard (1...2).contains(backup.version) else { throw PracticeError.invalid("This backup needs a newer version of Praelude.") }
+        guard (1...3).contains(backup.version) else { throw PracticeError.invalid("This backup needs a newer version of Praelude.") }
         try PracticeStore.validate(backup.library)
         for stroke in backup.library.inkStrokes where stroke.deletedAt == nil { try Self.validateDrawing(stroke.data) }
         try FileManager.default.createDirectory(at: scoresDirectory, withIntermediateDirectories: true)

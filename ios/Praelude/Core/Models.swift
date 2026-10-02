@@ -179,6 +179,16 @@ public enum TempoStep: Codable, Equatable, Sendable {
     }
 }
 
+/// A deliberate change in the rep log, anchored to the number of original attempts already
+/// recorded. Undo marks attempts rather than deleting them, so this boundary stays stable.
+public struct SetTempoChange: Codable, Equatable, Sendable {
+    public var bpm: Double
+    public var afterAttemptCount: Int
+    public init(bpm: Double, afterAttemptCount: Int) {
+        self.bpm = bpm; self.afterAttemptCount = afterAttemptCount
+    }
+}
+
 public struct PracticeConfiguration: Codable, Equatable, Sendable {
     public var pieceID: UUID
     public var passageID: UUID?
@@ -190,6 +200,7 @@ public struct PracticeConfiguration: Codable, Equatable, Sendable {
     public var startBPM: Double
     public var targetBPM: Double
     public var tempoStep: TempoStep
+    public var tempoChanges: [SetTempoChange]
     public var stages: [VariantStage]
     public var hands: String
     public var useMetronome: Bool
@@ -198,14 +209,14 @@ public struct PracticeConfiguration: Codable, Equatable, Sendable {
                 basis: CompletionBasis = .cleanStreak, targetCount: Int = 5,
                 startBPM: Double = 60, targetBPM: Double = 60, tempoStep: TempoStep = .fixed(4),
                 stages: [VariantStage] = [], hands: String = "Both hands", useMetronome: Bool = false,
-                passageSnapshot: Passage? = nil) {
+                passageSnapshot: Passage? = nil, tempoChanges: [SetTempoChange] = []) {
         self.pieceID = pieceID; self.passageID = passageID; self.focus = focus; self.goal = goal; self.basis = basis
         self.targetCount = targetCount; self.startBPM = startBPM; self.targetBPM = targetBPM
         self.tempoStep = tempoStep; self.stages = stages; self.hands = hands; self.useMetronome = useMetronome
-        self.passageSnapshot = passageSnapshot
+        self.passageSnapshot = passageSnapshot; self.tempoChanges = tempoChanges
     }
     private enum CodingKeys: String, CodingKey {
-        case pieceID, passageID, focus, goal, basis, targetCount, startBPM, targetBPM, tempoStep, stages, hands, useMetronome, passageSnapshot
+        case pieceID, passageID, focus, goal, basis, targetCount, startBPM, targetBPM, tempoStep, tempoChanges, stages, hands, useMetronome, passageSnapshot
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -218,6 +229,7 @@ public struct PracticeConfiguration: Codable, Equatable, Sendable {
         startBPM = try values.decode(Double.self, forKey: .startBPM)
         targetBPM = try values.decode(Double.self, forKey: .targetBPM)
         tempoStep = try values.decode(TempoStep.self, forKey: .tempoStep)
+        tempoChanges = try values.decodeIfPresent([SetTempoChange].self, forKey: .tempoChanges) ?? []
         stages = try values.decode([VariantStage].self, forKey: .stages)
         hands = try values.decode(String.self, forKey: .hands)
         useMetronome = try values.decode(Bool.self, forKey: .useMetronome)
@@ -260,6 +272,7 @@ public struct ActiveSet: Identifiable, Codable, Equatable, Sendable {
         status = .running; self.startedAt = startedAt; endedAt = nil; activeSeconds = 0
         lastCheckpoint = startedAt; attempts = []
     }
+    public var effectiveTargetBPM: Double { configuration.tempoChanges.reduce(configuration.targetBPM) { max($0, $1.bpm) } }
     public var currentStage: VariantStage? { configuration.stages.indices.contains(stageIndex) ? configuration.stages[stageIndex] : nil }
     public var requiredCount: Int { currentStage?.targetCount ?? configuration.targetCount }
     public var progressCount: Int { configuration.basis == .totalPlays ? totalPlays : streak }
@@ -311,7 +324,8 @@ public struct Preferences: Codable, Equatable, Sendable {
 
 public struct LibraryState: Codable, Equatable, Sendable {
     public var desktopImports: [DesktopImportReceipt] = []
-    public var schemaVersion: Int = 3
+    public static let currentSchemaVersion = 4
+    public var schemaVersion: Int = Self.currentSchemaVersion
     public var revision: Int = 0
     public var pieces: [Piece] = []
     public var passages: [Passage] = []

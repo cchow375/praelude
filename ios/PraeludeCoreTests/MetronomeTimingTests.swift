@@ -83,6 +83,21 @@ final class MetronomeTimingTests: XCTestCase {
         XCTAssertNil(MetronomeClock.position(sampleTime: 0, barFrames: 1000, beatsPerBar: 4, subdivision: 0))
     }
 
+    func testTempoEditsPreserveFractionalBarPhaseAndCountInPosition() throws {
+        let oldBar: Int64 = 96_000, nextBar: Int64 = 120_000
+        for sample in [Int64(0), 12_000, 95_999, 96_000, 420_000] {
+            let offset = MetronomePlaybackPhase.rescaledOffset(sampleTime: sample, previousBarFrames: oldBar, nextBarFrames: nextBar)
+            XCTAssertEqual(Double(offset) / Double(nextBar), Double(sample) / Double(oldBar), accuracy: 1 / Double(nextBar))
+            let old = try XCTUnwrap(MetronomeClock.position(sampleTime: sample, barFrames: oldBar, beatsPerBar: 4, subdivision: 1, countInBars: 1))
+            let new = try XCTUnwrap(MetronomeClock.position(sampleTime: offset, barFrames: nextBar, beatsPerBar: 4, subdivision: 1, countInBars: 1))
+            XCTAssertEqual(new.barIndex, old.barIndex)
+            XCTAssertEqual(new.beat, old.beat)
+            XCTAssertEqual(new.isCountIn, old.isCountIn)
+        }
+        XCTAssertEqual(MetronomePlaybackPhase.rescaledOffset(sampleTime: .max, previousBarFrames: 1, nextBarFrames: 100), 0)
+        XCTAssertEqual(MetronomePlaybackPhase.rescaledOffset(sampleTime: -1, previousBarFrames: oldBar, nextBarFrames: nextBar), 0)
+    }
+
     // MARK: - Count-in
 
     func testCountInBarsPrecedeTheMusicAndAreFlagged() throws {

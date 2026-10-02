@@ -1,13 +1,12 @@
 # Praelude for iPhone and iPad
 
-**Design baseline: iOS1.0.0 DEVELOPMENT CANDIDATE · 2026-09-14.** This is a native SwiftUI implementation for
-iOS/iPadOS17+ with its own local, device-private store. Its
-contract is the same as the Mac app: **the pianist supplies the verdict; Praelude records it**.
-It never estimates musical quality from microphone audio. A new installation starts blank.
-Native data uses a sandbox-relative schema1 JSON store and owned PDFs; the separate installed Mac
-v11.1.0/schema21 SQLite database is outside this target. The next score-markup milestone is in
-development; the matrix below describes the 1.0 baseline until its new native gates finish.
-Current work and remaining scope are tracked in [the mobile roadmap](docs/ROADMAP.md).
+**Current source: iOS2.0.0/build4 DEVELOPMENT CANDIDATE · 2026-10-02.** Native SwiftUI for
+ iOS/iPadOS17+, with schema4 local storage and configured Supabase support for native records.
+The pianist supplies every verdict. New installations are blank; the Mac schema21 database is
+separate. A reviewed Mac snapshot can be imported while retaining all original history, without
+inventing native mastery. Current scope and hardware gates live in [the mobile roadmap](docs/ROADMAP.md)
+and [current QA](../docs/qa/ios/2.0.0/README.md). The older acceptance matrix below is historical
+1.0 evidence, not proof of current-feature or physical acceptance.
 
 ## Design direction
 
@@ -27,7 +26,7 @@ which reserves Liquid Glass for a distinct controls/navigation layer and recomme
 
 ## Navigation and hierarchy
 
-- **iPhone:** a small set of labeled bottom tabs leads to Today, Pieces, and Progress. Settings is
+- **iPhone:** a small set of labeled bottom tabs leads to Today, Pieces, Warmups, Progress, and a deliberate More list. Settings is
   a toolbar action. Each tab preserves its position. A score opens as a focused reading/practice
   destination with a clear return path. The active set remains resumable from Today.
 - **iPad:** use native navigation suited to the available width, with a collapsible sidebar and

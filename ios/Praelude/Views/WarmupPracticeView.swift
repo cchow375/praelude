@@ -183,11 +183,7 @@ struct WarmupPracticeView: View {
     }
 
     private func refreshAudio() {
-        guard let active else { return }
-        if active.status == .running {
-            metronome.setTempo(active.currentBPM)
-            if active.configuration.useMetronome && !metronome.isPlaying { metronome.start() }
-        } else { metronome.stop() }
+        runtime.refreshMetronome(for: active)
     }
 
     /// Ends the finished set and immediately starts the next rotation exercise (§12: keeps the

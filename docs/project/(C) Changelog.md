@@ -10,6 +10,18 @@
 
 ---
 
+### 2026-10-02 · Mobile build4 pianist workflow and metronome follow-up
+
+- **Immediate iPad priority:** Christian requested installation now so he can practice and explicitly deprioritized phone work. Further optional UI runs are deferred; guarded same-bundle build4 installation is complete at19:14 EDT, with all seven pre/post library files exactly matched. Automatic launch was denied; unlock/trust/open remains the user step.
+
+- **Why:** Christian requested further hidden-error and real practice-friction fixes before importing, with functionality first and a restrained native Apple/Glass interface. The plugged-in iPad is now ready after Xcode preparation; installed2.0/build3 and a complete seven-file private backup are confirmed.
+- **Practice:** searchable current-page passages, explicit active-target switching, preserved advanced/another-set defaults, visible optional editable technique chains with real per-stage counts, atomic visual joins and atomic cold-grade start. No automatic piano judgment or imposed technique.
+- **Metronome:** durable tempo edits retain original contracts/progress through Undo and reopen; replay/relaunch defaults normalize correctly. Exposed count-in/lock playback (central background policy retains the existing click), dotted compound pulse, stale-tap reset and phase-preserving ordinary click edits.
+- **Native design:** system SF headings/tabular rounded numerals; one native Liquid Glass layer on iOS26+, system material on older iPads, opaque accessibility fallback. Score paper remains clear and opaque.
+- **Storage:** build4/schema4 preserves exact originals on migration; tempo-history backups require version3. No Mac DB rewrite or device import; build4 installation and exact seven-file preservation now pass. Current clients required for new cloud tempo semantics.
+- **Touched:** native Core/store/migration/sync DTO, arm/runtime/metronome services, passage/practice/metronome/setup views, design tokens, backup/helper/generator/tests, candidate guides, QA and living manual. Core356/service2211/Python53/native runtime12 and largest-text300BPM checks pass; signed Release verifies, further UI/hardware acceptance remains open; commit pending in `docs/qa/ios/2.0.0/practice-polish.md`.
+- **Next:** complete fresh native review, guarded connected-device update, then musician-controlled Mac import and hardware practice acceptance.
+
 ### 2026-10-02 · Mobile 2.0 library transfer, sync hardening and pianist practicality review
 
 - **Why:** Christian asked for the same computer scores/practice data on iOS, a full current-app overview, and practical musician-use review including its changed Supabase implementation.

@@ -350,7 +350,7 @@ final class NativeLibraryFilesTests: XCTestCase {
         let backup = try files.makeBackup()
         let target = try fixture()
         try NativeLibraryFiles(store: target).restoreBackup(backup.data)
-        XCTAssertEqual(target.state.schemaVersion, 3)
+        XCTAssertEqual(target.state.schemaVersion, LibraryState.currentSchemaVersion)
         XCTAssertEqual(target.drawing(pieceID: piece.id, page: 2), ink)
         XCTAssertEqual(try PKDrawing(data: XCTUnwrap(target.drawing(pieceID: piece.id, page: 2))).strokes.count, 1)
         XCTAssertEqual(target.state.history.last?.configuration.passageSnapshot, passage)
@@ -421,7 +421,7 @@ final class NativeLibraryFilesTests: XCTestCase {
         }
         let target = try fixture()
         try NativeLibraryFiles(store: target).restoreBackup(legacy)
-        XCTAssertEqual(target.state.schemaVersion, 3)
+        XCTAssertEqual(target.state.schemaVersion, LibraryState.currentSchemaVersion)
         XCTAssertEqual(target.state.passages.map(\.id), [passage.id])
         XCTAssertTrue(target.state.inkStrokes.isEmpty)
         XCTAssertFalse(PracticeStore(directory: target.directory).isReadOnly)

@@ -98,4 +98,28 @@ final class DesktopTransferFileTests: XCTestCase {
         XCTAssertThrowsError(try NativeLibraryFiles(store: destination).restoreBackup(JSONSerialization.data(withJSONObject: object)))
         XCTAssertEqual(try destination.backupData(), before)
     }
+    @MainActor func testBackupVersionProtectsDurableTempoChangesInActiveAndHistoricalSets() throws {
+        let source = store(), destination = store()
+        try source.addPiece(Piece(title: "Tempo study"))
+        try source.startSet(PracticeConfiguration(pieceID: source.pieces[0].id, targetCount: 2,
+                                                 startBPM: 60, targetBPM: 80))
+        try source.record(.clean); try source.record(.clean)
+        try source.adjustActiveTempo(65)
+        let activeBackup = try NativeLibraryFiles(store: source).makeBackup().data
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: activeBackup) as? [String: Any])?["version"] as? Int, 3)
+        try NativeLibraryFiles(store: destination).restoreBackup(activeBackup)
+        XCTAssertEqual(destination.activeSet?.currentBPM, 65)
+        XCTAssertEqual(destination.activeSet?.configuration.startBPM, 60)
+        XCTAssertEqual(destination.activeSet?.configuration.tempoChanges, source.activeSet?.configuration.tempoChanges)
+        try source.endSet()
+        let historyBackup = try NativeLibraryFiles(store: source).makeBackup().data
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: historyBackup) as? [String: Any])?["version"] as? Int, 3)
+        let restoredHistory = store()
+        try NativeLibraryFiles(store: restoredHistory).restoreBackup(historyBackup)
+        XCTAssertEqual(restoredHistory.state.history[0].configuration.tempoChanges,
+                       source.state.history[0].configuration.tempoChanges)
+        XCTAssertEqual(restoredHistory.state.schemaVersion, 4)
+        let plainBackup = try NativeLibraryFiles(store: store()).makeBackup().data
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: plainBackup) as? [String: Any])?["version"] as? Int, 1)
+    }
 }

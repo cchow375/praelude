@@ -90,6 +90,13 @@ import Foundation
         for i in waveforms.indices {
             for j in waveforms.indices where j > i { expect(waveforms[i] != waveforms[j], "Sound \(i) and \(j) differ") }
         }
+        let phasePattern = try MetronomePattern(bpm: 120, beatsPerBar: 4, subdivision: 1, sampleRate: 48_000)
+        let phaseSamples = phasePattern.renderSamples()
+        let rotated = MetronomeSamples.rotated(phaseSamples, startingAt: 12_000)
+        expect(rotated.prefix(12_000).allSatisfy { $0 == 0 }, "A mid-beat update waits for the next click instead of inventing a downbeat")
+        expect(Array(rotated[12_000..<13_200]) == Array(phaseSamples[24_000..<25_200]), "The next regular beat keeps its timbre and exact remaining timing")
+        expect(MetronomeSamples.rotated([], startingAt: 3).isEmpty, "Empty loops remain safe")
+        expect(MetronomeSamples.rotated(phaseSamples, startingAt: phaseSamples.count) == phaseSamples, "Whole-cycle offsets preserve PCM")
         let silent = try MetronomePattern(bpm: 120, beatsPerBar: 4, subdivision: 4, sampleRate: 8_000, accents: [.muted, .muted, .muted, .muted])
         expect(silent.renderSamples().allSatisfy { $0 == 0 }, "All-muted meter is silent")
         expect(BeatAccent.regular.next.next.next == .regular, "Accent cycle returns to original")
@@ -113,6 +120,22 @@ import Foundation
             }
             expect(!invalid.isValid, "Reject malformed persisted settings")
         }
+        var compound = MetronomeSettings()
+        compound.beatsPerBar = 6; compound.denominator = 8; compound.beatGrouping = 3
+        compound.accents = [.accented, .regular, .regular, .regular, .regular, .regular]
+        expect(compound.isValid && compound.pulsesPerBar == 2, "6/8 can count two dotted-quarter pulses")
+        expect(compound.pulseAccents == [.accented, .regular], "Compound accents follow the counted pulse")
+        expect(compound.barDurationSeconds == 1.5, "80 dotted quarters makes a 1.5-second 6/8 bar")
+        let compoundPattern = try MetronomePattern(bpm: compound.bpm, beatsPerBar: compound.pulsesPerBar,
+                                                 subdivision: 3, sampleRate: 48_000, accents: compound.pulseAccents)
+        expect(compoundPattern.frameCount == 72_000 && compoundPattern.pulseFrames == [0, 12_000, 24_000, 36_000, 48_000, 60_000], "Triplet subdivision recovers six eighths without tripling the typed BPM")
+        compound.denominator = 4
+        expect(!compound.isValid, "Dotted grouping cannot silently survive a simple meter")
+        let legacyBlob = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as! [String: Any]
+        var legacySettings = legacyBlob; legacySettings.removeValue(forKey: "beatGrouping")
+        let legacyDecoded = try JSONDecoder().decode(MetronomeSettings.self, from: JSONSerialization.data(withJSONObject: legacySettings))
+        expect(legacyDecoded.beatGrouping == 1, "Older settings keep their written-note pulse")
+
         var taps = TapTempoEstimator()
         expect(taps.tap(at: 0) == nil, "First tap does not guess tempo")
         expect(taps.tap(at: 0.5) == 120, "Two half-second taps produce 120")
@@ -123,6 +146,9 @@ import Foundation
         expect(taps.tap(at: 2.7) == 120, "One late tap is trimmed from recent window")
         expect(taps.tap(at: 10) == nil, "Long pause starts new tapping phrase")
         expect(taps.tap(at: 13) == 20, "Slowest supported tempo")
+        taps.reset()
+        expect(taps.tap(at: 13.5) == nil, "Manual tempo changes can reset a stale tap phrase")
+        expect(taps.tap(at: 14.25) == 80, "A new tapping phrase does not average against prior practice")
         var fastTaps = TapTempoEstimator()
         _ = fastTaps.tap(at: 0)
         expect(fastTaps.tap(at: 0.16) == 300, "Tap tempo clamps safely at maximum")

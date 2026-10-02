@@ -75,6 +75,7 @@ final class VerifierTests: XCTestCase {
         let start = app.buttons["confirmStartSet"]
         reveal(start, in: app); start.press(forDuration: 0.15)
         waitUntilGone(start, app: app)
+        if app.buttons["armStartSet"].waitForExistence(timeout: 2) { app.buttons["armStartSet"].press(forDuration: 0.15) }
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
@@ -102,7 +103,7 @@ final class VerifierTests: XCTestCase {
         let app = launch(); openScore(app); openComposer(app)
         let variants = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Variants")).firstMatch
         reveal(variants, in: app); variants.press(forDuration: 0.15)
-        XCTAssertTrue(app.navigationBars["Variants"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Practice techniques"].waitForExistence(timeout: 10))
         let composerDeparted = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"), object: app.buttons["confirmStartSet"])
         XCTAssertEqual(XCTWaiter.wait(for: [composerDeparted], timeout: 10), .completed)
@@ -113,7 +114,7 @@ final class VerifierTests: XCTestCase {
             reveal(add, in: app); add.press(forDuration: 0.15)
         }
         screenshot("verifier-variant-editor", app: app)
-        app.navigationBars["Variants"].buttons.element(boundBy: 0).press(forDuration: 0.15)
+        app.navigationBars["Practice techniques"].buttons.element(boundBy: 0).press(forDuration: 0.15)
         startFromComposer(app)
         for _ in 0..<3 { app.buttons["verdict_clean"].press(forDuration: 0.15) }
         XCTAssertTrue(app.staticTexts["Reverse dotted"].exists, app.debugDescription)
@@ -187,9 +188,8 @@ final class VerifierTests: XCTestCase {
         app.buttons["verdict_clean"].press(forDuration: 0.15)
         app.buttons["openMetronome"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["toggleMetronome"].waitForExistence(timeout: 3))
-        XCTAssertFalse(app.sliders["Tempo"].isEnabled)
-        XCTAssertFalse(app.buttons["Increase tempo"].isEnabled)
-        XCTAssertFalse(app.buttons["Tap tempo"].isEnabled)
+        XCTAssertTrue(app.buttons["Increase tempo by 1"].isEnabled)
+        XCTAssertTrue(app.buttons["Tap tempo"].isEnabled)
         screenshot("verifier-largest-text-metronome-landscape", app: app)
         app.buttons["Done"].press(forDuration: 0.15)
         waitUntilGone(app.buttons["toggleMetronome"], app: app)

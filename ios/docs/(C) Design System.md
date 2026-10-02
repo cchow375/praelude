@@ -28,18 +28,12 @@ Tokens live in `ios/Praelude/Design/DesignColor.swift`.
 
 ## Typography
 
-- **Display / numerals:** Bodoni Moda, a high-contrast Didone whose plate-cut strokes read the way
-  engraved music and title pages do. Bundled as one variable font (weight 400–900); SwiftUI's
-  `fontWeight(_:)` drives the weight axis, so a single file covers every weight used.
-  `PraeludeFont.display(_:)` / `.praeludeDisplay(_:weight:)` for headings that deserve presence;
-  `PraeludeFont.numeral(_:)` / `.praeludeNumeral(_:weight:)` for tempo/streak/BPM/level numbers —
-  always paired with `.monospacedDigit()`.
-- Verified with fontTools before bundling: Bodoni Moda's `GSUB` table carries the OpenType `tnum`
-  (tabular figures) feature, so the numeral style gets real tabular digits from the font itself,
-  not a system fallback.
-- **UI text:** unchanged — the system SF Pro workhorse, so Dynamic Type keeps working exactly as
-  iOS expects. The custom face is deliberately scoped to a handful of prominent moments per
-  screen (a hero title, a HUD number), not body copy, list rows, or buttons.
+- **Headings / numerals:** system SF typography. Interactive tempo/progress numbers use the
+  rounded system design with tabular digits; headings use the standard system face. The
+  `.praeludeDisplay` / `.praeludeNumeral` modifiers scale using Dynamic Type. Bravura is the
+  musical notation face; Bodoni remains a licensed legacy bundled resource, not the current UI face.
+- **UI text:** native system text for forms, lists, controls and body copy. Labels remain readable
+  at the bench and honor accessibility text sizes.
 - **Music glyphs:** Bravura (the reference SMuFL font) is bundled for musical iconography —
   `PraeludeMusicGlyph` renders a single glyph by SMuFL codepoint (e.g. the quarter note next to
   the Settings footer line).
@@ -66,12 +60,11 @@ Lives in `ios/Praelude/Design/DesignIcons.swift`.
   tall — `PraeludeMetric.verdictHeight`), `praeludeEdgeControl` (large round icon buttons for
   transport/undo/tempo, reachable from the bench). Every style responds to press with a quick,
   interruptible scale rather than the system default highlight.
-- **Surfaces** (`DesignSurfaces.swift`): no shadow-plus-thin-gray-border card, anywhere, by
-  default. `praeludeCard`/`praeludeSurfacePanel` use a flat tonal fill; `praeludeHairline(_:)`
-  draws a single stroke only where content genuinely overlaps. `praeludeScoreChrome` is the one
-  material (glass) treatment left in the app, reserved for chrome that floats directly over the
-  moving score/PDF, where translucency is functionally useful — not applied to panels over
-  ordinary list/form content, which use an opaque surface instead.
+- **Surfaces** (`DesignSurfaces.swift`): ordinary forms/cards retain an opaque tonal surface.
+  `praeludeScoreChrome` uses the native bar material, with an opaque Reduce Transparency fallback.
+  `praeludeFloatingControls` supplies one rounded control layer: real Liquid Glass on iOS26+,
+  regular system material on older supported iPads, opaque boundaries for Reduce Transparency or
+  increased contrast. Keep score paper opaque and avoid glass on nested parent/child surfaces.
 - **Layout** (`DesignLayout.swift`): five deliberately different corner radii, one per component
   role (`tight` 8pt for chips/thumbnails, `control` 12pt for buttons/fields, `card` 18pt,
   `verdict` 22pt, `panel` 27pt for the floating HUD/dock) instead of one radius everywhere.

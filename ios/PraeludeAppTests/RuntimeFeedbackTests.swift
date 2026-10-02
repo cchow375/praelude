@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import XCTest
 @testable import Praelude
 
@@ -22,7 +23,7 @@ final class RuntimeFeedbackTests: XCTestCase {
     }
 
     @MainActor
-    private func fixture(targetCount: Int = 2) throws -> Fixture {
+    private func fixture(targetCount: Int = 2, useMetronome: Bool = false) throws -> Fixture {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Praelude-Runtime-\(UUID().uuidString)", isDirectory: true)
         let suite = "Praelude-Runtime-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -41,7 +42,7 @@ final class RuntimeFeedbackTests: XCTestCase {
         })
         let piece = Piece(title: "Synthetic runtime study")
         try store.addPiece(piece)
-        try store.startSet(PracticeConfiguration(pieceID: piece.id, targetCount: targetCount, useMetronome: false))
+        try store.startSet(PracticeConfiguration(pieceID: piece.id, targetCount: targetCount, useMetronome: useMetronome))
         let metronome = MetronomeService(defaults: defaults)
         let speech = SpeechCommandService()
         let recording = RecordingService(defaults: defaults)
@@ -181,6 +182,38 @@ final class RuntimeFeedbackTests: XCTestCase {
         XCTAssertEqual(fixture.defaults.data(forKey: "praelude.ios.metronome.v1"), original, "Reading unsupported settings must not overwrite them")
     }
 
+    @MainActor
+    func testCompoundMetronomePreferencesPersistAndSimpleMeterResetsGrouping() async throws {
+        let fixture = try fixture()
+        let meter = fixture.metronome
+        meter.setMeter(beats: 6, denominator: 8)
+        meter.groupedCompoundPulse = true
+        meter.setTempo(80)
+        meter.countInBars = 2
+        meter.keepRunningWhenLocked = true
+        meter.subdivision = 3
+        XCTAssertEqual(meter.pulsesPerBar, 2)
+        XCTAssertEqual(meter.barDurationSeconds, 1.5)
+        XCTAssertEqual(meter.pulseAccents, [.accented, .regular])
+        let reopened = MetronomeService(defaults: fixture.defaults)
+        defer { reopened.stop() }
+        XCTAssertTrue(reopened.groupedCompoundPulse)
+        XCTAssertEqual(reopened.countInBars, 2)
+        XCTAssertTrue(reopened.keepRunningWhenLocked)
+        XCTAssertFalse(reopened.isPlaying)
+        reopened.setMeter(beats: 4, denominator: 4)
+        XCTAssertFalse(reopened.groupedCompoundPulse)
+        XCTAssertEqual(reopened.pulsesPerBar, 4)
+        XCTAssertEqual(reopened.barDurationSeconds, 3)
+    }
+
+    @MainActor
+    func testInstrumentCatalogUsesAvailableSystemSymbols() {
+        for family in InstrumentFamily.allCases {
+            XCTAssertNotNil(UIImage(systemName: family.symbolName), "Missing system symbol for \(family.displayName): \(family.symbolName)")
+        }
+    }
+
     // MARK: - §13 recording lifecycle sync
     //
     // These deliberately never call `recording.startTake` with the preference *enabled*: that path
@@ -228,4 +261,31 @@ final class RuntimeFeedbackTests: XCTestCase {
         XCTAssertFalse(recording.isRecording)
         XCTAssertNil(recording.recordingSetID)
     }
+    @MainActor func testBackgroundCheckpointAndScoreRefreshPreserveRequestedLockedClickButForegroundPauseStops() async throws {
+        let fixture = try fixture(useMetronome: true)
+        fixture.metronome.keepRunningWhenLocked = true
+        fixture.metronome.start()
+        XCTAssertTrue(fixture.metronome.isPlaying, fixture.metronome.errorMessage ?? "Native metronome must start for this lifecycle test")
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        await Task.yield()
+        XCTAssertEqual(fixture.store.activeSet?.status, .paused)
+        fixture.runtime.refreshMetronome(for: fixture.store.activeSet, applicationIsActive: false)
+        XCTAssertTrue(fixture.metronome.isPlaying, "The score observer must retain the explicitly requested click after the runtime checkpoints practice.")
+        fixture.runtime.refreshMetronome(for: fixture.store.activeSet, applicationIsActive: true)
+        XCTAssertFalse(fixture.metronome.isPlaying, "A foreground paused set stops normally.")
+    }
+
+    @MainActor func testBackgroundRefreshNeverStartsAudioAndFinishedPracticeAlwaysStops() throws {
+        let fixture = try fixture(useMetronome: true)
+        fixture.metronome.keepRunningWhenLocked = true
+        try fixture.store.pause()
+        fixture.runtime.refreshMetronome(for: fixture.store.activeSet, applicationIsActive: false)
+        XCTAssertFalse(fixture.metronome.isPlaying)
+        fixture.metronome.start()
+        XCTAssertTrue(fixture.metronome.isPlaying, fixture.metronome.errorMessage ?? "Metronome start")
+        try fixture.store.endSet()
+        fixture.runtime.refreshMetronome(for: fixture.store.activeSet, applicationIsActive: false)
+        XCTAssertFalse(fixture.metronome.isPlaying, "End always stops, even while inactive and with keep-playing enabled.")
+    }
+
 }

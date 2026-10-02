@@ -297,6 +297,26 @@ public struct PracticeSessionSyncRow: Codable, Equatable, Sendable {
 // moments of the real edit; `updated_at`/`created_at` are stamped with that push time here rather
 // than invented a stale/duplicated value. `deleted_at` is always nil: this schema has no concept of
 // deleting a practice set once it exists. None of this touches `Models.swift`.
+/// The backend treats tempo_step as opaque jsonb. Keep the original enum keys and carry the
+/// optional tempo-edit log alongside them, without inventing a new database column.
+private struct SetTempoSyncPayload: Codable, Equatable, Sendable {
+    var step: TempoStep
+    var changes: [SetTempoChange]
+    private enum CodingKeys: String, CodingKey { case tempoChanges }
+    init(step: TempoStep, changes: [SetTempoChange]) { self.step = step; self.changes = changes }
+    init(from decoder: Decoder) throws {
+        step = try TempoStep(from: decoder)
+        changes = try decoder.container(keyedBy: CodingKeys.self).decodeIfPresent([SetTempoChange].self, forKey: .tempoChanges) ?? []
+    }
+    func encode(to encoder: Encoder) throws {
+        try step.encode(to: encoder)
+        if !changes.isEmpty {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(changes, forKey: .tempoChanges)
+        }
+    }
+}
+
 public struct SetSyncRow: Codable, Equatable, Sendable {
     public var id: UUID
     public var session_id: UUID
@@ -308,7 +328,18 @@ public struct SetSyncRow: Codable, Equatable, Sendable {
     public var target_count: Int
     public var start_bpm: Double
     public var target_bpm: Double
-    public var tempo_step: TempoStep
+    private var tempoPayload: SetTempoSyncPayload
+    public var tempo_step: TempoStep {
+        get { tempoPayload.step }
+        set { tempoPayload.step = newValue }
+    }
+    public var tempo_changes: [SetTempoChange] { tempoPayload.changes }
+    private enum CodingKeys: String, CodingKey {
+        case id, session_id, piece_id, passage_id, focus, goal, basis, target_count, start_bpm, target_bpm
+        case tempoPayload = "tempo_step"
+        case stages, hands, use_metronome, passage_snapshot, current_bpm, stage_index, streak, total_plays, completed_stages
+        case status, started_at, ended_at, active_seconds, last_checkpoint, created_at, updated_at, deleted_at
+    }
     public var stages: [VariantStage]
     public var hands: String
     public var use_metronome: Bool
@@ -332,7 +363,7 @@ public struct SetSyncRow: Codable, Equatable, Sendable {
         piece_id = set.configuration.pieceID; passage_id = set.configuration.passageID
         focus = set.configuration.focus; goal = set.configuration.goal.rawValue; basis = set.configuration.basis.rawValue
         target_count = set.configuration.targetCount; start_bpm = set.configuration.startBPM; target_bpm = set.configuration.targetBPM
-        tempo_step = set.configuration.tempoStep; stages = set.configuration.stages; hands = set.configuration.hands
+        tempoPayload = SetTempoSyncPayload(step: set.configuration.tempoStep, changes: set.configuration.tempoChanges); stages = set.configuration.stages; hands = set.configuration.hands
         use_metronome = set.configuration.useMetronome; passage_snapshot = set.configuration.passageSnapshot
         current_bpm = set.currentBPM; stage_index = set.stageIndex; streak = set.streak
         total_plays = set.totalPlays; completed_stages = set.completedStages; status = set.status.rawValue
@@ -349,7 +380,7 @@ public struct SetSyncRow: Codable, Equatable, Sendable {
         let configuration = PracticeConfiguration(pieceID: piece_id, passageID: passage_id, focus: focus, goal: goal, basis: basis,
                                                    targetCount: target_count, startBPM: start_bpm, targetBPM: target_bpm,
                                                    tempoStep: tempo_step, stages: stages, hands: hands, useMetronome: use_metronome,
-                                                   passageSnapshot: passage_snapshot)
+                                                   passageSnapshot: passage_snapshot, tempoChanges: tempoPayload.changes)
         var set = ActiveSet(id: id, sessionID: session_id, configuration: configuration, startedAt: started_at)
         set.currentBPM = current_bpm; set.stageIndex = stage_index; set.streak = streak
         set.totalPlays = total_plays; set.completedStages = completed_stages; set.status = status

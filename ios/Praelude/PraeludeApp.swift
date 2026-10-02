@@ -37,6 +37,9 @@ struct PraeludeApp: App {
         }
         #endif
         let click = MetronomeService()
+        #if DEBUG
+        UITestFixture.configureMetronomeForAudit(click)
+        #endif
         let voice = SpeechCommandService()
         let take = RecordingService()
         _store = State(initialValue: value)
@@ -94,6 +97,7 @@ struct PraeludeApp: App {
             .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
             .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
             .onChange(of: store.activeSet?.attempts.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
+            .onChange(of: store.activeSet?.configuration.tempoChanges) { _, _ in syncCoordinator.syncActiveSetProgress() }
             .onChange(of: store.activeSet?.attempts.filter { $0.undoneAt != nil }.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
             .onChange(of: store.state.history.count) { _, _ in syncCoordinator.syncMostRecentFinishedSet() }
         }
@@ -105,6 +109,9 @@ struct PraeludeApp: App {
             .environment(auth).environment(syncCoordinator).environment(storage)
             .environment(social).environment(socialHooks).environment(presence)
             .preferredColorScheme(colorScheme)
+#if DEBUG
+            .uiTestAuditAppearance()
+#endif
             .tint(PraeludeColor.ink)
     }
     private var practiceObservedRoot: some View {
@@ -113,6 +120,7 @@ struct PraeludeApp: App {
             .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
             .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
             .onChange(of: store.activeSet?.attempts.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
+            .onChange(of: store.activeSet?.configuration.tempoChanges) { _, _ in syncCoordinator.syncActiveSetProgress() }
             .onChange(of: store.activeSet?.attempts.filter { $0.undoneAt != nil }.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
     }
     private var syncedRoot: some View {
