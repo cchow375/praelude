@@ -1,6 +1,6 @@
 # Mobile 2.0 overview and October 2 verification
 
-**Development candidate: 2.0.0/build3/schema3.** Base before this session: `8c87409`.
+**Development candidate: 2.0.0/build3/schema3.** Base before this session: `8c87409`. Implementation: `635a5ae`.
 The [verification manifest](verification.json) records exact Release input/binary fingerprints and scoped check results.
 User request: bring Mac scores/practice data to iOS and review current Supabase/native app for real pianist practicality.
 No Mac application replacement, source-database rewrite, hosted backend mutation, user-account signup/upload,
@@ -76,7 +76,7 @@ reviewed snapshot bridge; subsequent continuous Mac↔iOS synchronization is not
 - Exporter real PDFKit page count and exact 46-table snapshot parity pass.
 - Final current-source iPad hosted run: 175 tests executed, one live Supabase smoke test skipped, zero failures. Standard Xcode scheme/build settings, without the isolated linker override.
 - Deterministic service harness: 2,199 voice/metronome/tap-tempo/reward/PCM assertions pass.
-- iPad scoped native UI: four selected scenarios pass, covering transfer navigation, adaptive HUD/stable PDF geometry, warmup-first plan start and compact idle tempo. The later exact-source run also passes the private real-library import/start/Sloppy probe (47.320 seconds), including unchanged multi-page passage page and durable Undo.
+- Final current-source iPad UI run: transfer navigation, adaptive HUD/stable PDF geometry, compact idle tempo and private real-library import all pass. Warmup-first plan start and other listed regressions pass in separate scoped runs. The later exact-source backup compatibility run again passes the private import/start/Sloppy probe (47.320 seconds), including unchanged multi-page passage page and durable Undo.
 - Phone transfer-entry and adaptive geometry scenarios pass; final isolated compact-tempo drag/one-tap expand scenario passes (59.478 seconds), using one score-row press. These are scoped passes across runs, not an all-green full UI scheme.
 - Unsigned arm64 iOS Release build succeeds for 2.0.0/build3/iOS17. Binary inspection finds no DEBUG UI-test flags, desktop-transfer test entry or private transfer path. This is compilation, not signed distribution or physical launch.
 - Native screenshots were visually inspected. Synthetic screenshots may be committed; personal score/library
@@ -89,6 +89,23 @@ reviewed snapshot bridge; subsequent continuous Mac↔iOS synchronization is not
   are required for the final acceptance record.
 
 **Independent fresh review:** no remaining P1 found in reviewed scope. Remote complete-set/session closure and missing-rep failures were independently reproduced, then fixed and rechecked against real persistence/reopen behavior. Native backup version2 compatibility was reviewed: archives/audio use version2 so older readers refuse before replacement; ordinary backups without those new fields retain version1. Final hosted run covers that exact source.
+
+### Selected native UI results across runs
+
+| Scenario | iPad seconds | Phone seconds |
+| --- | ---: | ---: |
+| HUD collapse keeps controls reachable | 41.296 | — |
+| Today starts first planned warmup | 12.610 | 10.200 |
+| Today starts new passage through cold grading | 12.887 | 13.698 |
+| Compact main/secondary navigation | — | 29.310 |
+| Mac transfer entry opens Files | 29.482 | 39.665 |
+| Controls fit and verdict leaves score stable | 21.528 | 27.440 |
+| Compact tempo drag and one-tap configuration | 18.576 | 59.478 |
+| Actual Mac import, passage, Start and Sloppy | 47.320 | — |
+
+These are individual scoped passes across retained results. The final hosted backup-compatibility result
+is private at `Praelude iOS Audit-2026-10-02/final-backup-compatibility.xcresult`; final isolated phone tempo
+is `/tmp/praelude-practicality-phone-oct2-tempo-retry.xcresult`. Personal result bundles/screenshots remain outside Git.
 
 ## Real native Mac import (private simulator probe)
 

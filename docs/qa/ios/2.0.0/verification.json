@@ -47,5 +47,6 @@
     "Desktop transfer is a snapshot; no continuous Mac adapter.",
     "Historical failed UI setup bundles remain failed.",
     "Intermittent simulator scroll-adjacent Today taps remain unexplained; final phone tempo run succeeds with one tap."
-  ]
+  ],
+  "implementationCommit": "635a5ae"
 }
