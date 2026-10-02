@@ -33,6 +33,7 @@ struct ScoreWorkspace: View {
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("ios.feedback") private var feedbackEnabled = true
+    @AppStorage("ios.autoTurnPassageAfterVerdict") private var autoTurnPassageAfterVerdict = false
     /// §9 "onboarding voice setup... check recognition in room": previously reachable only from
     /// Settings, never from the point a player actually turns hands-free on for the first time. See
     /// "(C) Audit.md".
@@ -57,6 +58,7 @@ struct ScoreWorkspace: View {
     /// interaction is turning pages. Always implies `focusMode` (tap-zone-only turning, hidden
     /// navigation bar and practice dock) — see `enterPerformanceMode`/`exitPerformanceMode`.
     @State private var performanceMode = false
+    @State private var showPerformanceExitHint = false
     @State private var twoPages = false
     @State private var halfPageTurns = false
     @State private var jumpBackStack: [Int] = []
@@ -239,7 +241,7 @@ struct ScoreWorkspace: View {
                             .accessibilityLabel("Metronome").accessibilityIdentifier("openMetronome")
                         Menu {
                             Button { performanceMode = false; focusMode = true } label: { Label("Focus on score", systemImage: "arrow.up.left.and.arrow.down.right") }
-                            Button { enterPerformanceMode() } label: { Label("Performance mode", systemImage: "rectangle.compress.vertical") }
+                            Button { enterPerformanceMode() } label: { Label("Performance mode · hold score to exit", systemImage: "rectangle.compress.vertical") }
                                 .accessibilityIdentifier("performanceMode")
                             if sizeClass == .regular {
                                 Toggle("Two pages", isOn: $twoPages).praeludeToggleHaptic(twoPages)
@@ -262,6 +264,7 @@ struct ScoreWorkspace: View {
                             }
                             Button("Score heatmap", systemImage: "square.grid.3x3.fill") { sheet = .heatmap }
                                 .disabled(scoreURL == nil)
+                            Toggle("Turn passage page after each verdict", isOn: $autoTurnPassageAfterVerdict)
                             Button("Replace score PDF", systemImage: "doc.badge.plus") { importing = true }
                             Button("Share annotated score", systemImage: "square.and.arrow.up") {
                                 guard markup.flushInk() else { return }
@@ -278,6 +281,22 @@ struct ScoreWorkspace: View {
         // overlays — on top of the app's own chrome already hidden above.
         .statusBarHidden(performanceMode)
         .persistentSystemOverlays(performanceMode ? .hidden : .automatic)
+        .overlay(alignment: .bottom) {
+            if performanceMode && showPerformanceExitHint {
+                Text("Touch and hold the score to exit performance mode")
+                    .font(.subheadline.weight(.medium)).multilineTextAlignment(.center)
+                    .padding(12).praeludeScoreChrome()
+                    .clipShape(RoundedRectangle(cornerRadius: 12)).padding(16)
+                    .allowsHitTesting(false).accessibilityIdentifier("performanceExitHint")
+            }
+        }
+        .task(id: performanceMode) {
+            guard performanceMode else { showPerformanceExitHint = false; return }
+            showPerformanceExitHint = true
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            showPerformanceExitHint = false
+        }
         .sheet(item: $sheet, onDismiss: {
             if let sharingURL { try? FileManager.default.removeItem(at: sharingURL.deletingLastPathComponent()); self.sharingURL = nil }
             if let passage = drawAfterDismiss { drawAfterDismiss = nil; markup.begin(passage, baseline: savedPassages.first { $0.id == passage.id }) }
@@ -558,15 +577,12 @@ struct ScoreWorkspace: View {
             try store.savePassage(passage)
         }
     }
-    /// §3a "nothing covers music while practicing": a saved-repetition acknowledgement used to float
-    /// as an overlay on top of the score itself (`.overlay(alignment: .bottom)`), so a Sloppy/Clean
-    /// card sat directly on the page for its whole 1.0–1.8s. Placing it here instead, inside the same
-    /// reserved `safeAreaInset` region the dock already occupies, gives it its own space above the
-    /// controls rather than borrowing the score's — see "(C) Audit.md".
+    /// Feedback stays inside the dock's existing bounds. Inserting a new row into the score's
+    /// safe-area inset changed PDFKit's fit scale on every repetition, moving the notation just as
+    /// the pianist started the next try. This overlay never changes the score viewport.
     @ViewBuilder private func withFeedback<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(spacing: 0) {
+        content().overlay(alignment: .top) {
             PracticeFeedbackView(feedback: runtime.feedback, setID: active?.id).allowsHitTesting(false)
-            content()
         }
     }
     @ViewBuilder private var practiceDock: some View {
@@ -585,14 +601,6 @@ struct ScoreWorkspace: View {
                     Text("Tap the score to mark where it broke.").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
                     Spacer(minLength: 8)
                     Button("Cancel") { markup.breakPointArmed = false }.font(.caption.weight(.semibold)).accessibilityIdentifier("cancelBreakPointTap")
-                }
-            } else if offerBreakPointTap, active?.status == .running {
-                HStack {
-                    Button("Mark where it broke") { markup.breakPointArmed = true }
-                        .font(.caption.weight(.semibold)).accessibilityIdentifier("markBreakPoint")
-                    Spacer(minLength: 8)
-                    Button("Skip") { offerBreakPointTap = false }
-                        .font(.caption).foregroundStyle(PraeludeColor.inkSecondary).accessibilityIdentifier("skipBreakPointTap")
                 }
             }
             if let active {
@@ -618,6 +626,8 @@ struct ScoreWorkspace: View {
                     // §8: draw one box without stopping the set — a new sub-passage, not a mode
                     // change, so the dock/HUD/music never move.
                     quickSubPassageArmed: markup.quickBoxArmed, onQuickSubPassage: { markup.quickBoxArmed = true },
+                    offersBreakPoint: offerBreakPointTap && !markup.breakPointArmed,
+                    onMarkBreakPoint: { markup.breakPointArmed = true }, onSkipBreakPoint: { offerBreakPointTap = false },
                     activePulseCheck: runtime.activePulseCheck, onDismissPulseCheck: { runtime.dismissPulseCheck() }
                 )
             } else if let other = store.activeSet, !other.isComplete {
@@ -743,7 +753,9 @@ struct ScoreWorkspace: View {
                 }
             }.navigationTitle("Hands-free").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { sheet = nil } } }
-                .sheet(isPresented: $showFirstVoiceCheck) { VoiceOnboardingView() }
+                .sheet(isPresented: $showFirstVoiceCheck, onDismiss: {
+                    speech.start(ownerID: voiceOwnerID, onCommand: handleVoice)
+                }) { VoiceOnboardingView() }
         }.presentationDetents([.large])
     }
     private func turnPage(_ direction: Int) {
@@ -829,6 +841,7 @@ struct ScoreWorkspace: View {
     /// — so that is when the score follows, cycling the passage's own pages rather than requiring a
     /// manual turn to see the rest of it.
     private func advancePassagePageIfNeeded() {
+        guard autoTurnPassageAfterVerdict else { return }
         // `nextPassagePage` compares against `PassageRegion.page` (source pages), so the currently
         // *displayed* page must be converted to its source equivalent before comparing, and the
         // result converted back before it reaches `page` (displayed) — see `EffectivePage`'s own

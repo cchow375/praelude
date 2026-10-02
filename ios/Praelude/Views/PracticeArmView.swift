@@ -19,15 +19,32 @@ struct PracticeArmView: View {
     @State private var showVariants = false
     @State private var variantDraft: [VariantStage] = []
     @State private var error: String?
+    @State private var setupExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if arm.awaitingColdGrade {
                 coldGradeSection
             } else if arm.configuration != nil {
-                header
-                quickConditions
-                tempoRow
+                HStack(spacing: 12) {
+                    header
+                    Spacer(minLength: 0)
+                    if !setupExpanded {
+                        HStack(spacing: 3) {
+                            TempoDial(bpm: startBPMBinding(configBinding), numeralSize: 22, compact: true)
+                            Text("BPM").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
+                        }
+                    }
+                    Button { setupExpanded.toggle() } label: {
+                        Image(systemName: setupExpanded ? "chevron.down" : "slider.horizontal.3")
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityLabel(setupExpanded ? "Hide practice options" : "Show practice options")
+                        .accessibilityIdentifier("armToggleOptions")
+                }
+                if setupExpanded {
+                    quickConditions
+                    tempoRow
+                }
                 HStack(spacing: 12) {
                     Button("More options", action: onOpenAdvanced).buttonStyle(.praeludeQuiet).fixedSize(horizontal: true, vertical: false)
                     Button(action: { start() }) {
@@ -36,6 +53,9 @@ struct PracticeArmView: View {
                 }
             }
             if let error { ErrorMessage(message: error) }
+        }
+        .onChange(of: configBinding.wrappedValue.startBPM) { _, newValue in
+            if configBinding.wrappedValue.targetBPM < newValue { configBinding.wrappedValue.targetBPM = newValue }
         }
         .sheet(isPresented: $showVariants) {
             NavigationStack {

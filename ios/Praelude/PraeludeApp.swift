@@ -32,6 +32,7 @@ struct PraeludeApp: App {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--uitesting") {
             if ProcessInfo.processInfo.arguments.contains("--seed") { UITestFixture.install(into: value) }
+            UITestFixture.installDesktopTransferIfRequested(into: value)
             UITestFixture.ensureOnboarded(into: value)
         }
         #endif
@@ -79,33 +80,7 @@ struct PraeludeApp: App {
         _presence = State(initialValue: presenceValue)
     }
     var body: some Scene {
-        WindowGroup {
-            AppRootView()
-                .environment(store).environment(metronome).environment(speech).environment(runtime).environment(rewards)
-                .environment(tuner).environment(drone).environment(recording)
-                .environment(auth).environment(syncCoordinator).environment(storage)
-                .environment(social).environment(socialHooks).environment(presence)
-                .preferredColorScheme(colorScheme)
-                .tint(PraeludeColor.ink)
-                .onChange(of: store.state.preferences.keepScreenAwake) { _, _ in runtime.updateScreenAwake() }
-                .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
-                .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
-                // Spec §4d/§9: the append-only rep log. Reacting to `attempts.count`/the undone-count
-                // (rather than wrapping every `PracticeStore.record`/`undo` call site — `record`/`undo`
-                // are already centralized in `PracticeRuntime`, but `startSet`/`pause`/`resume`/`endSet`
-                // are not, called directly from several Views/`PracticeArmController`) is the same
-                // "least invasive integration" `PracticeRuntime.syncRecording()`'s own doc comment
-                // already uses for this exact class of problem — see `SyncCoordinator.syncSet(_:)`.
-                .onChange(of: store.activeSet?.attempts.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
-                .onChange(of: store.activeSet?.attempts.filter { $0.undoneAt != nil }.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
-                .onChange(of: store.state.history.count) { _, _ in syncCoordinator.syncMostRecentFinishedSet() }
-                .onChange(of: store.state.recordings.count) { _, _ in syncCoordinator.syncNewestRecording() }
-                .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await syncCoordinator.syncAll() } } }
-                .task {
-                    syncCoordinator.startObservingNetwork()
-                    await syncCoordinator.syncAll()
-                }
-        }
+        WindowGroup { syncedRoot }
         WindowGroup("Score", for: UUID.self) { $pieceID in
             NavigationStack {
                 if let pieceID { ScoreWorkspace(pieceID: pieceID, onClose: nil) }
@@ -123,6 +98,36 @@ struct PraeludeApp: App {
             .onChange(of: store.state.history.count) { _, _ in syncCoordinator.syncMostRecentFinishedSet() }
         }
     }
+    private var configuredRoot: some View {
+        AppRootView()
+            .environment(store).environment(metronome).environment(speech).environment(runtime).environment(rewards)
+            .environment(tuner).environment(drone).environment(recording)
+            .environment(auth).environment(syncCoordinator).environment(storage)
+            .environment(social).environment(socialHooks).environment(presence)
+            .preferredColorScheme(colorScheme)
+            .tint(PraeludeColor.ink)
+    }
+    private var practiceObservedRoot: some View {
+        configuredRoot
+            .onChange(of: store.state.preferences.keepScreenAwake) { _, _ in runtime.updateScreenAwake() }
+            .onChange(of: store.activeSet?.id) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
+            .onChange(of: store.activeSet?.status) { _, _ in runtime.syncRecording(); runtime.syncPulseCheck(); syncCoordinator.syncActiveSetProgress() }
+            .onChange(of: store.activeSet?.attempts.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
+            .onChange(of: store.activeSet?.attempts.filter { $0.undoneAt != nil }.count) { _, _ in syncCoordinator.syncActiveSetProgress() }
+    }
+    private var syncedRoot: some View {
+        practiceObservedRoot
+            .onChange(of: store.state.history.count) { _, _ in syncCoordinator.syncMostRecentFinishedSet() }
+            .onChange(of: store.state.recordings.count) { _, _ in syncCoordinator.syncNewestRecording() }
+            .onChange(of: auth.state) { _, state in
+                if case .signedIn = state { Task { await syncCoordinator.syncAll() } }
+            }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await syncCoordinator.syncAll() } } }
+            .task {
+                syncCoordinator.startObservingNetwork()
+                await syncCoordinator.syncAll()
+            }
+    }
     private var colorScheme: ColorScheme? {
         switch store.state.preferences.theme { case "light": return .light; case "dark": return .dark; default: return nil }
     }
@@ -132,6 +137,9 @@ private enum Destination: String, CaseIterable, Identifiable {
     case today = "Today", pieces = "Pieces", friends = "Friends", warmups = "Warmups", progress = "Progress"
     case history = "History", calendar = "Calendar", notebook = "Notebook", insights = "Data"
     case rewards = "Rewards"
+    case more = "More"
+    static let compactTabs: [Destination] = [.today, .pieces, .warmups, .progress, .more]
+    static let moreDestinations: [Destination] = [.friends, .history, .calendar, .notebook, .insights, .rewards]
     var id: String { rawValue }
     var symbol: String {
         switch self {
@@ -145,6 +153,7 @@ private enum Destination: String, CaseIterable, Identifiable {
         case .notebook: return "note.text"
         case .insights: return "chart.xyaxis.line"
         case .rewards: return "rosette"
+        case .more: return "ellipsis.circle"
         }
     }
 }
@@ -199,7 +208,7 @@ struct AppRootView: View {
             if usesSidebar {
                 NavigationSplitView(columnVisibility: $sidebarVisibility) {
                     List {
-                        ForEach(Destination.allCases) { item in
+                        ForEach(Destination.allCases.filter { $0 != .more }) { item in
                             Button {
                                 navigateFromScore { destination = item; selectedPiece = nil }
                             } label: { Label(item.rawValue, systemImage: item.symbol).frame(minHeight: 32) }
@@ -239,7 +248,7 @@ struct AppRootView: View {
                 }.navigationSplitViewStyle(.balanced)
             } else {
                 TabView(selection: $destination) {
-                    ForEach(Destination.allCases) { item in
+                    ForEach(Destination.compactTabs) { item in
                         NavigationStack {
                             content(item).toolbar { ToolbarItem(placement: .topBarTrailing) { settingsButton } }
                         }.tabItem { Label(item.rawValue, systemImage: item.symbol) }.tag(item)
@@ -255,6 +264,9 @@ struct AppRootView: View {
                     }
                 }
             }
+        }
+        .onChange(of: usesSidebar) { _, sidebar in
+            if !sidebar, !Destination.compactTabs.contains(destination) { destination = .more }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if selectedPiece == nil, phoneScore == nil, !practicingWarmup, let active = store.activeSet, active.status != .ended {
@@ -390,6 +402,32 @@ struct AppRootView: View {
         case .notebook: NotebookView()
         case .insights: InsightsView()
         case .rewards: RewardsView()
+        case .more: moreNavigation
+        }
+    }
+    private var moreNavigation: some View {
+        List {
+            ForEach(Destination.moreDestinations) { item in
+                NavigationLink {
+                    secondaryContent(item)
+                } label: {
+                    Label(item.rawValue, systemImage: item.symbol).frame(minHeight: 44)
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(PraeludeColor.paper)
+        .navigationTitle("More")
+    }
+    @ViewBuilder private func secondaryContent(_ destination: Destination) -> some View {
+        switch destination {
+        case .friends: FriendsView()
+        case .history: HistoryView()
+        case .calendar: CalendarView()
+        case .notebook: NotebookView()
+        case .insights: InsightsView()
+        case .rewards: RewardsView()
+        default: EmptyView()
         }
     }
     /// Shows the oldest queued big celebration once it is safe to (§14: "never mid-set") — no

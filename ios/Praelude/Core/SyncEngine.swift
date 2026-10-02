@@ -30,7 +30,7 @@ public struct SyncRPCResult: Equatable, Sendable {
 /// no" (which is a normal `SyncRPCResult`, not a `throw`). `SyncEngine` treats every thrown error the
 /// same way (retry later, surface status) — this exists so a fake transport in tests can express
 /// "offline" without inventing its own error type.
-public enum SyncError: Error, Equatable, Sendable { case transport(String); case malformedQueueEntry(String) }
+public enum SyncError: Error, Equatable, Sendable { case transport(String); case malformedQueueEntry(String); case invalidRemoteRow(String) }
 
 public enum SyncOpKind: String, Codable, Sendable { case upsert, append, updateLastPage, undoAttempt }
 
@@ -70,7 +70,11 @@ public struct SyncQueueEntry: Codable, Identifiable, Equatable, Sendable {
 public struct SyncEngineState: Codable, Equatable, Sendable {
     public var cursors: [String: Date] = [:]
     public var profileBackendFields = ProfileBackendFields()
-    public init() {}
+    public var accountOwnerID: UUID?
+    /// Payloads already durably enqueued or received. Optional for older state-file compatibility.
+    public var outboundSnapshots: [String: [String: SyncJSON]]?
+    public init() { outboundSnapshots = [:] }
+
 }
 
 /// Owns the on-device outbound queue: appends survive a force-quit (persisted atomically before the
@@ -88,13 +92,18 @@ public final class SyncQueue {
         self.writeData = writeData
         if FileManager.default.fileExists(atPath: fileURL.path) {
             let data = try Data(contentsOf: fileURL)
-            entries = (try? JSONDecoder().decode([SyncQueueEntry].self, from: data)) ?? []
+            entries = try JSONDecoder().decode([SyncQueueEntry].self, from: data)
         }
     }
-    public func enqueue(_ entry: SyncQueueEntry) throws { entries.append(entry); try persist() }
-    public func removeFirst() throws { guard !entries.isEmpty else { return }; entries.removeFirst(); try persist() }
-    public func removeAll() throws { entries.removeAll(); try persist() }
-    private func persist() throws { try writeData(JSONEncoder().encode(entries), fileURL) }
+    init(inMemory: Void) { fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("unused-sync-queue"); writeData = { _, _ in } }
+    public func enqueue(_ entry: SyncQueueEntry) throws { try enqueue(contentsOf: [entry]) }
+    public func enqueue(contentsOf values: [SyncQueueEntry]) throws { try replace(entries + values) }
+    public func removeFirst(_ count: Int = 1) throws { guard !entries.isEmpty else { return }; try replace(Array(entries.dropFirst(count))) }
+    public func removeAll() throws { try replace([]) }
+    private func replace(_ next: [SyncQueueEntry]) throws {
+        try writeData(JSONEncoder().encode(next), fileURL)
+        entries = next
+    }
 }
 
 /// Drives the outbound queue against a `SyncTransport` and applies pulled rows through a caller-
@@ -122,6 +131,8 @@ public final class SyncEngine {
     private let now: () -> Date
     private let stuckThreshold: TimeInterval
     private var firstFailureAt: Date?
+    private var storageIsUnavailable = false
+    private var accountGeneration = 0
 
     public var pendingCount: Int { queue.entries.count }
 
@@ -138,12 +149,13 @@ public final class SyncEngine {
         self.now = now
         self.stuckThreshold = stuckThreshold
         self.writeData = writeData
-        if let primary = try? SyncQueue(directory: directory, writeData: writeData) {
-            queue = primary
-        } else {
-            let fallbackDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-fallback", isDirectory: true)
-            queue = (try? SyncQueue(directory: fallbackDirectory, writeData: writeData))
-                ?? (try! SyncQueue(directory: fallbackDirectory, writeData: { _, _ in })) // in-memory only
+        var queueFailure: Error?
+        do { queue = try SyncQueue(directory: directory, writeData: writeData) }
+        catch {
+            // Preserve unreadable/persistently unwritable primary queue; never replace it with []
+            // or replay another account's temporary fallback on a later launch.
+            queueFailure = error
+            queue = SyncQueue(inMemory: ())
         }
         stateFileURL = directory.appendingPathComponent("sync-state.json")
         if FileManager.default.fileExists(atPath: stateFileURL.path), let data = try? Data(contentsOf: stateFileURL),
@@ -152,19 +164,182 @@ public final class SyncEngine {
         } else {
             state = SyncEngineState()
         }
+        if queueFailure != nil {
+            storageIsUnavailable = true
+            status = .stuck("Sync storage could not be opened safely. Your local library and original sync queue are preserved.")
+        }
     }
 
     // MARK: Enqueueing (persists immediately — safe to call right before the app is force-quit)
 
-    public func enqueueUpsert(table: String, row: [String: SyncJSON]) throws { try queue.enqueue(.upsert(table: table, row: row, enqueuedAt: now())) }
-    public func enqueueAppend(table: String, row: [String: SyncJSON]) throws { try queue.enqueue(.append(table: table, row: row, enqueuedAt: now())) }
-    public func enqueueLastPage(pieceID: UUID, lastPage: Int) throws { try queue.enqueue(.updateLastPage(pieceID: pieceID, lastPage: lastPage, at: now())) }
-    public func enqueueUndoAttempt(attemptID: UUID) throws { try queue.enqueue(.undoAttempt(attemptID: attemptID, undoneAt: now())) }
+    public func enqueueUpsert(table: String, row: [String: SyncJSON]) throws { try enqueueSnapshot([.upsert(table: table, row: row, enqueuedAt: now())]) }
+    public func enqueueAppend(table: String, row: [String: SyncJSON]) throws { try enqueueSnapshot([.append(table: table, row: row, enqueuedAt: now())]) }
+    public func enqueueLastPage(pieceID: UUID, lastPage: Int, at: Date? = nil) throws {
+        try enqueueSnapshot([.updateLastPage(pieceID: pieceID, lastPage: lastPage, at: at ?? now())])
+    }
+    public func enqueueUndoAttempt(attemptID: UUID, undoneAt: Date? = nil) throws {
+        try enqueueSnapshot([.undoAttempt(attemptID: attemptID, undoneAt: undoneAt ?? now())])
+    }
+
+    /// Batch persistence avoids rewriting a thousands-rep queue once per historical rep.
+    /// A signature is remembered only after its queue entries are durably written.
+    public func enqueueSnapshot(_ entries: [SyncQueueEntry]) throws {
+        guard !storageIsUnavailable else { throw SyncError.transport("Sync storage is unavailable.") }
+        var snapshots = state.outboundSnapshots ?? [:]
+        var pending: [SyncQueueEntry] = []
+        for entry in entries {
+            let key = Self.snapshotKey(entry)
+            let payload = Self.snapshotPayload(entry)
+            guard snapshots[key] != payload else { continue }
+            snapshots[key] = payload
+            pending.append(entry)
+        }
+        guard !pending.isEmpty else { return }
+        try queue.enqueue(contentsOf: pending)
+        let old = state.outboundSnapshots
+        state.outboundSnapshots = snapshots
+        do { try persistState() }
+        catch { state.outboundSnapshots = old; throw error }
+    }
+    public func acknowledgePulledRow(table: String, row: [String: SyncJSON]) throws {
+        let entry = SyncQueueEntry.upsert(table: table, row: row)
+        // Event signatures use the append namespace, including for receiving remote attempts.
+        let kind: SyncOpKind = Self.appendTables.contains(table) ? .append : .upsert
+        var received = entry; received.kind = kind
+        state.outboundSnapshots = state.outboundSnapshots ?? [:]
+        state.outboundSnapshots?[Self.snapshotKey(received)] = Self.snapshotPayload(received)
+        // The enclosing pull/drain persists once after successful local application. Replaying
+        // acknowledged, idempotent rows after an interrupted pass is safe.
+    }
+    public func hasSnapshot(table: String) -> Bool {
+        (state.outboundSnapshots ?? [:]).keys.contains { $0.hasPrefix("upsert#\(table)#") }
+    }
+    private func differsFromDefault<T: Encodable>(_ value: T, _ defaultValue: T, ignoring extraKeys: Set<String> = []) throws -> Bool {
+        func content(_ object: T) throws -> [String: SyncJSON] {
+            let row = try SyncJSON(encoding: object).objectValue ?? [:]
+            return row.filter { !extraKeys.union(["created_at", "updated_at"]).contains($0.key) }
+        }
+        return try content(value) != content(defaultValue)
+    }
+    public func bindAccount(_ userID: UUID) throws {
+        if let owner = state.accountOwnerID, owner != userID { throw SyncError.transport("This sync queue belongs to a different account.") }
+        state.accountOwnerID = userID
+        try persistState()
+    }
+    public func reportFailure(_ error: Error) {
+        if firstFailureAt == nil { firstFailureAt = now() }
+        status = now().timeIntervalSince(firstFailureAt!) >= stuckThreshold
+            ? .stuck("Some practice data hasn't synced yet. It remains saved on this device. \(error.localizedDescription)")
+            : .offline
+    }
+    public func blockAccountMismatch() {
+        status = .stuck("This device's library belongs to another account. Sign back into that account to sync it safely.")
+    }
+    private static let appendTables: Set<String> = ["attempts", "rule_events", "reward_ledger", "badges", "milestone_events", "cold_grades", "break_point_taps"]
+    private static func snapshotKey(_ entry: SyncQueueEntry) -> String {
+        switch entry.kind {
+        case .upsert, .append: return "\(entry.kind.rawValue)#\(entry.table)#\(entry.row["id"]?.stringValue ?? entry.row["owner_id"]?.stringValue ?? "singleton")"
+        case .updateLastPage: return "page#\(entry.pieceID?.uuidString ?? entry.id.uuidString)"
+        case .undoAttempt: return "undo#\(entry.attemptID?.uuidString ?? entry.id.uuidString)"
+        }
+    }
+    private static func snapshotPayload(_ entry: SyncQueueEntry) -> [String: SyncJSON] {
+        switch entry.kind {
+        case .upsert, .append:
+            var row = entry.row
+            row.removeValue(forKey: "owner_id")
+            row.removeValue(forKey: "created_at")
+            if entry.table == "attempts" { row.removeValue(forKey: "undone_at") }
+            if entry.table == "sets" || entry.table == "practice_sessions" {
+                row.removeValue(forKey: "updated_at")
+            }
+            return row
+        case .updateLastPage: return ["last_page": .number(Double(entry.lastPage ?? 1)), "at": .string(SyncCoding.iso8601Formatter.string(from: entry.at))]
+        case .undoAttempt: return ["undone_at": .string(SyncCoding.iso8601Formatter.string(from: entry.at))]
+        }
+    }
+
+    /// Reconciles offline/guest/imported data as well as edits from views that do not push explicitly.
+    /// Dependencies precede child rows and every rep; signatures prevent unchanged history writes.
+    public func enqueueLibrarySnapshot(_ library: LibraryState) throws {
+        var entries: [SyncQueueEntry] = []
+        func upsert<T: Encodable>(_ table: String, _ value: T) throws {
+            guard let row = try SyncJSON(encoding: value).objectValue else { throw SyncError.invalidRemoteRow(table) }
+            entries.append(.upsert(table: table, row: row, enqueuedAt: now()))
+        }
+        func append<T: Encodable>(_ table: String, _ value: T) throws {
+            guard let row = try SyncJSON(encoding: value).objectValue else { throw SyncError.invalidRemoteRow(table) }
+            entries.append(.append(table: table, row: row, enqueuedAt: now()))
+        }
+        for value in library.instruments { try upsert("instruments", InstrumentSyncRow(value)) }
+        for value in library.pieces { try upsert("pieces", PieceSyncRow(value)) }
+        var remainingPassages = library.passages
+        let allPassageIDs = Set(library.passages.map(\.id))
+        var queuedPassageIDs: Set<UUID> = []
+        while !remainingPassages.isEmpty {
+            let ready = remainingPassages.filter { passage in
+                passage.parentPassageID == nil || queuedPassageIDs.contains(passage.parentPassageID!)
+            }
+            guard !ready.isEmpty else { throw SyncError.invalidRemoteRow("Missing or cyclic parent passage.") }
+            for value in ready {
+                if let parent = value.parentPassageID, !allPassageIDs.contains(parent) { throw SyncError.invalidRemoteRow("Missing parent passage.") }
+                try upsert("passages", PassageSyncRow(value)); queuedPassageIDs.insert(value.id)
+            }
+            remainingPassages.removeAll { queuedPassageIDs.contains($0.id) }
+        }
+        for value in library.inkStrokes { if let dto = InkStrokeSyncRow(value) { try upsert("ink_strokes", dto) } }
+        for value in library.tags { try upsert("tags", TagSyncRow(value)) }
+        for value in library.folders { try upsert("folders", FolderSyncRow(value)) }
+        for value in library.setlists { try upsert("setlists", SetlistSyncRow(value)) }
+        for value in library.bookmarks { try upsert("bookmarks", BookmarkSyncRow(value)) }
+        for value in library.pageEdits { try upsert("page_edits", PageEditSyncRow(value)) }
+        for value in library.scoreLinks { try upsert("score_links", ScoreLinkSyncRow(value)) }
+        for value in library.textAnnotations { try upsert("annotations", AnnotationSyncRow(value)) }
+        for value in library.stampAnnotations { try upsert("annotations", AnnotationSyncRow(value)) }
+        for value in library.warmupExercises { try upsert("warmup_exercises", WarmupExerciseSyncRow(value)) }
+        for value in library.recordings { try upsert("audio_recordings", AudioRecordingSyncRow(value)) }
+        for value in library.notebookEntries { try upsert("notebook_entries", NotebookEntrySyncRow(value)) }
+        for value in library.sessions { try upsert("practice_sessions", PracticeSessionSyncRow(value, pushedAt: now())) }
+        let sets = library.history + (library.activeSet.map { [$0] } ?? [])
+        for value in sets { try upsert("sets", SetSyncRow(value, pushedAt: now())) }
+        // Skip fresh-device defaults until the first server copy is received. User-customized
+        // guest state and later changes still enqueue, including views without explicit hooks.
+        let ruleSettings = RuleSettingsSyncRow(library.ruleSettings)
+        if try hasSnapshot(table: "rule_settings") || differsFromDefault(ruleSettings, RuleSettingsSyncRow(RuleSettings())) {
+            try upsert("rule_settings", ruleSettings)
+        }
+        let rewardsState = RewardsStateSyncRow(library.rewardsState)
+        if try hasSnapshot(table: "rewards_state") || differsFromDefault(rewardsState, RewardsStateSyncRow(RewardsState())) {
+            try upsert("rewards_state", rewardsState)
+        }
+        if library.profile.ownerID != nil {
+            let profile = ProfileSyncRow(library.profile, extras: state.profileBackendFields)
+            if try hasSnapshot(table: "profiles") || differsFromDefault(profile, ProfileSyncRow(Profile(), extras: ProfileBackendFields()), ignoring: ["join_date"]) {
+                try upsert("profiles", profile)
+            }
+        }
+        for set in sets {
+            for attempt in set.attempts {
+                try append("attempts", AttemptSyncRow(attempt, setID: set.id))
+                if let undoneAt = attempt.undoneAt { entries.append(.undoAttempt(attemptID: attempt.id, undoneAt: undoneAt)) }
+            }
+        }
+        for value in library.ruleEvents { try append("rule_events", RuleEventSyncRow(value)) }
+        for value in library.rewardLedger { try append("reward_ledger", RewardLedgerEntrySyncRow(value)) }
+        for value in library.badges { try append("badges", BadgeSyncRow(value)) }
+        for value in library.milestoneEvents { try append("milestone_events", MilestoneEventSyncRow(value)) }
+        for value in library.coldGrades { try append("cold_grades", ColdGradeRecordSyncRow(value)) }
+        for value in library.breakPointTaps { try append("break_point_taps", BreakPointTapSyncRow(value)) }
+        for piece in library.pieces {
+            entries.append(.updateLastPage(pieceID: piece.id, lastPage: piece.lastPage, at: piece.lastPageUpdatedAt))
+        }
+        try enqueueSnapshot(entries)
+    }
 
     /// Drops every queued write without sending it. Used only on sign-out: the queue is per-account
     /// local state, and a pending write from account A must never be replayed after signing into
     /// account B on the same device.
-    public func discardPendingWrites() throws { try queue.removeAll(); firstFailureAt = nil; status = .idle }
+    public func discardPendingWrites() throws { accountGeneration += 1; try queue.removeAll(); firstFailureAt = nil; status = .idle }
 
     /// Clears every piece of local sync bookkeeping tied to whichever account was just signed out
     /// of: the outbound queue (see `discardPendingWrites`), every table's pull cursor, and the
@@ -187,25 +362,45 @@ public final class SyncEngine {
     /// explicit that the client must adopt the returned row rather than retry the same payload, so
     /// this is not optional plumbing, it is how a losing write resolves instead of looping forever.
     @discardableResult
-    public func drain(applyPulledRow: (_ table: String, _ row: [String: SyncJSON]) -> Void = { _, _ in }) async -> Bool {
-        guard status != .syncing else { return false }
+    public func drain(applyPulledRow: (_ table: String, _ row: [String: SyncJSON]) throws -> Void = { _, _ in },
+                      adoptPracticeSnapshot: (() async throws -> Void)? = nil) async -> Bool {
+        guard !storageIsUnavailable, status != .syncing else { return false }
         guard !queue.entries.isEmpty else { status = .idle; return true }
         status = .syncing
-        while let entry = queue.entries.first {
+        let generation = accountGeneration
+        var confirmed = 0
+        var needsPracticeAdoption = false
+        // A force-quit may replay up to 32 already-accepted idempotent RPCs, never lose one.
+        // Persisting acknowledgments in bounded batches avoids quadratic JSON writes on import.
+        let pending = queue.entries
+        for entry in pending {
+            guard generation == accountGeneration else { return false }
             do {
                 let result = try await perform(entry)
-                if entry.kind == .upsert, !result.applied, let row = result.row { applyPulledRow(entry.table, row) }
-                try queue.removeFirst()
+                guard generation == accountGeneration else { return false }
+                if entry.kind == .upsert, !result.applied, let row = result.row {
+                    if adoptPracticeSnapshot != nil, entry.table == "sets" || entry.table == "practice_sessions" {
+                        // Keep this rejection and every later entry durable while sending the
+                        // rest of the graph. Only a successful atomic adoption acknowledges it.
+                        needsPracticeAdoption = true
+                    } else { try applyPulledRow(entry.table, row) }
+                }
+                confirmed += 1
+                if confirmed == 32 && !needsPracticeAdoption { try queue.removeFirst(confirmed); confirmed = 0 }
                 firstFailureAt = nil
             } catch {
-                if firstFailureAt == nil { firstFailureAt = now() }
-                let stuckFor = now().timeIntervalSince(firstFailureAt!)
-                status = stuckFor >= stuckThreshold
-                    ? .stuck("Some practice history hasn't synced yet. It's saved on this device and will go through when the connection is back.")
-                    : .offline
+                guard generation == accountGeneration else { return false }
+                if confirmed > 0 && !needsPracticeAdoption { try? queue.removeFirst(confirmed) }
+                reportFailure(error)
                 return false
             }
         }
+        do {
+            if needsPracticeAdoption, let adoptPracticeSnapshot { try await adoptPracticeSnapshot() }
+            guard generation == accountGeneration else { return false }
+            if confirmed > 0 { try queue.removeFirst(confirmed) }
+        } catch { reportFailure(error); return false }
+        do { try persistState() } catch { reportFailure(error); return false }
         status = .idle
         lastSyncedAt = now()
         return true
@@ -240,17 +435,38 @@ public final class SyncEngine {
     /// name here so pulling a log still advances a real cursor instead of either re-fetching every
     /// row ever appended on every sync, or (worse) never establishing one and silently pulling
     /// nothing past the first page.
-    public func pull(table: String, cursorField: String = "updated_at", applyRow: (_ row: [String: SyncJSON]) -> Void) async throws {
+    public func pull(table: String, cursorField: String = "updated_at", applyRow: (_ row: [String: SyncJSON]) throws -> Void) async throws {
+        try await pullRows(table: table, cursorField: cursorField) { rows in
+            for row in rows { try applyRow(row) }
+        }
+    }
+    /// Applies a whole fetched table before acknowledging its cursor, allowing the rep log to
+    /// merge in one atomic library transaction instead of rewriting the library once per rep.
+    public func pullRows(table: String, cursorField: String = "updated_at", applyRows: ([[String: SyncJSON]]) throws -> Void) async throws {
         let cursorKey = cursorField == "updated_at" ? table : "\(table)#\(cursorField)"
-        let rows = try await transport.fetch(table: table, field: cursorField, updatedSince: state.cursors[cursorKey])
+        let rows = try await transport.fetch(table: table, field: cursorField, updatedSince: nil)
+        try applyRows(rows)
         var latest = state.cursors[cursorKey]
         for row in rows {
-            applyRow(row)
-            if let value = row[cursorField]?.stringValue.flatMap(SyncCoding.iso8601Formatter.date(from:)), latest == nil || value > latest! {
-                latest = value
-            }
+            if let value = row[cursorField]?.stringValue.flatMap(SyncCoding.parseDate), latest == nil || value > latest! { latest = value }
         }
-        if let latest { state.cursors[cursorKey] = latest; try persistState() }
+        if let latest { state.cursors[cursorKey] = latest }
+        try persistState()
+    }
+
+    /// Fetch parent sessions, set metadata, and their rep log before acknowledging any of them.
+    /// The callback commits one validated practice snapshot; failure leaves every cursor unchanged.
+    public func pullPracticeSnapshot(applyRows: ([String: [[String: SyncJSON]]]) throws -> Void) async throws {
+        let tables = [("practice_sessions", "updated_at"), ("sets", "updated_at"), ("attempts", "date")]
+        var rows: [String: [[String: SyncJSON]]] = [:]
+        for (table, field) in tables { rows[table] = try await transport.fetch(table: table, field: field, updatedSince: nil) }
+        try applyRows(rows)
+        for (table, field) in tables {
+            let key = field == "updated_at" ? table : "\(table)#\(field)"
+            let dates = (rows[table] ?? []).compactMap { $0[field]?.stringValue.flatMap(SyncCoding.parseDate) }
+            if let latest = dates.max(), state.cursors[key] == nil || latest > state.cursors[key]! { state.cursors[key] = latest }
+        }
+        try persistState()
     }
 
     public func updateProfileBackendFields(_ fields: ProfileBackendFields) throws {
@@ -268,5 +484,21 @@ public final class SyncEngine {
 public enum LastWriteWins {
     public static func shouldApplyPulled(pulledUpdatedAt: Date, localUpdatedAt: Date) -> Bool {
         pulledUpdatedAt > localUpdatedAt
+    }
+}
+
+/// Collects every ordered server page, advancing by the actual response size because a hosted
+/// server may enforce a lower cap than the requested size. An empty page proves exhaustion.
+public enum SyncPagination {
+    public static func collect(pageSize: Int = 500, fetchPage: @Sendable (Int, Int) async throws -> [[String: SyncJSON]]) async throws -> [[String: SyncJSON]] {
+        guard pageSize > 0 else { throw SyncError.transport("Invalid sync page size.") }
+        var rows: [[String: SyncJSON]] = []
+        var offset = 0
+        while true {
+            let page = try await fetchPage(offset, pageSize)
+            guard !page.isEmpty else { return rows }
+            rows.append(contentsOf: page)
+            offset += page.count
+        }
     }
 }

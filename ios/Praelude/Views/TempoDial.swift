@@ -13,6 +13,7 @@ struct TempoDial: View {
     @Binding var bpm: Double
     var locked: Bool = false
     var numeralSize: CGFloat = 60
+    var compact = false
     /// The caller decides what "tap tempo" means (`MetronomeService.tap()` when a metronome is in
     /// play, or a purely local interval average before one exists); `nil` hides the control.
     var onTapTempo: (() -> Void)? = nil
@@ -26,7 +27,7 @@ struct TempoDial: View {
                 .foregroundStyle(PraeludeColor.ink)
                 .contentTransition(.numericText())
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: bpm)
-                .frame(minWidth: numeralSize * 1.6)
+                .frame(minWidth: numeralSize * 1.6, minHeight: 44)
                 .contentShape(Rectangle())
                 .allowsHitTesting(!locked)
                 .gesture(dragGesture)
@@ -42,10 +43,12 @@ struct TempoDial: View {
                     default: break
                     }
                 }
-            Text(locked ? "TEMPO · FOLLOWS YOUR SET" : "BEATS PER MINUTE")
-                .font(.caption2.weight(.semibold)).tracking(1.1)
-                .foregroundStyle(PraeludeColor.inkTertiary)
-            if !locked {
+            if !compact {
+                Text(locked ? "TEMPO · FOLLOWS YOUR SET" : "BEATS PER MINUTE")
+                    .font(.caption2.weight(.semibold)).tracking(1.1)
+                    .foregroundStyle(PraeludeColor.inkTertiary)
+            }
+            if !locked && !compact {
                 HStack(spacing: 8) {
                     nudgeButton(-5, label: "−5")
                     nudgeButton(-1, label: "−1")

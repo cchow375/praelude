@@ -1,6 +1,6 @@
 # Praelude — Command Center
 
-**Last updated: 2026-09-14. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
+**Last updated: 2026-10-02. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
 
 **Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
 
@@ -8,44 +8,17 @@ This is the live entry map. Historical release detail belongs in [[(C) Changelog
 
 ## Current work
 
-**Current mobile work — 1.1.0/build2/schema2 DEVELOPMENT CANDIDATE, scoped verification complete:** visual passage boxes,
-PencilKit ink, recorded-target history, annotated-PDF sharing/Print, metronome and reward controls
-are implemented in the independent native target. Open [current mobile guide](/Users/c3/praelude/ios/README.md),
-[task context](/Users/c3/praelude/ios/AGENTS.md), [development](/Users/c3/praelude/ios/docs/DEVELOPMENT.md),
-[install/renewal](/Users/c3/praelude/ios/docs/INSTALL_ON_IPAD.md), [workflow guide](/Users/c3/praelude/ios/docs/USING_MOBILE.md)
-and [mobile roadmap](/Users/c3/praelude/ios/docs/ROADMAP.md). Same Git repo, separate mobile workspace.
+**Mobile current source (2026-10-02): 2.0.0/build3, schema3, DEVELOPMENT CANDIDATE.** The current SwiftUI app includes a configured Supabase backend, accounts, mobile sync/private score storage, multi-instrument practice, expanded score tools, warmups, history, notebooks, rewards and social views. These source capabilities supersede the September 14 1.1 description; they do not establish a new physical installation or hardware acceptance.
 
-**Current QA:** 29 core tests, 2,166 service assertions, 28 fake-device helper tests and 36/36 native hosted tests
-on each simulator pass. The final-toolbar iPad9 selected run passes 3/3: finger 59.497 s, meter 61.653 s,
-Focus 23.719 s. iPad7 supplies box editing/relaunch and accessibility markup in both orientations;
-five targeted iPad scenarios pass across runs. Phone3 passes 36 hosted plus 3 selected UI, and Phone2
-supplies the other four UI passes: seven distinct phone scenarios pass across runs. Phone4 also passes its final-toolbar finger 91.652 s/meter 84.624 s recheck. Final exact-source signed Release verification passes. Earlier failed runs remain
-failed; no all-green full-scheme or physical-feature claim is made.
+**Mac library transfer:** a new read-only SQLite exporter and additive native importer preserve the complete original Mac database plus all 46 table projections. The private October 2 snapshot contains 11 piece rows (one system row), 13 distinct PDFs/14 edition paths, 140 passages, 31 goals, 3,313 repetitions, 370 sets and 67 sessions. One score, “Aolean Harp Contemporary,” is missing from the Mac; its records and missing reference are retained. Available stale-path scores are recovered through the current piece folders, with warnings. The original Mac database is not changed or uploaded.
 
-Phone3 pre-Undo/after-Redo images verify visible ink after the PDF/PencilKit gesture correction.
-The 44-point toolbar entry and corrected offscreen meter-test guards now pass on iPad9. The
-historical phone backup UI gap is closed by Phone3 simulator evidence. This update's complete
-file preservation passes; physical Pencil and in-app backup/restore acceptance remain open. See [current QA](/Users/c3/praelude/docs/qa/ios/1.1.0/README.md).
+Imported scores, equivalent passages/goals and matching pencil marks become native content; original Mac history/contracts/corrections remain readable under **Progress → Mac practice record** and travel with native backups. Old sets are not replayed through different mobile rules and do not grant new rewards. This is a reviewed snapshot transfer, not continuous Mac↔iOS sync or complete semantic parity. Supabase sync covers supported native records and private PDFs/recordings; goals/routines, custom cover bytes and the original Mac archive are not cloud-wired.
 
-**Installed mobile candidate, launch pending:** the iPad now reports **1.1.0/build2**, installed
-at 20:56 EDT on September 14 from source `124707d`. Complete private copies before and after
-installation match all owned file names, byte counts and SHA-256. The preserved ledger is schema1;
-first-launch schema2 migration has not been accepted. Automatic launch was denied with a generic
-security/unlock error, with exact cause unproven. User unlock/open and conditional Developer App
-trust are pending; this is not physical-feature acceptance. The signed candidate remains at ignored
-`releases/ios-personal-1.1.0/Praelude.app`, with profile expiry September 21 at 21:24:58 UTC.
+**Practicality fixes:** compact practice controls fit narrow screens; acknowledgements do not resize the score; passage-page turning after verdicts is opt-in; Today launches the first warmup in its plan; phone navigation has four main tabs plus a deliberate More; first voice-check dismissal starts requested hands-free listening; Performance mode explains its exit gesture. Native backup now includes recording files and preserved Mac archives. Sync gains paginated reads, guest-library catch-up, local-save retry, remote Undo, file retries and account isolation. Full source/core checks and scoped native evidence are in `docs/qa/ios/2.0.0/README.md`.
 
-Earlier PDF-copy probes and the 20:50 refresh failed before installation. The 20:52 Xcode container
-download failed on a SplashBoard snapshot cache with CoreDevice7000/POSIX1; only partial caches
-were obtained. Complete copying succeeded after the user reported ready, clearing the former hold.
-The helper retained both verified copies and used no deletion, reset, restore or explicit termination.
+**Device boundary:** October 2 read-only status found no connected iPad/iPhone. No physical install, migration, Mac-data upload, real-account/two-device sync, or microphone-over-piano acceptance is claimed. The last documented physical install remains September 14 1.1/build2 with verified file preservation and a launch/trust boundary. Current app/account/device state must be rechecked when connected.
 
-**Historical native baseline:** 1.0 installed at 17:51 EDT with Developer Mode enabled; the initial
-launch request encountered developer trust. Later user activity does not replace a controlled
-launch/feature verdict. Its app and QA remain unchanged: 22 core, 2,041 service, 13 hosted per
-simulator, 8/8 distinct iPad and 7/8 phone UI across runs. Phone3 now closes the complete phone backup UI gap with simulator evidence; physical in-app backup/restore remains open.
-B115 keeps physical/distribution, Mac-sync and unported feature limits open. Mac v11.1.0/schema21
-and its personal data are untouched; Assistant stays off/on hold.
+**Next steps:** connect/unlock the iPad for a guarded same-bundle update, then import the reviewed transfer from Files. Confirm score boxes/ink and history on hardware, sign into the intended account, and verify a real second-device sync before trusting cross-device continuity. Mac integration remains a separate adapter; Assistant remains on hold.
 
 Project portability is now part of the canonical private repository. `docs/project/` mirrors the
 living manual and every Markdown version record; `docs/NEW_MAC_SETUP.md` separates a safe developer
@@ -63,15 +36,12 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 
 ## Open threads
 
-- [x] Mobile 1.1.0 scoped simulator checks and final exact-source signed Release verification.
-- [x] Device update: 1.1.0/build2 installed at 20:56 EDT; complete owned-library pre/post file comparison passes.
-- [ ] Controlled device launch and first-launch schema2 migration; unlock/open and conditional trust pending.
-- [x] Mobile developer handoff and helper28 fake-device safety checks; this update's real full-copy gate passes.
-- [x] Historical iPad cable install: Developer Mode enabled, 1.0.0/build1 confirmed at 17:51 EDT.
-- [ ] Physical Pencil/audio/voice, interruption, accessibility, sharing/Print and backup acceptance (B115).
-- [x] Complete phone backup UI: Phone3 export/cancel/restore/cancel passes; physical in-app backup/restore remains open.
-- [ ] Native parity: Mac schema21 migration/sync, Listen Back, cloud mapping, full Studio economy,
-      desktop warmups/history repair and broader forScore tools remain separate scope.
+- [x] Current mobile source overview and snapshot-transfer implementation; original Mac rows preserved.
+- [x] Core/exporter checks and targeted source fixes; exact native evidence is in the 2.0 QA ledger.
+- [ ] Connect/unlock device, guarded update and reviewed Mac import; October 2 status found no device.
+- [ ] Hardware score/ink/voice/recording/interruptions acceptance and intended-account/two-device sync.
+- [ ] Continuous Mac↔iOS adapter, integrated original-history analytics, cloud goals/routines and remote file versions.
+- [ ] Locate the missing Cowell “Aolean Harp Contemporary” PDF without inventing its content.
 - [x] v11.1 progressive practice feedback, independent review, package/install and exact preservation. Runtime `c411e7b`; `docs/qa/v11.1.0/` is the current evidence ledger.
 - [x] Fresh-Mac development portability: current manual/version records are Git-backed; clone,
       toolchain, bootstrap, verification and local-only state boundaries are documented and checked.
@@ -80,7 +50,7 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 - [x] Native Score/Variants permission boundary: fresh installed v11.1 renders the real nine-page Beethoven score, passage controls and Variants dialog.
 - [ ] Christian’s audible/practice verdict, including native voice acknowledgement overlap and sustained motivation.
 - [ ] Custom-cover picker selection/save/restart (B109).
-- [ ] Accounts, sync and friends: no service configured; local profile only.
+- [ ] Installed Mac accounts/sync/friends remain absent; the mobile candidate has configured Supabase source support, pending real-account acceptance.
 - [ ] Windows9.1 native Windows10/11 acceptance; current candidate unchanged.
 - [ ] Microphone/Listen Back over the Steinway and real-provider measure mapping. Assistant remains off.
 - [ ] Whole-home one-copy audit is incomplete. This release removes its temporary build/rollback app copies and keeps archive backups. Old CodaKiller9 mounted installer media were observed; no exhaustive scan claimed.

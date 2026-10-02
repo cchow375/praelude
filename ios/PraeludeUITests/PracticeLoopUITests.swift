@@ -17,9 +17,13 @@ final class PracticeLoopUITests: XCTestCase {
         let hideSidebar = app.buttons["Hide Sidebar"]
         if hideSidebar.waitForExistence(timeout: 1), hideSidebar.isHittable { hideSidebar.press(forDuration: 0.15) }
         let piece = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Practice study")).firstMatch
+        _ = piece.waitForExistence(timeout: 2)
+        for _ in 0..<8 where !piece.exists || !piece.isHittable { app.swipeUp() }
         XCTAssertTrue(piece.waitForExistence(timeout: 10), app.debugDescription)
-        for _ in 0..<5 where !piece.isHittable { app.swipeUp() }
         piece.press(forDuration: 0.15)
+        if !app.buttons["passages"].waitForExistence(timeout: 3), piece.isHittable {
+            piece.press(forDuration: 0.15)
+        }
     }
 
     /// Tap 1 of §10a's "tap a passage outline, then Start": the seeded passage from the Passages
@@ -33,6 +37,7 @@ final class PracticeLoopUITests: XCTestCase {
         XCTAssertTrue(passages.waitForExistence(timeout: 15), app.debugDescription)
         passages.press(forDuration: 0.15)
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "savedPassage_")).firstMatch
+        if !row.waitForExistence(timeout: 3), passages.isHittable { passages.press(forDuration: 0.15) }
         XCTAssertTrue(row.waitForExistence(timeout: 15), app.debugDescription)
         row.press(forDuration: 0.15)
     }
@@ -65,7 +70,7 @@ final class PracticeLoopUITests: XCTestCase {
     /// attempts and no cold grade recorded, so R4 could never advance its schedule. See "(C) Audit.md".
     @MainActor func testTodayStartSessionGoesThroughColdGradeForANewPassage() {
         let app = launch()
-        let startSession = app.buttons["startSession"]
+        let startSession = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "startSessionItem_new_")).firstMatch
         XCTAssertTrue(startSession.waitForExistence(timeout: 15), app.debugDescription)
         startSession.press(forDuration: 0.15)
         // Landing on the score, the never-graded passage's cold-grade prompt must show — never a
@@ -78,6 +83,91 @@ final class PracticeLoopUITests: XCTestCase {
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
         ensureExpanded(app)
         XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 15), app.debugDescription)
+    }
+
+    @MainActor func testTodayStartSessionBeginsTheFirstWarmup() {
+        let app = launch()
+        let startSession = app.buttons["startSession"]
+        XCTAssertTrue(startSession.waitForExistence(timeout: 15), app.debugDescription)
+        startSession.press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["closeWarmupPractice"].waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["warmupProgress"].exists, app.debugDescription)
+        screenshot("loop-today-start-first-warmup", app: app)
+    }
+
+    @MainActor func testCompactNavigationKeepsPracticeTabsAndSecondaryViewsReachable() throws {
+        let app = launch()
+        let tabs = app.tabBars.firstMatch
+        guard tabs.waitForExistence(timeout: 2) else { throw XCTSkip("Sidebar navigation is active on this form factor.") }
+        for title in ["Today", "Pieces", "Warmups", "Progress", "More"] {
+            XCTAssertTrue(tabs.buttons[title].isHittable, app.debugDescription)
+        }
+        tabs.buttons["More"].press(forDuration: 0.15)
+        for title in ["Friends", "History", "Calendar", "Notebook", "Data", "Rewards"] {
+            XCTAssertTrue(app.buttons[title].waitForExistence(timeout: 10), app.debugDescription)
+        }
+        screenshot("loop-compact-more-navigation", app: app)
+    }
+
+    @MainActor func testMacTransferEntryExplainsScopeAndOpensFiles() {
+        let app = launch()
+        let settings = app.buttons["appSettings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 15), app.debugDescription)
+        settings.press(forDuration: 0.15)
+        let settingsTitle = app.navigationBars["Settings"]
+        if !settingsTitle.waitForExistence(timeout: 3), settings.isHittable {
+            settings.press(forDuration: 0.15)
+        }
+        XCTAssertTrue(settingsTitle.waitForExistence(timeout: 10), app.debugDescription)
+        let entry = app.buttons["Import from Mac"]
+        let settingsList = app.collectionViews.firstMatch
+        for _ in 0..<8 where !entry.exists || !entry.isHittable { settingsList.swipeUp() }
+        XCTAssertTrue(entry.waitForExistence(timeout: 10), app.debugDescription)
+        entry.press(forDuration: 0.15)
+        let choose = app.buttons["Choose Mac transfer"]
+        XCTAssertTrue(choose.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(choose.isEnabled)
+        screenshot("loop-mac-transfer-entry", app: app)
+        choose.press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 10), app.debugDescription)
+        screenshot("loop-mac-transfer-files-picker", app: app)
+    }
+
+    /// Opt-in private audit: the export stays outside the repository and ordinary CI skips it.
+    @MainActor func testPrivateDesktopTransferOpensARealScoreAndPassage() throws {
+        let path = "/tmp/praelude-desktop-audit-transfer.json"
+        guard FileManager.default.fileExists(atPath: path) else { throw XCTSkip("No private desktop audit transfer supplied.") }
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--reset", "--desktop-transfer", path]
+        app.launch()
+        let piece = app.buttons.matching(NSPredicate(format: "label MATCHES %@", ".*[0-9]+ pages.*")).firstMatch
+        XCTAssertTrue(piece.waitForExistence(timeout: 30), app.debugDescription)
+        for _ in 0..<5 where !piece.isHittable { app.swipeUp() }
+        piece.press(forDuration: 0.15)
+        let passages = app.buttons["passages"]
+        if !passages.waitForExistence(timeout: 3), piece.isHittable { piece.press(forDuration: 0.15) }
+        XCTAssertTrue(passages.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.buttons["pageIndicator"].exists)
+        screenshot("private-imported-score", app: app)
+        let score = app.otherElements["scorePDF"].firstMatch
+        let compactFrame = score.frame
+        app.buttons["armToggleOptions"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["armGoal"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertLessThan(score.frame.height, compactFrame.height - 50)
+        app.buttons["armToggleOptions"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["armStartSet"].isHittable)
+        XCTAssertEqual(score.frame.height, compactFrame.height, accuracy: 1)
+        choosePassage(app)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 15), app.debugDescription)
+        screenshot("private-imported-passage", app: app)
+        app.buttons["coldGrade_clean"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
+        let initialPage = app.buttons["pageIndicator"].label
+        app.buttons["verdict_sloppy"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["undoRep"].isEnabled)
+        XCTAssertEqual(app.buttons["pageIndicator"].label, initialPage, "A retry must leave the multi-page passage on the same page by default.")
+        screenshot("private-imported-running-passage", app: app)
     }
 
     // MARK: - ≤2-tap start (through the cold-grade gate)
@@ -156,7 +246,8 @@ final class PracticeLoopUITests: XCTestCase {
         XCTAssertNotNil(raised, app.debugDescription)
         XCTAssertGreaterThan(raised ?? 0, 60, "Dragging up on the tempo numeral must raise it directly — no modal or keyboard.\n\(app.debugDescription)")
         screenshot("loop-03-tempo-drag", app: app)
-        // ±5 stays a one-tap nudge alongside the drag.
+        // Expanded options keep the full tempo controls inline, with no modal or keyboard.
+        app.buttons["armToggleOptions"].press(forDuration: 0.15)
         let plusFive = app.buttons["Increase tempo by 5"]
         XCTAssertTrue(plusFive.waitForExistence(timeout: 15), app.debugDescription)
         let afterTap = raised ?? 0
@@ -274,6 +365,44 @@ final class PracticeLoopUITests: XCTestCase {
         undo.press(forDuration: 0.15)
         XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 15), app.debugDescription)
         screenshot("loop-04-verdict-undo", app: app)
+    }
+
+    /// Saved-rep acknowledgement must not refit or shift the notation. Every fallback control
+    /// must also fit completely inside the viewport, including the compact phone layout.
+    @MainActor func testPracticeControlsFitAndFeedbackKeepsScoreStable() {
+        let app = launch()
+        let start = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "startSessionItem_new_")).firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 15), app.debugDescription)
+        start.press(forDuration: 0.15)
+        if !app.buttons["coldGrade_clean"].waitForExistence(timeout: 3), start.isHittable {
+            start.press(forDuration: 0.15)
+        }
+        XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 15), app.debugDescription)
+        app.buttons["coldGrade_clean"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
+        ensureExpanded(app)
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        let screen = app.frame
+        for identifier in ["verdict_clean", "verdict_sloppy", "verdict_again", "undoRep", "pausePractice", "stopSet", "toggleMetronomeHUD", "quickSubPassage"] {
+            let button = app.buttons[identifier]
+            XCTAssertTrue(button.isHittable, identifier)
+            XCTAssertGreaterThanOrEqual(button.frame.minX, screen.minX, identifier)
+            XCTAssertLessThanOrEqual(button.frame.maxX, screen.maxX, identifier)
+            XCTAssertGreaterThanOrEqual(button.frame.minY, screen.minY, identifier)
+            XCTAssertLessThanOrEqual(button.frame.maxY, screen.maxY, identifier)
+        }
+        let score = app.otherElements["scorePDF"].firstMatch
+        XCTAssertTrue(score.exists, app.debugDescription)
+        let before = score.frame
+        app.buttons["verdict_clean"].press(forDuration: 0.15)
+        XCTAssertTrue(app.staticTexts["2 of 5 clean"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(score.frame.minY, before.minY, accuracy: 1)
+        XCTAssertEqual(score.frame.height, before.height, accuracy: 1)
+        app.buttons["verdict_sloppy"].press(forDuration: 0.15)
+        XCTAssertTrue(app.staticTexts["0 of 5 clean"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(score.frame.minY, before.minY, accuracy: 1)
+        XCTAssertEqual(score.frame.height, before.height, accuracy: 1)
+        screenshot("loop-practice-controls-and-stable-score", app: app)
     }
 
     // MARK: - HUD collapse (§10c: collapsible to a thin strip; §3d: controls always one tap)

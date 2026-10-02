@@ -310,6 +310,7 @@ public struct Preferences: Codable, Equatable, Sendable {
 }
 
 public struct LibraryState: Codable, Equatable, Sendable {
+    public var desktopImports: [DesktopImportReceipt] = []
     public var schemaVersion: Int = 3
     public var revision: Int = 0
     public var pieces: [Piece] = []
@@ -354,7 +355,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public var profile = Profile()
     public init() {}
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, revision, pieces, passages, inkStrokes, activeSet, history, sessions, goals, routines, preferences,
+        case desktopImports, schemaVersion, revision, pieces, passages, inkStrokes, activeSet, history, sessions, goals, routines, preferences,
              instruments, tags, folders, setlists, bookmarks, pageEdits, scoreLinks, textAnnotations, stampAnnotations,
              coldGrades, breakPointTaps, ruleSettings, ruleEvents, warmupExercises, recordings, rewardLedger, badges,
              milestoneEvents, rewardsState, notebookEntries, profile
@@ -364,6 +365,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
     private enum LegacyCodingKeys: String, CodingKey { case scoreDrawings }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        desktopImports = try values.decodeIfPresent([DesktopImportReceipt].self, forKey: .desktopImports) ?? []
         schemaVersion = try values.decode(Int.self, forKey: .schemaVersion)
         revision = try values.decode(Int.self, forKey: .revision)
         pieces = try values.decode([Piece].self, forKey: .pieces)

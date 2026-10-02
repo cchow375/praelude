@@ -9,6 +9,11 @@ struct PracticeProgressView: View {
 
     var body: some View {
         List {
+            if !store.state.desktopImports.isEmpty {
+                Section {
+                    NavigationLink("Mac practice record") { DesktopPracticeRecordView() }
+                } footer: { Text("Your original Mac repetitions and history retain their original practice rules.") }
+            }
             if sessions.isEmpty {
                 PraeludeEmptyState(title: "No practice recorded", symbol: "chart.bar.xaxis",
                                   message: "Your time, repetitions, and completed sets will appear here as you practice.")

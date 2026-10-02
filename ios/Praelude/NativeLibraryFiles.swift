@@ -104,12 +104,14 @@ struct NativeLibraryFiles {
         try store.checkpoint()
         var files: [String: Data] = [:]
         var covers: [String: Data] = [:]
+        var desktopArchives: [String: Data] = [:]
+        var recordings: [String: Data] = [:]
         var bytes = 0
         for piece in store.state.pieces {
             guard let name = piece.pdfFileName, let url = scoreURL(for: piece), files[name] == nil else { continue }
             let data = try Data(contentsOf: url)
             bytes += data.count
-            guard bytes <= 200_000_000 else { throw PracticeError.invalid("This library is too large for a single 200 MB backup.") }
+            guard bytes <= 210_000_000 else { throw PracticeError.invalid("This library is too large for a single 210 MB backup.") }
             files[name] = data
         }
         // §7 custom covers travel in the same backup, under the same combined byte budget, so a
@@ -118,14 +120,34 @@ struct NativeLibraryFiles {
             guard let name = piece.customCoverRef, let url = coverURL(for: piece), covers[name] == nil else { continue }
             let data = try Data(contentsOf: url)
             bytes += data.count
-            guard bytes <= 200_000_000 else { throw PracticeError.invalid("This library is too large for a single 200 MB backup.") }
+            guard bytes <= 210_000_000 else { throw PracticeError.invalid("This library is too large for a single 210 MB backup.") }
             covers[name] = data
+        }
+        for recording in store.state.recordings where recording.deletedAt == nil {
+            guard DesktopTransfer.localName(recording.fileName) else { throw PracticeError.invalid("A recording filename is invalid.") }
+            let path = store.directory.appendingPathComponent("Recordings").appendingPathComponent(recording.fileName)
+            let data = try Data(contentsOf: path)
+            guard data.count == recording.byteSize else { throw PracticeError.invalid("A recording is missing or incomplete. Your library has not been changed.") }
+            bytes += data.count
+            guard bytes <= 210_000_000 else { throw PracticeError.invalid("This library is too large for a single 210 MB backup.") }
+            recordings[recording.fileName] = data
+        }
+        for receipt in store.state.desktopImports {
+            guard DesktopTransfer.localName(receipt.archiveFileName) else { throw PracticeError.invalid("A Mac archive filename is invalid.") }
+            let path = DesktopLibraryFiles(store: store).directory.appendingPathComponent(receipt.archiveFileName)
+            let data = try Data(contentsOf: path)
+            bytes += data.count
+            guard bytes <= 210_000_000 else { throw PracticeError.invalid("This library is too large for a single 210 MB backup.") }
+            desktopArchives[receipt.archiveFileName] = data
         }
         var snapshot = store.state
         if snapshot.activeSet?.status == .running {
             snapshot.activeSet?.status = .paused; snapshot.activeSet?.lastCheckpoint = nil
         }
-        let payload = NativeBackup(version: 1, library: snapshot, scores: files, covers: covers)
+        // Older mobile builds ignore unknown recording/archive fields in v1. Mark backups
+        // requiring those files as v2 so an old restore refuses instead of silently losing them.
+        let version = recordings.isEmpty && desktopArchives.isEmpty ? 1 : 2
+        let payload = NativeBackup(version: version, library: snapshot, scores: files, covers: covers, desktopArchives: desktopArchives, recordings: recordings)
         let data = try JSONEncoder().encode(payload)
         guard data.count <= 280_000_000 else { throw PracticeError.invalid("This library exceeds the supported 280 MB backup size.") }
         return NativeBackupDocument(data: data)
@@ -134,7 +156,7 @@ struct NativeLibraryFiles {
         guard data.count <= 280_000_000 else { throw PracticeError.invalid("Choose a Praelude backup smaller than 280 MB.") }
         guard store.activeSet == nil else { throw PracticeError.conflict("Finish your current set before restoring a backup.") }
         var backup = try JSONDecoder().decode(NativeBackup.self, from: data)
-        guard backup.version == 1 else { throw PracticeError.invalid("This backup needs a newer version of Praelude.") }
+        guard (1...2).contains(backup.version) else { throw PracticeError.invalid("This backup needs a newer version of Praelude.") }
         try PracticeStore.validate(backup.library)
         for stroke in backup.library.inkStrokes where stroke.deletedAt == nil { try Self.validateDrawing(stroke.data) }
         try FileManager.default.createDirectory(at: scoresDirectory, withIntermediateDirectories: true)
@@ -176,6 +198,39 @@ struct NativeLibraryFiles {
                 try data.write(to: path, options: [.atomic, .completeFileProtectionUnlessOpen])
                 staged.append(path); remappedCovers[old] = name; backup.library.pieces[i].customCoverRef = name
             }
+            let recordingsDirectory = store.directory.appendingPathComponent("Recordings", isDirectory: true)
+            try FileManager.default.createDirectory(at: recordingsDirectory, withIntermediateDirectories: true)
+            var remappedRecordings: [String: String] = [:]
+            for index in backup.library.recordings.indices where backup.library.recordings[index].deletedAt == nil {
+                let recording = backup.library.recordings[index]
+                guard DesktopTransfer.localName(recording.fileName), let data = backup.recordings[recording.fileName],
+                      !data.isEmpty, data.count == recording.byteSize else {
+                    throw PracticeError.invalid("This backup is missing a recording. Your library has not been replaced.")
+                }
+                if let name = remappedRecordings[recording.fileName] { backup.library.recordings[index].fileName = name; continue }
+                let name = "take-" + UUID().uuidString + ".m4a"
+                let path = recordingsDirectory.appendingPathComponent(name)
+                try data.write(to: path, options: [.atomic, .completeFileProtectionUnlessOpen])
+                staged.append(path); remappedRecordings[recording.fileName] = name
+                backup.library.recordings[index].fileName = name
+            }
+            let desktopDirectory = DesktopLibraryFiles(store: store).directory
+            try FileManager.default.createDirectory(at: desktopDirectory, withIntermediateDirectories: true)
+            for index in backup.library.desktopImports.indices {
+                let receipt = backup.library.desktopImports[index]
+                guard let archive = backup.desktopArchives[receipt.archiveFileName] else {
+                    throw PracticeError.invalid("This backup is missing its original Mac record.")
+                }
+                let transfer = try DesktopTransfer.decode(archive)
+                guard try DesktopLibraryFiles.transferIdentifier(transfer) == receipt.id,
+                      DesktopLibraryFiles.hash(transfer.database) == transfer.databaseSHA256 else {
+                    throw PracticeError.invalid("This backup contains a damaged Mac record.")
+                }
+                let name = UUID().uuidString + ".json"
+                let path = desktopDirectory.appendingPathComponent(name)
+                try archive.write(to: path, options: [.atomic, .completeFileProtectionUnlessOpen])
+                staged.append(path); backup.library.desktopImports[index].archiveFileName = name
+            }
             try store.restoreBackup(backup.library)
         } catch {
             for path in staged { try? FileManager.default.removeItem(at: path) }
@@ -191,15 +246,19 @@ private struct NativeBackup: Codable {
     /// §7 custom covers. Absent (rather than an empty dictionary) on any backup made before this
     /// field existed — `decodeIfPresent` keeps those restorable exactly as before, with no covers.
     var covers: [String: Data]
-    init(version: Int, library: LibraryState, scores: [String: Data], covers: [String: Data] = [:]) {
-        self.version = version; self.library = library; self.scores = scores; self.covers = covers
+    var desktopArchives: [String: Data]
+    var recordings: [String: Data]
+    init(version: Int, library: LibraryState, scores: [String: Data], covers: [String: Data] = [:], desktopArchives: [String: Data] = [:], recordings: [String: Data] = [:]) {
+        self.version = version; self.library = library; self.scores = scores; self.covers = covers; self.desktopArchives = desktopArchives; self.recordings = recordings
     }
-    private enum CodingKeys: String, CodingKey { case version, library, scores, covers }
+    private enum CodingKeys: String, CodingKey { case version, library, scores, covers, desktopArchives, recordings }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         version = try values.decode(Int.self, forKey: .version)
         library = try values.decode(LibraryState.self, forKey: .library)
         scores = try values.decode([String: Data].self, forKey: .scores)
+        recordings = try values.decodeIfPresent([String: Data].self, forKey: .recordings) ?? [:]
+        desktopArchives = try values.decodeIfPresent([String: Data].self, forKey: .desktopArchives) ?? [:]
         covers = try values.decodeIfPresent([String: Data].self, forKey: .covers) ?? [:]
     }
 }

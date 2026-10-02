@@ -33,10 +33,18 @@ public struct PostgRESTSyncTransport: SyncTransport {
     public func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
         do {
             let postgrest = try await services.postgrest()
-            var query = postgrest.from(table).select()
-            if let updatedSince { query = query.gt(field, value: SyncCoding.iso8601Formatter.string(from: updatedSince)) }
-            let response: [SyncJSON] = try await query.execute().value
-            return response.compactMap(\.objectValue)
+            // Hosted PostgREST caps responses at 1,000 rows. Read ordered pages until an
+            // empty response, including when a server cap is lower than our requested page size.
+            let orderColumn = table == "rule_settings" || table == "rewards_state" ? "owner_id" : "id"
+            return try await SyncPagination.collect { offset, pageSize in
+                var query = postgrest.from(table).select()
+                if let updatedSince { query = query.gt(field, value: SyncCoding.iso8601Formatter.string(from: updatedSince)) }
+                let response: [SyncJSON] = try await query.order(orderColumn).range(from: offset, to: offset + pageSize - 1).execute().value
+                return try response.map { value -> [String: SyncJSON] in
+                    guard let row = value.objectValue else { throw SyncError.invalidRemoteRow(table) }
+                    return row
+                }
+            }
         } catch let error as SyncError {
             throw error
         } catch {

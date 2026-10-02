@@ -390,4 +390,158 @@ final class SyncCoverageTests: XCTestCase {
         XCTAssertEqual(Set(rows.map(\.fingerprint)), [fingerprintA, fingerprintB, Data([0x05, 0x06])])
         try PracticeStore.validate(deviceB.state)
     }
+    @MainActor func testRemoteUndoMergesIntoAnAlreadyPulledRepAndNeverResurrectsIt() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-undo-\(UUID())")
+        let store = PracticeStore(directory: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let piece = Piece(title: "Sonata")
+        try store.addPiece(piece)
+        try store.startSet(PracticeConfiguration(pieceID: piece.id, targetCount: 100))
+        try store.record(.clean)
+        let set = try XCTUnwrap(store.activeSet)
+        var attempt = try XCTUnwrap(set.attempts.first)
+        attempt.undoneAt = Date()
+        try store.applySyncedAttempt(attempt, setID: set.id)
+        XCTAssertEqual(store.activeSet?.attempts.count, 1)
+        XCTAssertEqual(store.activeSet?.attempts.first?.undoneAt, attempt.undoneAt)
+        XCTAssertEqual(store.activeSet?.totalPlays, 0)
+        attempt.undoneAt = nil
+        try store.applySyncedAttempt(attempt, setID: set.id)
+        XCTAssertNotNil(store.activeSet?.attempts.first?.undoneAt)
+        XCTAssertEqual(store.activeSet?.totalPlays, 0)
+    }
+
+    @MainActor func testIndependentLastPageClockMergesWithoutOverwritingNewerPieceMetadata() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-page-clock-\(UUID())")
+        let store = PracticeStore(directory: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let local = Piece(title: "Local new title", pageCount: 10, lastPage: 2,
+                          updatedAt: Date(timeIntervalSince1970: 200), lastPageUpdatedAt: Date(timeIntervalSince1970: 100))
+        try store.addPiece(local)
+        var remote = local
+        remote.title = "Old title"; remote.updatedAt = Date(timeIntervalSince1970: 150)
+        remote.lastPage = 7; remote.lastPageUpdatedAt = Date(timeIntervalSince1970: 300)
+        try store.applySyncedPiece(remote)
+        XCTAssertEqual(store.pieces.first?.title, "Local new title")
+        XCTAssertEqual(store.pieces.first?.lastPage, 7)
+    }
+
+    @MainActor func testOrphanedRemoteRepReportsFailureSoItCanBeRetried() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-orphan-\(UUID())")
+        let store = PracticeStore(directory: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        XCTAssertThrowsError(try store.applySyncedAttempt(Attempt(verdict: .clean, bpm: 60), setID: UUID()))
+    }
+
+    @MainActor func testLargeRemoteRepLogMergesWithOneDurableLibraryWrite() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-batch-\(UUID())")
+        var writes = 0
+        let store = PracticeStore(directory: directory, writeData: { data, url in
+            writes += 1; try data.write(to: url, options: .atomic)
+        })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let piece = Piece(title: "Sonata")
+        try store.addPiece(piece)
+        try store.startSet(PracticeConfiguration(pieceID: piece.id, targetCount: 100))
+        let set = try XCTUnwrap(store.activeSet)
+        let attempts = (0..<1505).map { (attempt: Attempt(verdict: .sloppy, date: set.startedAt.addingTimeInterval(Double($0)), bpm: 60), setID: set.id) }
+        let initialWrites = writes
+        try store.applySyncedAttempts(attempts)
+        XCTAssertEqual(writes - initialWrites, 1)
+        XCTAssertEqual(store.activeSet?.attempts.count, 1505)
+        try store.applySyncedAttempts(attempts)
+        XCTAssertEqual(writes - initialWrites, 1, "An unchanged second pull does not rewrite the library.")
+    }
+
+    @MainActor func testFreshDevicePullsRealCompletedHistoryAsOneValidatedPracticeSnapshot() async throws {
+        let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-complete-source-\(UUID())")
+        let destinationURL = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-complete-destination-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: sourceURL); try? FileManager.default.removeItem(at: destinationURL) }
+        let source = PracticeStore(directory: sourceURL)
+        let piece = Piece(title: "Sonata")
+        try source.addPiece(piece)
+        try source.startSet(PracticeConfiguration(pieceID: piece.id, targetCount: 1))
+        try source.record(.clean)
+        try source.endSession()
+        let completed = try XCTUnwrap(source.state.history.first)
+        XCTAssertEqual(completed.status, .completed)
+        var writes = 0
+        let destination = PracticeStore(directory: destinationURL, writeData: { data, url in writes += 1; try data.write(to: url, options: .atomic) })
+        try destination.addPiece(piece)
+        let server = FakeSyncServer()
+        let writer = SyncEngine(transport: FakeSyncTransport(server: server), directory: sourceURL.appendingPathComponent("Sync"))
+        try writer.enqueueLibrarySnapshot(source.state)
+        let drained = await writer.drain(); XCTAssertTrue(drained)
+        let reader = SyncEngine(transport: FakeSyncTransport(server: server), directory: destinationURL.appendingPathComponent("Sync"))
+        let initialWrites = writes
+        try await reader.pullPracticeSnapshot { rows in
+            let sessions = try (rows["practice_sessions"] ?? []).map { try SyncJSON.object($0).decoded(as: PracticeSessionSyncRow.self).coreValue }
+            let sets = try (rows["sets"] ?? []).map { try XCTUnwrap(try SyncJSON.object($0).decoded(as: SetSyncRow.self).coreValue) }
+            let attempts = try (rows["attempts"] ?? []).map { row -> (attempt: Attempt, setID: UUID) in
+                let dto = try SyncJSON.object(row).decoded(as: AttemptSyncRow.self)
+                return (try XCTUnwrap(dto.coreValue), dto.set_id)
+            }
+            try destination.applySyncedPracticeSnapshot(sessions: sessions, sets: sets, attempts: attempts)
+        }
+        XCTAssertEqual(writes - initialWrites, 1)
+        XCTAssertNil(destination.activeSet)
+        XCTAssertEqual(destination.state.history.first?.status, .completed)
+        XCTAssertEqual(destination.state.history.first?.attempts.map(\.id), completed.attempts.map(\.id))
+        XCTAssertEqual(destination.sessions.first?.completedSets, 1)
+        XCTAssertTrue(destination.state.rewardLedger.isEmpty, "Practice replication must not invent earned reward events.")
+        XCTAssertTrue(destination.state.ruleEvents.isEmpty)
+        XCTAssertTrue(destination.state.milestoneEvents.isEmpty)
+        XCTAssertNotNil(destination.sessions.first?.endedAt)
+        try PracticeStore.validate(destination.state)
+    }
+
+    @MainActor func testRemoteSessionClosureAndItsSetAreAppliedAtomicallyToAMirroredActiveSet() throws {
+        let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-close-source-\(UUID())")
+        let destinationURL = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-close-destination-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: sourceURL); try? FileManager.default.removeItem(at: destinationURL) }
+        let source = PracticeStore(directory: sourceURL), destination = PracticeStore(directory: destinationURL)
+        let piece = Piece(title: "Sonata")
+        try source.addPiece(piece); try destination.addPiece(piece)
+        try source.startSet(PracticeConfiguration(pieceID: piece.id, targetCount: 3))
+        try source.record(.clean); try source.pause()
+        let paused = try XCTUnwrap(source.activeSet)
+        try destination.applySyncedPracticeSnapshot(sessions: source.sessions, sets: [try XCTUnwrap(SetSyncRow(paused).coreValue)],
+                                                   attempts: paused.attempts.map { ($0, paused.id) })
+        XCTAssertEqual(destination.activeSet?.status, .paused)
+        try source.endSession()
+        let ended = try XCTUnwrap(source.state.history.first)
+        try destination.applySyncedPracticeSnapshot(sessions: source.sessions, sets: [try XCTUnwrap(SetSyncRow(ended).coreValue)],
+                                                   attempts: ended.attempts.map { ($0, ended.id) })
+        XCTAssertNil(destination.activeSet)
+        XCTAssertEqual(destination.state.history.first?.status, .ended)
+        XCTAssertEqual(destination.state.history.first?.attempts, ended.attempts)
+        XCTAssertNotNil(destination.sessions.first?.endedAt)
+        try PracticeStore.validate(destination.state)
+    }
+
+    @MainActor func testIncompleteCompletedPracticeSnapshotPreservesLibraryAndAllPullCursors() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-partial-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PracticeStore(directory: directory)
+        let piece = Piece(title: "Sonata")
+        try store.addPiece(piece); try store.startSet(PracticeConfiguration(pieceID: piece.id, targetCount: 1))
+        try store.record(.clean); try store.endSession()
+        let set = try XCTUnwrap(store.state.history.first), session = try XCTUnwrap(store.sessions.first)
+        let server = FakeSyncServer()
+        _ = try server.upsert(table: "practice_sessions", row: try XCTUnwrap(SyncJSON(encoding: PracticeSessionSyncRow(session)).objectValue))
+        _ = try server.upsert(table: "sets", row: try XCTUnwrap(SyncJSON(encoding: SetSyncRow(set)).objectValue))
+        let reader = SyncEngine(transport: FakeSyncTransport(server: server), directory: directory.appendingPathComponent("Sync"))
+        let receiver = PracticeStore(directory: directory.appendingPathComponent("Receiver"))
+        try receiver.addPiece(piece)
+        let previous = try Data(contentsOf: receiver.fileURL)
+        do {
+            try await reader.pullPracticeSnapshot { _ in
+                try receiver.applySyncedPracticeSnapshot(sessions: [session], sets: [try XCTUnwrap(SetSyncRow(set).coreValue)], attempts: [])
+            }
+            XCTFail("A completed snapshot without its rep log must fail rather than invent completion.")
+        } catch {}
+        XCTAssertTrue(reader.state.cursors.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: receiver.fileURL), previous)
+    }
+
 }

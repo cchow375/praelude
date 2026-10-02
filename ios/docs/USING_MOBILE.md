@@ -1,17 +1,27 @@
 # Using Praelude Mobile
 
-**Guide for the 1.1.0/build2 development candidate — scoped simulator/build verification complete.** These steps
-describe the current source interface. They do not establish that the new candidate is installed
-or that Pencil, printing, audio, or the changed UI has passed physical-device acceptance. Current
-iPad finger/meter/Focus and phone drawing/backup/Focus checks pass; final phone-toolbar and
-exact-source signed-build checks also pass. QA retains exact scopes and earlier failed runs. The
-[QA ledger](../../docs/qa/ios/README.md) records the accepted build and outstanding checks.
+**Matches: 2.0.0/build3/schema3 DEVELOPMENT CANDIDATE (2026-10-02).** This describes current source,
+not a new physical installation. [Current QA](../../docs/qa/ios/2.0.0/README.md) separates native
+simulator evidence from hardware/two-device acceptance. September14 install evidence is historical.
 
-**Installed-device note (September 14, 20:56 EDT):** 1.1.0/build2 is installed and all owned
-files match the pre-update backup. Automatic launch was denied; unlock the iPad and tap Praelude,
-completing Developer App trust only if prompted. Launch/migration and physical features remain
-unaccepted. See the [installation guide](INSTALL_ON_IPAD.md); another installation is unnecessary
-just to retry opening the app.
+## Import your Mac library
+
+Finish practice on both devices. Export with `ios/scripts/export_desktop.py` on the Mac, review its
+warnings, and transfer the private JSON through Files/AirDrop. In Settings choose **Import from Mac**,
+then **Choose Mac transfer**, review counts and **Import library**. Mobile scores/practice/settings
+are preserved. Compatible scores, passage boxes, matching pencil marks and goals become native data;
+original Mac history and every table remain under **Progress → Mac practice record**. Re-importing the
+same snapshot does not duplicate targets or overwrite edits. This is a snapshot, not continuous Mac sync.
+Original archives stay local and travel with backups; native goals/routines are not cloud-wired.
+
+## Navigate and practice
+
+Phone tabs: Today, Pieces, Warmups, Progress, More. More lists Friends, History, Calendar, Notebook,
+Data and Rewards; iPad uses the sidebar. Today → Start session begins the first warmup if one is planned.
+Feedback after verdicts keeps the score size fixed. In Score options, **Turn passage page after each
+verdict** is off initially; enable it deliberately for a multi-page passage. First hands-free enable
+opens Voice check and starts requested listening when dismissed after setup. In Performance mode,
+touch and hold the score to exit; a brief entry hint explains this.
 
 ## Open your score
 
@@ -59,13 +69,14 @@ replacement as a separate piece so existing marks and recorded targets still ref
 
 ## Practice and review the original target
 
-Choose a saved passage or **Practice whole piece**, then open **Practice set**. Set the focus,
+Choose a saved passage or **Practice whole piece**. The compact idle dock keeps passage, tempo and
+Start visible; tap the sliders button to expand **Practice set** configuration. Set the focus,
 target count and tempo. **Set rules** holds Clean streak/Total plays and hands. Optional tempo
 ladders, ordered variants and routines are available for Clean streak; Total plays stays at one tempo.
 
 After playing, record **Clean**, **Sloppy**, or **Again**. All verdicts are your judgment. Sloppy
-restarts a clean streak; Again preserves an active variant stage's progress and restarts a plain
-clean streak. All three count toward Total plays. Practice Undo corrects the latest verdict.
+restarts a clean streak; Again is neutral and preserves progress in both plain and variant
+clean-streak sets. All three count toward Total plays. Practice Undo corrects the latest verdict.
 Pause when stepping away and resume from Today. Saved repetitions do not depend on reward playback.
 
 Open **Progress → a session → What you practiced**. For a set recorded with visual boxes, tap the
@@ -99,11 +110,13 @@ Long-session timing, acoustic quality and speech overlap require physical-device
 
 ## Back up and keep the app installed
 
-**Settings → Export backup** saves the native library with its PDFs and editable drawing records.
-Restore is a separate confirmed replacement of the current native library and requires ending the
-active set. It is not Mac schema21 migration or automatic sync. The complete phone export/cancel/
-restore/cancel flow passes in the Phone3 simulator run; that closes the historical UI gap, not
-physical backup acceptance. The actual iPad update still requires complete PDF backup access.
+**Settings → Export backup** saves the native library with owned PDFs, covers, editable ink,
+recording bytes and preserved original Mac archives. The combined owned payload is bounded to210 MB,
+and encoded JSON to280 MB. Missing originals or incomplete recording/archival backups fail safely.
+Restore is a reviewed replacement of the current library and requires ending the active set; it stages
+new files before committing the ledger. Mac import is a separate additive action. Neither action
+implements continuous Mac↔iOS synchronization. Historical Phone3 backup UI evidence belongs to1.1;
+current scoped backup/transfer regressions are in the2.0 QA ledger. Physical-device acceptance remains open.
 
 For cable installation and free Personal Team renewal every seven days, follow
 [INSTALL_ON_IPAD.md](INSTALL_ON_IPAD.md). Keep the same app/account/team, pause practice, and use

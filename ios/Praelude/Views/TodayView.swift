@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TodayView: View {
     @Environment(PracticeStore.self) private var store
+    @Environment(MetronomeService.self) private var metronome
     @State private var errorMessage: String?
     @State private var showGoals = false
     @State private var availableMinutes = 30
@@ -123,14 +124,11 @@ struct TodayView: View {
                                           onMoveDown: index < sessionItems.count - 1 ? { move(index, by: 1) } : nil)
                         }
                         Button {
-                            // Skip past a leading warmup (no practice flow to start yet) to the
-                            // first item "Start session" can actually begin.
-                            if let first = sessionItems.first(where: { $0.kind != .warmup }) { startItem(first) }
+                            if let first = sessionItems.first { startItem(first) }
                         } label: {
                             Label("Start session", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 38)
                         }
                         .buttonStyle(.praeludePrimary)
-                        .disabled(sessionItems.allSatisfy { $0.kind == .warmup })
                         .accessibilityIdentifier("startSession")
                     }
                 } header: {
@@ -276,7 +274,18 @@ struct TodayView: View {
         do {
             switch item.kind {
             case .warmup:
-                return // No warmup practice flow exists yet (§12 is a separate track).
+                guard let exercise = store.state.warmupExercises.first(where: { $0.id == item.id && $0.deletedAt == nil }) else {
+                    throw PracticeError.unavailable("This warmup is no longer available. Rebuild your session to choose another.")
+                }
+                try store.ensureWarmupsPiece()
+                let bpm = WarmupCatalog.defaultBPM(for: exercise.kind)
+                let configuration = PracticeConfiguration(pieceID: WarmupsPiece.id, focus: exercise.name, goal: .tempo,
+                                                           basis: .cleanStreak, targetCount: 5, startBPM: bpm, targetBPM: bpm,
+                                                           useMetronome: true)
+                try store.startSet(configuration)
+                metronome.setTempo(bpm); metronome.start()
+                try store.recordWarmupUse(exercise.id)
+                onContinueWarmup()
             case .review, .learning, .new:
                 guard let passageID = item.passageID, let pieceID = item.pieceID else { return }
                 // §9/R3: "the first attempt of the day... prompts Clean/Shaky/Missed" — that grade is
@@ -324,12 +333,11 @@ private struct SessionItemRow: View {
                 Text(item.reason).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 6)
-            if item.kind != .warmup {
-                Button("Start", action: onStart)
-                    .font(.caption.weight(.semibold)).buttonStyle(.plain)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(PraeludeColor.inkFillQuiet, in: Capsule())
-            }
+            Button("Start", action: onStart)
+                .font(.caption.weight(.semibold)).buttonStyle(.plain)
+                .padding(.horizontal, 10).frame(minHeight: 44)
+                .background(PraeludeColor.inkFillQuiet, in: Capsule())
+                .accessibilityIdentifier("startSessionItem_\(item.kind.rawValue)_\(item.id)")
             VStack(spacing: 2) {
                 Button { onMoveUp?() } label: { Image(systemName: "chevron.up") }
                     .disabled(onMoveUp == nil).accessibilityLabel("Move earlier")

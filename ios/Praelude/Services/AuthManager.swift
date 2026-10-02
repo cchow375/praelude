@@ -18,6 +18,12 @@ public final class AuthManager {
     }
     public private(set) var state: State = .guest
     public private(set) var lastError: String?
+    /// Local practice belongs to one account. Preserve it and reject a different session until
+    /// separate per-account libraries exist; no upload may adopt another account's private files.
+    public var canSyncLocalLibrary: Bool {
+        guard case .signedIn(let userID, _) = state else { return false }
+        return store.state.profile.ownerID == userID
+    }
     /// Set right after `sendMagicLink`/`resetPassword` succeeds, so the UI can show "check your
     /// email" without a separate round trip.
     public private(set) var lastSentEmail: String?
@@ -58,6 +64,12 @@ public final class AuthManager {
             switch event {
             case .initialSession, .signedIn, .tokenRefreshed, .userUpdated:
                 guard let session else { continue }
+                if let ownerID = store.state.profile.ownerID, ownerID != session.user.id {
+                    lastError = "This device's practice library belongs to another account. Sign back into that account to sync it. Your local practice is preserved."
+                    state = .guest
+                    try? await services.auth.signOut()
+                    continue
+                }
                 state = .signedIn(userID: session.user.id, email: session.user.email)
                 // Idempotent (guards on ownerID == nil internally) - simplest to call on every event
                 // that carries a session rather than track "was this transition actually the guest

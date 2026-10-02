@@ -41,6 +41,9 @@ struct PracticeHUDView: View {
     /// so the button can show/disable itself without the HUD needing that type.
     var quickSubPassageArmed = false
     var onQuickSubPassage: () -> Void = {}
+    var offersBreakPoint = false
+    var onMarkBreakPoint: () -> Void = {}
+    var onSkipBreakPoint: () -> Void = {}
     /// R14 (§11): non-nil while the metronome is mid-pulse-check for this set. The verdict buttons
     /// stay exactly as they are during one — the player's own judgement is still what counts.
     var activePulseCheck: Decision?
@@ -62,11 +65,14 @@ struct PracticeHUDView: View {
                 controlsRow
             }
             micRow
+        }
+        .overlay(alignment: .topTrailing) {
             if let failure = flashLabel {
                 // Confirms a spoken command that just fired while the player is very likely looking
                 // at the score, not the HUD — the same legibility-at-a-distance need as the title line
                 // above (see "(C) Audit.md").
                 Text(failure).font(.title3.weight(.semibold)).foregroundStyle(PraeludeColor.live)
+                    .padding(8).praeludeScoreChrome()
                     .transition(.opacity).id(flashedCommandID).accessibilityIdentifier("voiceFlash")
             }
         }
@@ -93,7 +99,7 @@ struct PracticeHUDView: View {
                     }
                 }
                 Spacer(minLength: 8)
-                Button { collapsed = true } label: { Image(systemName: "chevron.down").frame(width: 32, height: 32) }
+                Button { collapsed = true } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).contentShape(Rectangle()) }
                     .accessibilityLabel("Collapse HUD").accessibilityIdentifier("hudCollapse")
             }
             HStack(alignment: .center, spacing: 20) {
@@ -119,12 +125,25 @@ struct PracticeHUDView: View {
                 Text("\(active.progressCount)/\(active.requiredCount)").praeludeNumeral(20).foregroundStyle(PraeludeColor.ink)
                 Text("\(Int(active.currentBPM))").font(.subheadline.monospacedDigit()).foregroundStyle(PraeludeColor.inkSecondary)
                 Image(systemName: "chevron.up").font(.caption).foregroundStyle(PraeludeColor.inkTertiary)
-            }.frame(minHeight: 36).contentShape(Rectangle())
+            }.frame(minHeight: 44).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel("Expand HUD").accessibilityIdentifier("hudExpand")
     }
 
     private var controlsRow: some View {
-        HStack(spacing: 10) {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                transportControls
+                verdictControls
+            }.fixedSize(horizontal: true, vertical: false)
+            VStack(spacing: 10) {
+                transportControls
+                verdictControls
+            }
+        }
+    }
+
+    private var transportControls: some View {
+        HStack(spacing: 4) {
             Button(action: onUndo) { Image(systemName: "arrow.uturn.backward") }
                 .buttonStyle(.praeludeEdgeControl).accessibilityLabel("Undo last repetition").accessibilityIdentifier("undoRep")
                 .keyboardShortcut("z", modifiers: .command)
@@ -137,18 +156,32 @@ struct PracticeHUDView: View {
                 .accessibilityLabel(metronomeOn ? "Stop metronome" : "Start metronome").accessibilityIdentifier("toggleMetronomeHUD")
             Button(action: onStop) { Image(systemName: "stop.fill") }
                 .buttonStyle(.praeludeEdgeControl).accessibilityLabel("Stop this set").accessibilityIdentifier("stopSet")
-            Button(action: onQuickSubPassage) { PraeludeIcon(glyph: .passageBox, size: 20) }
+            if offersBreakPoint {
+                Menu {
+                    Button("Mark where it broke", action: onMarkBreakPoint).accessibilityIdentifier("markBreakPoint")
+                    Button("Draw a new spot", action: onQuickSubPassage)
+                    Button("Skip", action: onSkipBreakPoint).accessibilityIdentifier("skipBreakPointTap")
+                } label: { PraeludeIcon(glyph: .passageBox, size: 20) }
                 .buttonStyle(.praeludeEdgeControl)
-                .accessibilityLabel("Mark a spot without stopping").accessibilityIdentifier("quickSubPassage")
+                .overlay { Circle().stroke(PraeludeColor.live, lineWidth: 2).allowsHitTesting(false) }
+                .accessibilityLabel("Mark where it broke or draw a new spot").accessibilityIdentifier("quickSubPassage")
                 .disabled(active.status != .running || quickSubPassageArmed)
-            Spacer(minLength: 4)
-            let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 8))
-            layout {
-                verdictButton(.again, title: "Again", glyph: .verdictAgain, key: "3", primary: false)
-                verdictButton(.sloppy, title: "Sloppy", glyph: .verdictSloppy, key: "2", primary: false)
-                verdictButton(.clean, title: "Clean", glyph: .verdictClean, key: "1", primary: true)
-            }.disabled(active.status != .running).opacity(active.status == .running ? 1 : 0.45)
+            } else {
+                Button(action: onQuickSubPassage) { PraeludeIcon(glyph: .passageBox, size: 20) }
+                    .buttonStyle(.praeludeEdgeControl)
+                    .accessibilityLabel("Mark a spot without stopping").accessibilityIdentifier("quickSubPassage")
+                    .disabled(active.status != .running || quickSubPassageArmed)
+            }
         }
+    }
+
+    private var verdictControls: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
+            verdictButton(.again, title: "Again", glyph: .verdictAgain, key: "3", primary: false)
+            verdictButton(.sloppy, title: "Sloppy", glyph: .verdictSloppy, key: "2", primary: false)
+            verdictButton(.clean, title: "Clean", glyph: .verdictClean, key: "1", primary: true)
+        }.disabled(active.status != .running).opacity(active.status == .running ? 1 : 0.45)
     }
 
     private func pulseCheckBanner(_ decision: Decision) -> some View {

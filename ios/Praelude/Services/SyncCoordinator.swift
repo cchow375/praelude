@@ -26,14 +26,24 @@ public final class SyncCoordinator {
     private let store: PracticeStore
     private var pathMonitor: NWPathMonitor?
     private var wasSatisfied = true
+    private var isSyncing = false
+    private var canSync: Bool {
+        guard case .signedIn(let userID, _) = auth.state else { return false }
+        guard store.state.profile.ownerID == userID else { engine.blockAccountMismatch(); return false }
+        return !store.isReadOnly
+    }
     /// Set once from `PraeludeApp.init` (`setStorage`). `nil` in every test/preview construction of
     /// this type, which is fine — score/recording file transfer is additive on top of the metadata
     /// sync this whole file otherwise does, never required for it.
     private var storage: ScoreAndRecordingStorage?
     public func setStorage(_ storage: ScoreAndRecordingStorage) { self.storage = storage }
 
-    public var status: SyncEngine.Status { engine.status }
-    public var pendingCount: Int { engine.pendingCount }
+    public var status: SyncEngine.Status {
+        if isSyncing { return .syncing }
+        if let storage, storage.pendingCount > 0 { return .stuck(storage.lastError ?? "Some scores or recordings are waiting to transfer. They will retry when connected.") }
+        return engine.status
+    }
+    public var pendingCount: Int { engine.pendingCount + (storage?.pendingCount ?? 0) }
     /// The spec §4c backend-only profile fields (`ProfileSyncRow`'s extras) this device last pulled,
     /// for `ProfileEditView` to read/edit without clobbering them on the next push.
     public var profileBackendFields: ProfileBackendFields { engine.state.profileBackendFields }
@@ -121,11 +131,60 @@ public final class SyncCoordinator {
     /// remaining question is whether this device has an even-newer local edit still ahead of it in
     /// the queue, which `LastWriteWins.shouldApplyPulled` answers per record). No-ops in guest mode.
     public func syncAll() async {
-        guard case .signedIn = auth.state else { return }
-        await engine.drain(applyPulledRow: applyAdoptedRow)
-        for entry in Self.pullTables {
-            try? await engine.pull(table: entry.table, cursorField: entry.cursorField) { [weak self] row in
-                self?.applyPulledRow(table: entry.table, row: row)
+        guard canSync, !isSyncing, case .signedIn(let userID, _) = auth.state else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            try engine.bindAccount(userID)
+            try engine.enqueueLibrarySnapshot(store.state)
+            guard await engine.drain(applyPulledRow: applyAdoptedRow, adoptPracticeSnapshot: pullPracticeSnapshot) else { return }
+            for entry in Self.pullTables {
+                // Full paginated reads preserve late offline uploads and remote Undo until the
+                // hosted schema exposes a server-owned ingestion/change sequence.
+                if entry.table == "practice_sessions" {
+                    try await pullPracticeSnapshot()
+                } else if entry.table == "sets" || entry.table == "attempts" {
+                    continue
+                } else {
+                    try await engine.pull(table: entry.table, cursorField: entry.cursorField) { [weak self] row in
+                        guard let self, self.canSync else { throw SyncError.transport("Account changed during sync.") }
+                        try self.applyPulledRow(table: entry.table, row: row)
+                    }
+                }
+            }
+            if let storage, canSync { await storage.reconcileFiles(library: store.state, directory: store.directory) }
+        } catch { engine.reportFailure(error) }
+    }
+
+    private func pullPracticeSnapshot() async throws {
+        try await engine.pullPracticeSnapshot { [weak self] rows in
+            guard let self, self.canSync else { throw SyncError.transport("Account changed during sync.") }
+            let sessions = try (rows["practice_sessions"] ?? []).map { try SyncJSON.object($0).decoded(as: PracticeSessionSyncRow.self) }
+            let sets = try (rows["sets"] ?? []).map { try SyncJSON.object($0).decoded(as: SetSyncRow.self) }
+            let attempts = try (rows["attempts"] ?? []).map { try SyncJSON.object($0).decoded(as: AttemptSyncRow.self) }
+            let acceptedSessions = sessions.filter { self.shouldApply($0.updated_at, currentUpdatedAt: self.lastKnownSessionUpdatedAt[$0.id]) }
+            let acceptedSets = sets.filter { self.shouldApply($0.updated_at, currentUpdatedAt: self.lastKnownSetUpdatedAt[$0.id]) }
+            let coreSets = try acceptedSets.map { dto -> ActiveSet in
+                guard let set = dto.coreValue else { throw SyncError.invalidRemoteRow("sets") }; return set
+            }
+            let coreAttempts = try attempts.map { dto -> (attempt: Attempt, setID: UUID) in
+                guard let attempt = dto.coreValue else { throw SyncError.invalidRemoteRow("attempts") }; return (attempt, dto.set_id)
+            }
+            try self.store.applySyncedPracticeSnapshot(sessions: acceptedSessions.map(\.coreValue), sets: coreSets, attempts: coreAttempts)
+            // Save the receipt/clock only after the whole practice graph is durable.
+            for dto in acceptedSessions { self.lastKnownSessionUpdatedAt[dto.id] = dto.updated_at }
+            for dto in acceptedSets { self.lastKnownSetUpdatedAt[dto.id] = dto.updated_at }
+            for dto in sessions {
+                guard let row = try SyncJSON(encoding: dto).objectValue else { throw SyncError.invalidRemoteRow("practice_sessions") }
+                try self.engine.acknowledgePulledRow(table: "practice_sessions", row: row)
+            }
+            for dto in sets {
+                guard let row = try SyncJSON(encoding: dto).objectValue else { throw SyncError.invalidRemoteRow("sets") }
+                try self.engine.acknowledgePulledRow(table: "sets", row: row)
+            }
+            for dto in attempts {
+                guard let row = try SyncJSON(encoding: dto).objectValue else { throw SyncError.invalidRemoteRow("attempts") }
+                try self.engine.acknowledgePulledRow(table: "attempts", row: row)
             }
         }
     }
@@ -167,7 +226,7 @@ public final class SyncCoordinator {
     /// (spec §4a) — a no-op past the metadata push when `storage` was never configured (`nil`) or
     /// the account is signed out.
     public func syncNewestRecording() {
-        guard case .signedIn = auth.state, let recording = store.state.recordings.last else { return }
+        guard canSync, let recording = store.state.recordings.last else { return }
         pushRecording(recording)
         guard let storage, recording.deletedAt == nil else { return }
         let localURL = store.directory.appendingPathComponent("Recordings", isDirectory: true).appendingPathComponent(recording.fileName)
@@ -206,7 +265,7 @@ public final class SyncCoordinator {
     public func syncMostRecentFinishedSet() { syncSet(store.state.history.last) }
 
     private func syncSet(_ set: ActiveSet?) {
-        guard case .signedIn = auth.state, let set else { return }
+        guard canSync, let set else { return }
         // sets.session_id is a hard FK (references public.practice_sessions(id)) exactly like
         // attempts.set_id -> sets(id) — push the session first, every time, the same "cheap and
         // idempotent, so just always do it" reasoning pushSet/pushAttempt already use.
@@ -226,12 +285,12 @@ public final class SyncCoordinator {
         }
         for attempt in set.attempts where attempt.undoneAt != nil && !pushedUndoIDs.contains(attempt.id) {
             pushedUndoIDs.insert(attempt.id)
-            try? engine.enqueueUndoAttempt(attemptID: attempt.id)
+            try? engine.enqueueUndoAttempt(attemptID: attempt.id, undoneAt: attempt.undoneAt)
             Task { await syncAll() }
         }
     }
     private func pushSession(_ session: PracticeSession) {
-        guard case .signedIn = auth.state else { return }
+        guard canSync else { return }
         let dto = PracticeSessionSyncRow(session)
         guard let object = try? SyncJSON(encoding: dto).objectValue else { return }
         lastKnownSessionUpdatedAt[session.id] = dto.updated_at
@@ -239,7 +298,7 @@ public final class SyncCoordinator {
         Task { await syncAll() }
     }
     private func pushSet(_ set: ActiveSet) {
-        guard case .signedIn = auth.state else { return }
+        guard canSync else { return }
         let dto = SetSyncRow(set)
         guard let object = try? SyncJSON(encoding: dto).objectValue else { return }
         lastKnownSetUpdatedAt[set.id] = dto.updated_at
@@ -247,157 +306,196 @@ public final class SyncCoordinator {
         Task { await syncAll() }
     }
     private func pushAttempt(_ attempt: Attempt, setID: UUID) {
-        guard case .signedIn = auth.state, let object = try? SyncJSON(encoding: AttemptSyncRow(attempt, setID: setID)).objectValue else { return }
+        guard canSync, let object = try? SyncJSON(encoding: AttemptSyncRow(attempt, setID: setID)).objectValue else { return }
         try? engine.enqueueAppend(table: "attempts", row: object)
         Task { await syncAll() }
     }
 
     private func enqueueUpsert<T: Encodable>(table: String, encoding value: T) {
-        guard case .signedIn = auth.state, let object = try? SyncJSON(encoding: value).objectValue else { return }
+        guard canSync, let object = try? SyncJSON(encoding: value).objectValue else { return }
         try? engine.enqueueUpsert(table: table, row: object)
         Task { await syncAll() }
     }
     private func enqueueAppend<T: Encodable>(table: String, encoding value: T) {
-        guard case .signedIn = auth.state, let object = try? SyncJSON(encoding: value).objectValue else { return }
+        guard canSync, let object = try? SyncJSON(encoding: value).objectValue else { return }
         try? engine.enqueueAppend(table: table, row: object)
         Task { await syncAll() }
     }
 
     // MARK: Applying a pulled (or "you lost, adopt this" rejected-push) row back into PracticeStore
 
-    private func applyAdoptedRow(table: String, row: [String: SyncJSON]) { applyPulledRow(table: table, row: row) }
+    private func applyAdoptedRow(table: String, row: [String: SyncJSON]) throws { try applyPulledRow(table: table, row: row) }
 
-    private func applyPulledRow(table: String, row: [String: SyncJSON]) {
+    private func applyPulledRow(table: String, row: [String: SyncJSON]) throws {
         let wrapped = SyncJSON.object(row)
+        var canonicalRow: [String: SyncJSON]?
         switch table {
         case "instruments":
-            guard let dto = try? wrapped.decoded(as: InstrumentSyncRow.self), let value = dto.coreValue else { return }
+            let dto = try wrapped.decoded(as: InstrumentSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            guard let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
             if shouldApply(value.updatedAt, currentUpdatedAt: store.state.instruments.first { $0.id == value.id }?.updatedAt) {
-                try? store.applySyncedInstrument(value)
+                try store.applySyncedInstrument(value)
             }
         case "pieces":
             // Fixed 20260926 pass: was `store.updatePiece(value)`, which silently fails (swallowed by
             // `try?`) for a piece id this device has never seen before — see `applySyncedPiece`'s own
             // doc comment. That bug predates this pass; every table this pass newly wires already
             // upserts correctly (`applySynced*` throughout `PracticeStore.swift`).
-            guard let dto = try? wrapped.decoded(as: PieceSyncRow.self), let value = dto.coreValue else { return }
-            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.pieces.first { $0.id == value.id }?.updatedAt) {
-                try? store.applySyncedPiece(value)
-                downloadScoreIfNeeded(pieceID: value.id, fileName: value.pdfFileName)
-            }
+            let dto = try wrapped.decoded(as: PieceSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            guard let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
+            try store.applySyncedPiece(value)
         case "passages":
-            guard let dto = try? wrapped.decoded(as: PassageSyncRow.self), let value = dto.coreValue else { return }
+            let dto = try wrapped.decoded(as: PassageSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            guard let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
             if shouldApply(value.updatedAt, currentUpdatedAt: store.state.passages.first { $0.id == value.id }?.updatedAt) {
-                try? store.savePassage(value)
+                try store.savePassage(value)
             }
         case "ink_strokes":
-            guard let dto = try? wrapped.decoded(as: InkStrokeSyncRow.self), let value = dto.coreValue else { return }
+            let dto = try wrapped.decoded(as: InkStrokeSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            guard let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
             let current = store.state.inkStrokes.first { $0.id == value.id }
-            if shouldApply(value.updatedAt, currentUpdatedAt: current?.updatedAt) { try? store.applySyncedInkStroke(value) }
+            if shouldApply(value.updatedAt, currentUpdatedAt: current?.updatedAt) { try store.applySyncedInkStroke(value) }
         case "tags":
-            guard let dto = try? wrapped.decoded(as: TagSyncRow.self) else { return }
+            let dto = try wrapped.decoded(as: TagSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
             let value = dto.coreValue
-            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.tags.first { $0.id == value.id }?.updatedAt) { try? store.applySyncedTag(value) }
+            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.tags.first { $0.id == value.id }?.updatedAt) { try store.applySyncedTag(value) }
         case "folders":
-            guard let dto = try? wrapped.decoded(as: FolderSyncRow.self) else { return }
+            let dto = try wrapped.decoded(as: FolderSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
             let value = dto.coreValue
-            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.folders.first { $0.id == value.id }?.updatedAt) { try? store.applySyncedFolder(value) }
+            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.folders.first { $0.id == value.id }?.updatedAt) { try store.applySyncedFolder(value) }
         case "setlists":
-            guard let dto = try? wrapped.decoded(as: SetlistSyncRow.self) else { return }
+            let dto = try wrapped.decoded(as: SetlistSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
             let value = dto.coreValue
-            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.setlists.first { $0.id == value.id }?.updatedAt) { try? store.applySyncedSetlist(value) }
+            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.setlists.first { $0.id == value.id }?.updatedAt) { try store.applySyncedSetlist(value) }
         case "bookmarks":
-            guard let dto = try? wrapped.decoded(as: BookmarkSyncRow.self) else { return }
+            let dto = try wrapped.decoded(as: BookmarkSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
             let value = dto.coreValue
-            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.bookmarks.first { $0.id == value.id }?.updatedAt) { try? store.applySyncedBookmark(value) }
+            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.bookmarks.first { $0.id == value.id }?.updatedAt) { try store.applySyncedBookmark(value) }
         case "page_edits":
-            guard let dto = try? wrapped.decoded(as: PageEditSyncRow.self), let value = dto.coreValue else { return }
-            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.pageEdits.first { $0.id == value.id }?.updatedAt) { try? store.applySyncedPageEdit(value) }
+            let dto = try wrapped.decoded(as: PageEditSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            guard let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
+            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.pageEdits.first { $0.id == value.id }?.updatedAt) { try store.applySyncedPageEdit(value) }
         case "score_links":
-            guard let dto = try? wrapped.decoded(as: ScoreLinkSyncRow.self) else { return }
+            let dto = try wrapped.decoded(as: ScoreLinkSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
             let value = dto.coreValue
-            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.scoreLinks.first { $0.id == value.id }?.updatedAt) { try? store.applySyncedScoreLink(value) }
+            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.scoreLinks.first { $0.id == value.id }?.updatedAt) { try store.applySyncedScoreLink(value) }
         case "annotations":
-            guard let dto = try? wrapped.decoded(as: AnnotationSyncRow.self) else { return }
+            let dto = try wrapped.decoded(as: AnnotationSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
             if let value = dto.textValue {
                 if shouldApply(value.updatedAt, currentUpdatedAt: store.state.textAnnotations.first { $0.id == value.id }?.updatedAt) {
-                    try? store.applySyncedTextAnnotation(value)
+                    try store.applySyncedTextAnnotation(value)
                 }
             } else if let value = dto.stampValue {
                 if shouldApply(value.updatedAt, currentUpdatedAt: store.state.stampAnnotations.first { $0.id == value.id }?.updatedAt) {
-                    try? store.applySyncedStampAnnotation(value)
+                    try store.applySyncedStampAnnotation(value)
                 }
-            }
+            } else { throw SyncError.invalidRemoteRow(table) }
         case "warmup_exercises":
-            guard let dto = try? wrapped.decoded(as: WarmupExerciseSyncRow.self), let value = dto.coreValue else { return }
+            let dto = try wrapped.decoded(as: WarmupExerciseSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            guard let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
             if shouldApply(value.updatedAt, currentUpdatedAt: store.state.warmupExercises.first { $0.id == value.id }?.updatedAt) {
-                try? store.applySyncedWarmupExercise(value)
+                try store.applySyncedWarmupExercise(value)
             }
         case "audio_recordings":
-            guard let dto = try? wrapped.decoded(as: AudioRecordingSyncRow.self) else { return }
+            let dto = try wrapped.decoded(as: AudioRecordingSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
             let value = dto.coreValue
             if shouldApply(value.updatedAt, currentUpdatedAt: store.state.recordings.first { $0.id == value.id }?.updatedAt) {
-                try? store.applySyncedRecording(value)
-                downloadRecordingIfNeeded(recordingID: value.id, fileName: value.fileName)
+                try store.applySyncedRecording(value)
             }
         case "notebook_entries":
-            guard let dto = try? wrapped.decoded(as: NotebookEntrySyncRow.self), let value = dto.coreValue else { return }
+            let dto = try wrapped.decoded(as: NotebookEntrySyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            guard let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
             if shouldApply(value.updatedAt, currentUpdatedAt: store.state.notebookEntries.first { $0.id == value.id }?.updatedAt) {
-                try? store.applySyncedNotebookEntry(value)
+                try store.applySyncedNotebookEntry(value)
             }
         case "practice_sessions":
-            guard let dto = try? wrapped.decoded(as: PracticeSessionSyncRow.self) else { return }
+            let dto = try wrapped.decoded(as: PracticeSessionSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
             let value = dto.coreValue
             if shouldApply(dto.updated_at, currentUpdatedAt: lastKnownSessionUpdatedAt[value.id]) {
+                try store.applySyncedSession(value)
                 lastKnownSessionUpdatedAt[value.id] = dto.updated_at
-                try? store.applySyncedSession(value)
             }
         case "sets":
-            guard let dto = try? wrapped.decoded(as: SetSyncRow.self), let value = dto.coreValue else { return }
+            let dto = try wrapped.decoded(as: SetSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            guard let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
             if shouldApply(dto.updated_at, currentUpdatedAt: lastKnownSetUpdatedAt[value.id]) {
+                try store.applySyncedSet(value)
                 lastKnownSetUpdatedAt[value.id] = dto.updated_at
-                try? store.applySyncedSet(value)
             }
         case "attempts":
             guard let setIDString = row["set_id"]?.stringValue, let setID = UUID(uuidString: setIDString),
-                  let dto = try? wrapped.decoded(as: AttemptSyncRow.self), let value = dto.coreValue else { return }
-            try? store.applySyncedAttempt(value, setID: setID)
+                  let dto = try? wrapped.decoded(as: AttemptSyncRow.self), let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            try store.applySyncedAttempt(value, setID: setID)
         case "rule_settings":
-            guard let dto = try? wrapped.decoded(as: RuleSettingsSyncRow.self) else { return }
+            let dto = try wrapped.decoded(as: RuleSettingsSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
             let value = dto.coreValue
-            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.ruleSettings.updatedAt) { try? store.applySyncedRuleSettings(value) }
+            if !engine.hasSnapshot(table: table) || shouldApply(value.updatedAt, currentUpdatedAt: store.state.ruleSettings.updatedAt) { try store.applySyncedRuleSettings(value) }
         case "rewards_state":
-            guard let dto = try? wrapped.decoded(as: RewardsStateSyncRow.self) else { return }
+            let dto = try wrapped.decoded(as: RewardsStateSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
             let value = dto.coreValue
-            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.rewardsState.updatedAt) { try? store.applySyncedRewardsState(value) }
+            if !engine.hasSnapshot(table: table) || shouldApply(value.updatedAt, currentUpdatedAt: store.state.rewardsState.updatedAt) { try store.applySyncedRewardsState(value) }
         case "profiles":
-            guard let dto = try? wrapped.decoded(as: ProfileSyncRow.self) else { return }
+            let dto = try wrapped.decoded(as: ProfileSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
             let value = dto.coreProfile(ownerID: store.state.profile.ownerID)
-            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.profile.updatedAt) {
-                try? store.applySyncedProfile(value)
-                try? engine.updateProfileBackendFields(dto.backendFields)
+            if !engine.hasSnapshot(table: table) || shouldApply(value.updatedAt, currentUpdatedAt: store.state.profile.updatedAt) {
+                try store.applySyncedProfile(value)
+                try engine.updateProfileBackendFields(dto.backendFields)
             }
         case "rule_events":
-            guard let dto = try? wrapped.decoded(as: RuleEventSyncRow.self), let value = dto.coreValue else { return }
-            try? store.applySyncedRuleEvent(value)
+            let dto = try wrapped.decoded(as: RuleEventSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            guard let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
+            try store.applySyncedRuleEvent(value)
         case "reward_ledger":
-            guard let dto = try? wrapped.decoded(as: RewardLedgerEntrySyncRow.self) else { return }
-            try? store.applySyncedRewardLedgerEntry(dto.coreValue)
+            let dto = try wrapped.decoded(as: RewardLedgerEntrySyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            try store.applySyncedRewardLedgerEntry(dto.coreValue)
         case "badges":
-            guard let dto = try? wrapped.decoded(as: BadgeSyncRow.self) else { return }
-            try? store.applySyncedBadge(dto.coreValue)
+            let dto = try wrapped.decoded(as: BadgeSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            try store.applySyncedBadge(dto.coreValue)
         case "milestone_events":
-            guard let dto = try? wrapped.decoded(as: MilestoneEventSyncRow.self) else { return }
-            try? store.applySyncedMilestoneEvent(dto.coreValue)
+            let dto = try wrapped.decoded(as: MilestoneEventSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            try store.applySyncedMilestoneEvent(dto.coreValue)
         case "cold_grades":
-            guard let dto = try? wrapped.decoded(as: ColdGradeRecordSyncRow.self), let value = dto.coreValue else { return }
-            try? store.applySyncedColdGrade(value)
+            let dto = try wrapped.decoded(as: ColdGradeRecordSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            guard let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
+            try store.applySyncedColdGrade(value)
         case "break_point_taps":
-            guard let dto = try? wrapped.decoded(as: BreakPointTapSyncRow.self) else { return }
-            try? store.applySyncedBreakPointTap(dto.coreValue)
+            let dto = try wrapped.decoded(as: BreakPointTapSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            try store.applySyncedBreakPointTap(dto.coreValue)
         default:
-            break
+            throw SyncError.invalidRemoteRow(table)
         }
+        // Normalize optional values through the DTO before comparing an outbound snapshot.
+        // `owner_id` is not part of the client DTO and SQL nulls differ from omitted Codable keys.
+        guard let canonicalRow else { throw SyncError.invalidRemoteRow(table) }
+        var normalized = canonicalRow.filter { !$0.value.isNull }
+        normalized.removeValue(forKey: "owner_id")
+        try engine.acknowledgePulledRow(table: table, row: normalized)
     }
     private func shouldApply(_ pulledUpdatedAt: Date, currentUpdatedAt: Date?) -> Bool {
         guard let currentUpdatedAt else { return true }

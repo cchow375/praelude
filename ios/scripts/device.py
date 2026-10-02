@@ -246,7 +246,7 @@ def remote_library_files(runner: Runner, identifier: str) -> dict[str, dict]:
 def validate_library(data: bytes) -> dict:
     try:
         state = json.loads(data)
-        if not isinstance(state, dict) or state.get("schemaVersion") not in (1, 2):
+        if not isinstance(state, dict) or type(state.get("schemaVersion")) is not int or state.get("schemaVersion") not in (1, 2, 3):
             raise ValueError()
         active = state.get("activeSet")
         if active is not None and (not isinstance(active, dict) or

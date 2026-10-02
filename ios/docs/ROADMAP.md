@@ -1,5 +1,20 @@
 # Praelude Mobile roadmap
 
+## October 2, 2026 — 2.0 candidate transfer and practicality
+
+**Mobile current source (2026-10-02): 2.0.0/build3, schema3, DEVELOPMENT CANDIDATE.** The current SwiftUI app includes a configured Supabase backend, accounts, mobile sync/private score storage, multi-instrument practice, expanded score tools, warmups, history, notebooks, rewards and social views. These source capabilities supersede the September 14 1.1 description; they do not establish a new physical installation or hardware acceptance.
+
+**Mac library transfer:** a new read-only SQLite exporter and additive native importer preserve the complete original Mac database plus all 46 table projections. The private October 2 snapshot contains 11 piece rows (one system row), 13 distinct PDFs/14 edition paths, 140 passages, 31 goals, 3,313 repetitions, 370 sets and 67 sessions. One score, “Aolean Harp Contemporary,” is missing from the Mac; its records and missing reference are retained. Available stale-path scores are recovered through the current piece folders, with warnings. The original Mac database is not changed or uploaded.
+
+Imported scores, equivalent passages/goals and matching pencil marks become native content; original Mac history/contracts/corrections remain readable under **Progress → Mac practice record** and travel with native backups. Old sets are not replayed through different mobile rules and do not grant new rewards. This is a reviewed snapshot transfer, not continuous Mac↔iOS sync or complete semantic parity. Supabase sync covers supported native records and private PDFs/recordings; goals/routines and the original Mac archive are not cloud-wired.
+
+**Practicality fixes:** compact practice controls fit narrow screens; acknowledgements do not resize the score; passage-page turning after verdicts is opt-in; Today launches the first warmup in its plan; phone navigation has four main tabs plus a deliberate More; first voice-check dismissal starts requested hands-free listening; Performance mode explains its exit gesture. Native backup now includes recording files and preserved Mac archives. Sync gains paginated reads, guest-library catch-up, local-save retry, remote Undo, file retries and account isolation. Full source/core checks and scoped native evidence are in `docs/qa/ios/2.0.0/README.md`.
+
+**Device boundary:** October 2 read-only status found no connected iPad/iPhone. No physical install, migration, Mac-data upload, real-account/two-device sync, or microphone-over-piano acceptance is claimed. The last documented physical install remains September 14 1.1/build2 with verified file preservation and a launch/trust boundary. Current app/account/device state must be rechecked when connected.
+
+**Next steps:** connect/unlock the iPad for a guarded same-bundle update, then import the reviewed transfer from Files. Confirm score boxes/ink and history on hardware, sign into the intended account, and verify a real second-device sync before trusting cross-device continuity. Mac integration remains a separate adapter; Assistant remains on hold.
+
+
 **Updated 2026-09-14.** This is the mobile implementation map, not a claim of shipped desktop or
 forScore parity. The installed Mac product remains v11.1.0/schema21. Exact candidate versions,
 source digests and verification results belong to the [native QA ledger](../../docs/qa/ios/README.md).

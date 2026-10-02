@@ -5,6 +5,18 @@ import UIKit
 /// Disposable UI-test content only. A normal install always starts blank.
 @MainActor
 enum UITestFixture {
+    /// Explicit, disposable simulator audit only. The caller must supply a readable copy; this
+    /// path never runs in Release or against the ordinary app store.
+    static func installDesktopTransferIfRequested(into store: PracticeStore) {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("--uitesting"), let flag = arguments.firstIndex(of: "--desktop-transfer"),
+              arguments.indices.contains(flag + 1) else { return }
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: arguments[flag + 1]))
+            let transfer = try DesktopTransfer.decode(data)
+            try DesktopLibraryFiles(store: store).importTransfer(transfer, data: data)
+        } catch { assertionFailure("Requested desktop audit transfer failed: \(error)") }
+    }
     /// An already-onboarded instrument, so a `--uitesting` launch never stops at AppRootView's
     /// "no live instrument" onboarding gate unless a test is specifically exercising §6 onboarding
     /// (none currently are). Called on every `--uitesting` launch, independent of `--seed`, so even

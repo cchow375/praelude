@@ -10,6 +10,18 @@
 
 ---
 
+### 2026-10-02 · Mobile 2.0 library transfer, sync hardening and pianist practicality review
+
+- **Why:** Christian asked for the same computer scores/practice data on iOS, a full current-app overview, and practical musician-use review including its changed Supabase implementation.
+- **Source truth:** Git now has 2.0/build3/schema3, a configured Supabase project and broader native practice/score/social modules. Living manuals had remained at 1.1; they now distinguish current source from historical physical installation.
+- **Data:** added read-only consistent SQLite snapshot export, additive reviewed native import, stable target IDs, edition-aware boxes and pencil marks, a local original-history/table viewer, idempotent file repair, and backups preserving original Mac archives and native recording bytes. Private real snapshot preserves all 46 tables; 13 unique PDFs, 3,313 reps, 370 sets, 67 sessions. Missing Cowell PDF is explicit; no original-data rewrite or upload.
+- **Practicality:** fixed narrow-screen HUD overflow, rep-driven PDF resizing, unexpected automatic passage turns, skipped planned warmups, overflowing phone navigation, initial voice-check friction and hidden Performance exit. Native/source reviews retain hardware limits.
+- **Sync:** paginated full reads, fractional timestamps, persisted catch-up, save-failure retry, remote Undo, bulk history persistence, file transfer receipts/retries and account mixing guard. Hosted/backend/two-device checks were not rerun; goals/routines and ongoing Mac sync remain open.
+- **Touched:** `ios/Praelude/Core/`, native library files, sync/auth/storage services, app lifecycle, score/HUD/Today/Settings/Progress views, exporter/scripts/tests, mobile guides, `NOTES.md`, QA and seven vault living docs. Shipped Mac records are immutable and its app/data are unchanged.
+- **Fresh review:** repaired atomic remote history/session closure, schema3 helper update compatibility, misleading recording-privacy/Again guidance and oversized idle setup; actual private Mac import shows14native entries/140passages/31goals/32marks/13PDFs.
+- **Evidence:** 343 Core tests, 52 Python helper/exporter tests, 2,199 service assertions and final 175 hosted tests (one live smoke skipped) pass; unsigned Release compiles and excludes test fixtures. Four scoped iPad UI cases, the real-library probe and three scoped phone cases pass across runs; earlier failed navigation/timing probes remain visible. Independent review is recorded in `docs/qa/ios/2.0.0/README.md`; device status found no connected hardware. This is a development candidate, not shipment.
+- **Next:** guarded physical update/import after connection, then real-account sync and pianist hardware acceptance.
+
 ### 2026-09-14 · Mobile 1.1 installed with library preserved; launch pending
 
 - **Why:** Christian requested the iPad update and then reported the device ready for another guarded attempt. Source `124707d` supplies native 1.1.0/build2/schema2.

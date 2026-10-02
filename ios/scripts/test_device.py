@@ -215,6 +215,28 @@ class DeviceSafetyTests(unittest.TestCase):
         self.execute()
         self.assertEqual(self.runner.version, "1.1.0")
 
+    def test_schema3_archive_and_ink_are_preserved_by_refresh(self):
+        state = {"schemaVersion": 3, "activeSet": None, "desktopImports": [{"id": "synthetic"}], "inkStrokes": []}
+        self.runner.files["library.json"] = json.dumps(state).encode()
+        self.runner.files["DesktopImports/snapshot.json"] = b"private original practice snapshot"
+        self.runner.files["Recordings/take-test.m4a"] = b"private original recording"
+        before = dict(self.runner.files)
+        self.execute()
+        self.assertEqual(self.runner.files, before)
+        manifests = list((self.root.parent / "releases/ios-device-backups").glob("*/backup.json"))
+        self.assertEqual(len(manifests), 2)
+        for path in manifests:
+            self.assertEqual(set(json.loads(path.read_text())["files"]), set(before))
+
+    def test_schema3_running_practice_and_unknown_schema_still_block_update(self):
+        self.runner.files["library.json"] = json.dumps({"schemaVersion": 3, "activeSet": {"status": "running"}}).encode()
+        with self.assertRaisesRegex(device.DeviceError, "practice set is running"):
+            self.execute()
+        self.assert_no_install()
+        for schema in (True, 4):
+            with self.assertRaisesRegex(device.DeviceError, "unsupported format"):
+                device.validate_library(json.dumps({"schemaVersion": schema}).encode())
+
     def test_corrupt_ledger_is_preserved_and_blocks_update(self):
         self.runner.files["library.json"] = b"broken ledger"
         with self.assertRaisesRegex(device.DeviceError, "unreadable"):

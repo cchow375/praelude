@@ -80,6 +80,7 @@ struct SettingsView: View {
             }
 
             Section {
+                NavigationLink("Import from Mac", destination: DesktopTransferView())
                 Button("Export backup", systemImage: "square.and.arrow.up", action: onExportBackup)
                 Button("Restore backup", systemImage: "arrow.counterclockwise", action: onImportBackup)
             } header: {
@@ -138,7 +139,7 @@ struct SettingsView: View {
             } header: {
                 Text("Recordings")
             } footer: {
-                Text("Optionally records each practice set as it runs. Files stay on this device only and are never graded or analyzed — only you can listen back.")
+                Text("Optionally records each practice set as it runs. Recordings stay private and are never graded or analyzed. An account can sync them to your other devices; only you can listen back.")
             }
             .confirmationDialog("Delete \(cleanupCandidates) recording\(cleanupCandidates == 1 ? "" : "s")?", isPresented: $confirmCleanup, titleVisibility: .visible) {
                 Button("Delete \(cleanupCandidates) recording\(cleanupCandidates == 1 ? "" : "s")", role: .destructive) {
@@ -210,7 +211,7 @@ private struct PracticeGuideView: View {
             Section("3. Say what happened") {
                 LabeledContent("Clean", value: "A repetition you are satisfied with.")
                 LabeledContent("Sloppy", value: "A repetition with something to fix.")
-                LabeledContent("Again", value: "Record another try. A variant chain keeps its stage progress; a plain clean streak restarts.")
+                LabeledContent("Again", value: "A neutral retry. It counts toward Total plays and keeps a clean streak’s progress.")
                 Text("Clean streak asks for consecutive Clean repetitions. Total plays counts your recorded repetitions toward a fixed amount of work. Undo corrects the most recent verdict.")
                     .foregroundStyle(.secondary)
             }

@@ -1,5 +1,25 @@
 # NOTES
 
+## October 2, 2026 — 2.0 candidate transfer and practicality
+
+Native source now2.0/build3/schema3; stale vault/current-mobile summaries were reconciled.
+Desktop import is a one-way reviewed snapshot. Preserve original Mac sets/contracts rather than
+replaying them through native rules, because counters/status/rewards are not semantically identical.
+Export uses SQLite read-only backup + integrity/FK checks; integer IDs have stable native namespaces.
+Edition IDs and size/mtime fingerprints gate visual box/ink mapping; PDFs are content-addressed SHA256.
+Receipts exclude export timestamps for idempotence. All original rows remain local; no raw database
+or absolute-path settings go to Supabase. Missing scores/unsupported filesystem assets are reported.
+Native backups now retain recording bytes and Mac archives; raw210MB/encoded280MB limits are enforced.
+Backups with audio/archive payloads use version2 so older readers refuse before destructive replacement;
+ordinary backups without those new fields retain version1 compatibility.
+Full paginated sync pulls intentionally trade traffic for correctness until the server provides an
+arrival/change sequence; client dates cannot safely bound late offline events/remote Undo.
+SwiftPM and CoreSimulator require normal host access; sandbox-only manifest errors are environment
+failures. Use exact scoped native QA evidence; no connected device/account flow was established.
+
+**Next steps:** hardware import/update, actual two-device sync, server page/file clocks and desktop adapter.
+
+
 ## Physical update installed (2026-09-14, 20:56 EDT; launch pending)
 
 **Installed September 14 at 20:56 EDT:** after the user confirmed the iPad was ready, the

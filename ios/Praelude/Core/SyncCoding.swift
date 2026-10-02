@@ -8,12 +8,22 @@ import Foundation
 public enum SyncCoding {
     public static var encoder: JSONEncoder {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(iso8601Formatter.string(from: date))
+        }
         return encoder
     }
     public static var decoder: JSONDecoder {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let text = try container.decode(String.self)
+            guard let date = parseDate(text) else {
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid sync timestamp.")
+            }
+            return date
+        }
         return decoder
     }
     /// For the few call sites that need a bare ISO 8601 string rather than a whole encoded payload —
@@ -23,7 +33,15 @@ public enum SyncCoding {
     /// are: `ISO8601DateFormatter` is a mutable Foundation class, not `Sendable`, so a single shared
     /// instance is not safe to read from more than one isolation context at once under Swift 6's
     /// strict concurrency checking (this app target builds with `SWIFT_VERSION = 6.0`).
-    public static var iso8601Formatter: ISO8601DateFormatter { ISO8601DateFormatter() }
+    public static var iso8601Formatter: ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }
+    public static func parseDate(_ value: String) -> Date? {
+        if let date = iso8601Formatter.date(from: value) { return date }
+        return ISO8601DateFormatter().date(from: value)
+    }
 }
 
 extension Data {

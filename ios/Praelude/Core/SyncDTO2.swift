@@ -366,15 +366,9 @@ public struct SetSyncRow: Codable, Equatable, Sendable {
 /// was already undone on another device before this device ever heard of it decodes as undone, not
 /// silently reset to active.
 ///
-/// Known gap (documented, not silently unhandled): `attempts` has no `updated_at`-equivalent for
-/// `SyncEngine.pull`'s cursor to advance on when only `undone_at` changes after this row was already
-/// pulled once — `sync_undo_attempt` performed on device A *after* device B already has this exact
-/// attempt does not currently re-surface to B's next pull (B's cursor, keyed on the immutable `date`
-/// column, has already moved past it). The push side above is unaffected (B's own undo of its own
-/// locally-recorded attempt always reaches the server correctly); this is specifically the
-/// already-synced-elsewhere cross-device propagation direction. Closing it needs a real "last
-/// touched" column and `sync_undo_attempt` bumping it — a schema change to an already-shipped,
-/// already-tested append-only table — left as a follow-up rather than rushed.
+/// Pulls currently revisit this whole table in ordered pages, so an older offline upload and a
+/// later remote Undo remain visible. A future server-owned ingestion/change sequence can make
+/// this incremental without confusing the musician's original event time with sync arrival time.
 public struct AttemptSyncRow: Codable, Equatable, Sendable {
     public var id: UUID
     public var set_id: UUID

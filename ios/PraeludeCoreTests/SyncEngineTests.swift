@@ -246,4 +246,140 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertFalse(LastWriteWins.shouldApplyPulled(pulledUpdatedAt: older, localUpdatedAt: newer))
         XCTAssertFalse(LastWriteWins.shouldApplyPulled(pulledUpdatedAt: older, localUpdatedAt: older), "Equal timestamps must not re-apply (no-op, not a tie-break loop).")
     }
+    func testPullRetriesAfterLocalSaveFailureWithoutAdvancingCursor() async throws {
+        let server = FakeSyncServer()
+        let id = UUID(); let date = Date(timeIntervalSince1970: 100)
+        _ = try server.upsert(table: "pieces", row: row(id: id, title: "Sonata", updatedAt: date))
+        let engine = SyncEngine(transport: FakeSyncTransport(server: server), directory: directory())
+        do {
+            try await engine.pull(table: "pieces") { _ in throw SyncError.transport("disk full") }
+            XCTFail("A failed local apply must fail the pull.")
+        } catch {}
+        XCTAssertNil(engine.state.cursors["pieces"])
+        var received = 0
+        try await engine.pull(table: "pieces") { _ in received += 1 }
+        XCTAssertEqual(received, 1)
+        XCTAssertEqual(engine.state.cursors["pieces"], date)
+    }
+
+    func testLateOfflineEventIsPulledAfterNewerEvent() async throws {
+        let server = FakeSyncServer()
+        let engine = SyncEngine(transport: FakeSyncTransport(server: server), directory: directory())
+        let newer = UUID(); let older = UUID()
+        _ = try server.append(table: "badges", row: ["id": .string(newer.uuidString), "earned_at": .string(SyncCoding.iso8601Formatter.string(from: Date(timeIntervalSince1970: 200)))])
+        try await engine.pull(table: "badges", cursorField: "earned_at") { _ in }
+        _ = try server.append(table: "badges", row: ["id": .string(older.uuidString), "earned_at": .string(SyncCoding.iso8601Formatter.string(from: Date(timeIntervalSince1970: 100)))])
+        var ids: Set<String> = []
+        try await engine.pull(table: "badges", cursorField: "earned_at") { if let id = $0["id"]?.stringValue { ids.insert(id) } }
+        XCTAssertEqual(ids, [newer.uuidString, older.uuidString], "Arrival time must not be confused with the original practice date.")
+    }
+
+    func testGuestLibrarySnapshotQueuesEveryHistoricalRepOnceAndSurvivesRelaunch() async throws {
+        let directory = directory()
+        let server = FakeSyncServer()
+        let engine = SyncEngine(transport: FakeSyncTransport(server: server), directory: directory)
+        var library = LibraryState()
+        let piece = Piece(title: "Sonata")
+        let session = PracticeSession(pieceID: piece.id, focus: "Pulse")
+        var set = ActiveSet(sessionID: session.id, configuration: PracticeConfiguration(pieceID: piece.id, targetCount: 2000))
+        set.attempts = (0..<1505).map { Attempt(verdict: .clean, date: Date(timeIntervalSince1970: Double($0)), bpm: 60) }
+        set.attempts[0].undoneAt = Date(timeIntervalSince1970: 2000)
+        set.status = .ended
+        library.pieces = [piece]; library.sessions = [session]; library.history = [set]
+        try engine.enqueueLibrarySnapshot(library)
+        let count = engine.pendingCount
+        XCTAssertGreaterThan(count, 1505)
+        try engine.enqueueLibrarySnapshot(library)
+        XCTAssertEqual(engine.pendingCount, count, "An unchanged snapshot must not double-enqueue a long practice history.")
+        let restored = SyncEngine(transport: FakeSyncTransport(server: server), directory: directory)
+        try restored.enqueueLibrarySnapshot(library)
+        XCTAssertEqual(restored.pendingCount, count)
+        let drained = await restored.drain()
+        XCTAssertTrue(drained)
+        XCTAssertEqual(server.count(table: "attempts"), 1505)
+        XCTAssertEqual(server.count(table: "sets"), 1)
+        XCTAssertEqual(server.count(table: "practice_sessions"), 1)
+    }
+
+    func testCorruptQueueIsPreservedAndNeverReplacedWithAnEmptyQueue() throws {
+        let directory = directory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("sync-queue.json")
+        let original = Data("not a queue".utf8); try original.write(to: url)
+        let engine = SyncEngine(transport: FakeSyncTransport(server: FakeSyncServer()), directory: directory)
+        XCTAssertThrowsError(try engine.enqueueUpsert(table: "pieces", row: row(id: UUID(), title: "Sonata", updatedAt: Date())))
+        XCTAssertEqual(try Data(contentsOf: url), original)
+        guard case .stuck = engine.status else { return XCTFail("Unsafe queue storage must be visible.") }
+    }
+
+    func testQueueWriteFailureDoesNotRemoveOrExposeUnpersistedEntries() throws {
+        let directory = directory()
+        var failWrites = false
+        let queue = try SyncQueue(directory: directory, writeData: { data, url in
+            if failWrites { throw SyncError.transport("disk full") }
+            try data.write(to: url, options: .atomic)
+        })
+        let entry = SyncQueueEntry.append(table: "badges", row: ["id": .string(UUID().uuidString)])
+        try queue.enqueue(entry)
+        failWrites = true
+        XCTAssertThrowsError(try queue.removeFirst())
+        XCTAssertEqual(queue.entries, [entry])
+        XCTAssertThrowsError(try queue.enqueue(.append(table: "badges", row: ["id": .string(UUID().uuidString)])))
+        XCTAssertEqual(queue.entries, [entry])
+        XCTAssertEqual(try SyncQueue(directory: directory).entries, [entry])
+    }
+
+    func testPaginationIncludesAllRowsWhenServerCapsPagesBelowRequestedSize() async throws {
+        let expected = (0..<1505).map { ["id": SyncJSON.string(String($0))] }
+        let actual = try await SyncPagination.collect(pageSize: 500) { offset, requested in
+            Array(expected.dropFirst(offset).prefix(min(requested, 137)))
+        }
+        XCTAssertEqual(actual, expected)
+    }
+
+    func testFractionalPostgresDatesDecodeAndRetainSubsecondEditOrder() throws {
+        struct Event: Codable { var date: Date }
+        let received = try SyncCoding.decoder.decode(Event.self, from: Data(#"{"date":"2026-10-02T15:30:00.125000+00:00"}"#.utf8))
+        let later = try SyncCoding.decoder.decode(Event.self, from: Data(#"{"date":"2026-10-02T15:30:00.875000+00:00"}"#.utf8))
+        XCTAssertEqual(later.date.timeIntervalSince(received.date), 0.75, accuracy: 0.001)
+        let legacy = try SyncCoding.decoder.decode(Event.self, from: Data(#"{"date":"2026-10-02T15:30:00Z"}"#.utf8))
+        XCTAssertEqual(received.date.timeIntervalSince(legacy.date), 0.125, accuracy: 0.001)
+        let encoded = try SyncCoding.encoder.encode(received)
+        XCTAssertEqual(try SyncCoding.decoder.decode(Event.self, from: encoded).date, received.date)
+    }
+
+    func testFreshAccountDefaultsDoNotQueueOverExistingCloudSingletonsButChangedSettingsDo() throws {
+        let engine = SyncEngine(transport: FakeSyncTransport(server: FakeSyncServer()), directory: directory())
+        var library = LibraryState(); library.profile.ownerID = UUID()
+        try engine.enqueueLibrarySnapshot(library)
+        XCTAssertFalse(engine.hasSnapshot(table: "profiles"))
+        XCTAssertFalse(engine.hasSnapshot(table: "rule_settings"))
+        XCTAssertFalse(engine.hasSnapshot(table: "rewards_state"))
+        library.ruleSettings.r1MaxMeasures += 1
+        try engine.enqueueLibrarySnapshot(library)
+        XCTAssertTrue(engine.hasSnapshot(table: "rule_settings"))
+        let pending = engine.pendingCount
+        try engine.enqueueLibrarySnapshot(library)
+        XCTAssertEqual(engine.pendingCount, pending, "Generated creation clocks must not make an unchanged singleton enqueue again.")
+    }
+
+    func testRejectedPracticeWriteIsAcknowledgedOnlyAfterAtomicGraphAdoptionSucceeds() async throws {
+        let server = FakeSyncServer(), id = UUID()
+        let older = Date(timeIntervalSince1970: 100), newer = Date(timeIntervalSince1970: 200)
+        _ = try server.upsert(table: "practice_sessions", row: row(id: id, title: "Remote closure", updatedAt: newer))
+        let engine = SyncEngine(transport: FakeSyncTransport(server: server), directory: directory())
+        try engine.enqueueUpsert(table: "practice_sessions", row: row(id: id, title: "Local earlier session", updatedAt: older))
+        try engine.enqueueAppend(table: "badges", row: ["id": .string(UUID().uuidString), "key": .string("earned")])
+        let failed = await engine.drain(applyPulledRow: { _, _ in XCTFail("Practice metadata must not be adopted as an isolated row.") }, adoptPracticeSnapshot: {
+            XCTAssertEqual(server.count(table: "badges"), 1, "Finish sending pending graph entries before adopting its complete snapshot.")
+            throw SyncError.transport("atomic local save failed")
+        })
+        XCTAssertFalse(failed)
+        XCTAssertEqual(engine.pendingCount, 2, "A rejected practice row stays durable until the complete graph is safely adopted.")
+        let retried = await engine.drain(applyPulledRow: { _, _ in XCTFail("Practice metadata must use graph adoption.") }, adoptPracticeSnapshot: {})
+        XCTAssertTrue(retried)
+        XCTAssertEqual(engine.pendingCount, 0)
+        XCTAssertEqual(server.count(table: "badges"), 1, "Accepted tail entries replay idempotently after failed graph adoption.")
+    }
+
 }

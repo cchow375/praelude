@@ -301,7 +301,14 @@ import Observation
     /// fail loudly on an id that should already exist, e.g. a stale in-memory reference after a
     /// delete elsewhere in this same launch - only the sync path needs "insert-or-update").
     public func applySyncedPiece(_ piece: Piece) throws {
-        if state.pieces.contains(where: { $0.id == piece.id }) { try updatePiece(piece) } else { try addPiece(piece) }
+        guard let existing = state.pieces.first(where: { $0.id == piece.id }) else { try addPiece(piece); return }
+        var merged = piece.updatedAt > existing.updatedAt ? piece : existing
+        if piece.lastPageUpdatedAt > existing.lastPageUpdatedAt {
+            merged.lastPage = piece.lastPage; merged.lastPageUpdatedAt = piece.lastPageUpdatedAt
+        } else {
+            merged.lastPage = existing.lastPage; merged.lastPageUpdatedAt = existing.lastPageUpdatedAt
+        }
+        if merged != existing { try updatePiece(merged) }
     }
 
     public func applySyncedInstrument(_ instrument: Instrument) throws { try transaction { next in
@@ -366,6 +373,54 @@ import Observation
     /// exists locally fails `validate`'s `sessionIDs.contains(set.sessionID)` check — apply this
     /// before `applySyncedSet` for the same session, the same ordering `SyncCoordinator.syncSet(_:)`
     /// already guarantees on push.
+    /// A remote practice ledger spans three tables. Reconstruct the complete graph before
+    /// validation: a completed set cannot be projected without its reps, and a session close
+    /// cannot be saved while its old running set is still active locally.
+    public func applySyncedPracticeSnapshot(sessions receivedSessions: [PracticeSession], sets receivedSets: [ActiveSet],
+                                           attempts receivedAttempts: [(attempt: Attempt, setID: UUID)]) throws {
+        var sessions = state.sessions
+        for session in receivedSessions {
+            if let index = sessions.firstIndex(where: { $0.id == session.id }) { sessions[index] = session }
+            else { sessions.append(session) }
+        }
+        var sets = Dictionary(uniqueKeysWithValues: (state.history + [state.activeSet].compactMap { $0 }).map { ($0.id, $0) })
+        for var set in receivedSets {
+            set.attempts = sets[set.id]?.attempts ?? []
+            sets[set.id] = set
+        }
+        for (setID, items) in Dictionary(grouping: receivedAttempts, by: { $0.setID }) {
+            guard var set = sets[setID] else { throw PracticeError.conflict("A synced repetition's practice set is not available yet. It will be retried.") }
+            var attempts = Dictionary(uniqueKeysWithValues: set.attempts.map { ($0.id, $0) })
+            for item in items {
+                if var attempt = attempts[item.attempt.id] {
+                    if attempt.undoneAt == nil { attempt.undoneAt = item.attempt.undoneAt }
+                    attempts[attempt.id] = attempt
+                } else { attempts[item.attempt.id] = item.attempt }
+            }
+            set.attempts = attempts.values.sorted { $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date < $1.date }
+            sets[setID] = set
+        }
+        var active: ActiveSet?
+        var history: [ActiveSet] = []
+        for source in sets.values.sorted(by: { $0.startedAt == $1.startedAt ? $0.id.uuidString < $1.id.uuidString : $0.startedAt < $1.startedAt }) {
+            let set = PracticeEngine.project(source)
+            guard let session = sessions.first(where: { $0.id == set.sessionID }) else { throw PracticeError.invalid("A synced set is missing its session.") }
+            // A truncated/inconsistent remote snapshot must be retried, never filed as invented
+            // completion or a silently unfinished historical set.
+            if source.status == .completed, set.status != .completed { throw PracticeError.conflict("A completed synced set is missing its effective repetitions. Sync will retry the complete ledger.") }
+            let retainsLocalActive = state.activeSet?.id == set.id && session.endedAt == nil && set.status != .ended
+            if set.status == .ended || (set.status == .completed && !retainsLocalActive) {
+                history.append(set)
+            } else {
+                guard active == nil else { throw PracticeError.conflict("Another device has an unfinished set. Finish a set before syncing both.") }
+                guard session.endedAt == nil else { throw PracticeError.conflict("A synced session closed before its unfinished set. Sync will retry the complete ledger.") }
+                active = set
+            }
+        }
+        guard sessions != state.sessions || history != state.history || active != state.activeSet else { return }
+        try transaction { next in next.sessions = sessions; next.history = history; next.activeSet = active }
+    }
+
     public func applySyncedSession(_ session: PracticeSession) throws { try transaction { next in
         if let index = next.sessions.firstIndex(where: { $0.id == session.id }) { next.sessions[index] = session }
         else { next.sessions.append(session) }
@@ -401,7 +456,8 @@ import Observation
                 // session across devices (e.g. "started on the iPad, picked up the iPhone mid-set").
                 next.activeSet = PracticeEngine.project(incoming)
             }
-            // else: this device already has its own different live set. A genuine same-account,
+            else { throw PracticeError.conflict("Another device has an unfinished set. Finish this device's set before syncing it.") }
+            // This device already has its own different live set. A genuine same-account,
             // simultaneous-device conflict (rare — the same person cannot really practice two things
             // at once, but two sockets can each think they own "the" active set for a moment). Not
             // solved here: applying the pulled snapshot would either silently replace this device's
@@ -420,17 +476,36 @@ import Observation
     /// (`SyncCoordinator`) lists `sets` ahead of `attempts` every pass, so in practice the set already
     /// exists locally by the time its attempts are applied within the same `syncAll()`.
     public func applySyncedAttempt(_ attempt: Attempt, setID: UUID) throws {
-        try transaction { next in
-            if next.activeSet?.id == setID {
-                guard let activeSet = next.activeSet, !activeSet.attempts.contains(where: { $0.id == attempt.id }) else { return }
-                var updated = activeSet; updated.attempts.append(attempt)
-                next.activeSet = PracticeEngine.project(updated)
-            } else if let index = next.history.firstIndex(where: { $0.id == setID }),
-                      !next.history[index].attempts.contains(where: { $0.id == attempt.id }) {
-                var updated = next.history[index]; updated.attempts.append(attempt)
-                next.history[index] = PracticeEngine.project(updated)
+        try applySyncedAttempts([(attempt, setID)])
+    }
+    /// Imports/refreshes the full remote rep log in one durable transaction. Event times order
+    /// replay; Undo only advances nil -> timestamp and can never resurrect an already-undone rep.
+    public func applySyncedAttempts(_ incoming: [(attempt: Attempt, setID: UUID)]) throws {
+        guard !incoming.isEmpty else { return }
+        var active = state.activeSet
+        var history = state.history
+        func merged(_ original: [Attempt], _ received: [(attempt: Attempt, setID: UUID)]) -> [Attempt] {
+            var values = Dictionary(uniqueKeysWithValues: original.map { ($0.id, $0) })
+            for item in received {
+                if var current = values[item.attempt.id] {
+                    if current.undoneAt == nil { current.undoneAt = item.attempt.undoneAt }
+                    values[current.id] = current
+                } else { values[item.attempt.id] = item.attempt }
+            }
+            return values.values.sorted { $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date < $1.date }
+        }
+        for (setID, attempts) in Dictionary(grouping: incoming, by: { $0.setID }) {
+            if var set = active, set.id == setID {
+                set.attempts = merged(set.attempts, attempts); active = PracticeEngine.project(set)
+            } else if let index = history.firstIndex(where: { $0.id == setID }) {
+                var set = history[index]; set.attempts = merged(set.attempts, attempts)
+                history[index] = PracticeEngine.project(set)
+            } else {
+                throw PracticeError.conflict("A synced repetition's practice set is not available yet. It will be retried.")
             }
         }
+        guard active != state.activeSet || history != state.history else { return }
+        try transaction { next in next.activeSet = active; next.history = history }
     }
 
     /// The one legitimate post-insert edit on an append-only attempt (spec 9 Undo), applied locally
@@ -976,6 +1051,26 @@ import Observation
         let state = try decoder().decode(LibraryState.self, from: data); try validate(state)
         return SchemaMigration.migrateToSchema3(state, at: Date())
     }
+    /// Add a desktop snapshot without replacing mobile records, preferences, active history or
+    /// rewards. Existing stable IDs win: a repeated import cannot overwrite an edited target.
+    public func importDesktop(_ library: LibraryState, receipt: DesktopImportReceipt) throws {
+        guard state.activeSet == nil else { throw PracticeError.conflict("Finish your current set before importing Mac data.") }
+        guard !state.desktopImports.contains(where: { $0.id == receipt.id }) else { return }
+        try Self.validate(library)
+        try transaction { next in
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                _ = try preserveOriginal(prefix: "library-before-mac-import")
+            }
+            let pieceIDs = Set(next.pieces.map(\.id)), passageIDs = Set(next.passages.map(\.id)), goalIDs = Set(next.goals.map(\.id))
+            next.pieces += library.pieces.filter { !pieceIDs.contains($0.id) }
+            next.passages += library.passages.filter { !passageIDs.contains($0.id) }
+            next.goals += library.goals.filter { !goalIDs.contains($0.id) }
+            let strokeIDs = Set(next.inkStrokes.map(\.id))
+            next.inkStrokes += library.inkStrokes.filter { !strokeIDs.contains($0.id) }
+            next.desktopImports.append(receipt)
+        }
+    }
+
     public func restoreBackup(_ restored: LibraryState) throws {
         guard state.activeSet == nil else { throw PracticeError.conflict("End your current set before restoring a backup.") }
         guard restored.activeSet?.status != .running else { throw PracticeError.invalid("This backup contains a running set. Pause it on the source device before exporting.") }
@@ -1070,6 +1165,10 @@ import Observation
         try require((1...3).contains(state.schemaVersion) && state.revision >= 0, "This practice library uses an unsupported format.")
         try require(state.revision < Int.max - 1 && state.pieces.count <= 10000 && state.passages.count <= 100000 && state.history.count <= 100000 && state.sessions.count <= 100000 && state.goals.count <= 10000 && state.routines.count <= 10000, "The library contains more records than this version supports.")
         try require(unique(state.pieces.map(\.id)) && unique(state.passages.map(\.id)) && unique(state.sessions.map(\.id)) && unique(state.goals.map(\.id)) && unique(state.routines.map(\.id)), "The library contains duplicate record identifiers.")
+        try require(unique(state.desktopImports.map(\.id)) && state.desktopImports.allSatisfy {
+            $0.id.count == 64 && $0.id.allSatisfy { $0.isHexDigit } && DesktopTransfer.localName($0.archiveFileName)
+                && date($0.importedAt) && $0.scoreCount >= 0 && $0.tableCounts.values.allSatisfy { $0 >= 0 }
+        }, "The Mac import records are invalid.")
         let pieceIDs = Set(state.pieces.map(\.id)); let sessionIDs = Set(state.sessions.map(\.id))
         // §7 page tools: once a piece has its own page-edit rows (reorder/insert/delete), its
         // effective reading order can be longer or shorter than its source `pageCount`. `lastPage`/

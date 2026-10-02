@@ -4,60 +4,13 @@
 
 ## Separate iPhone/iPad development candidate
 
-The installed Mac tutorial below still matches **Mac v11.1.0/schema21**. Native mobile source is
-**1.1.0/build2/schema2 DEVELOPMENT CANDIDATE** from source `124707d`; the iPad now confirms
-**1.1.0/build2 installed** at 20:56 EDT on September 14. Controlled launch and first-launch schema2
-migration remain pending. Its controls are described in the
-[current mobile guide](/Users/c3/praelude/ios/README.md) and
-[Using Mobile](/Users/c3/praelude/ios/docs/USING_MOBILE.md).
+The installed Mac instructions and Matches line below still describe v11.1.0/schema21. Mobile source is now **2.0.0/build3/schema3 DEVELOPMENT CANDIDATE**, not a verified October 2 physical install. Its current workflow is documented in `ios/docs/USING_MOBILE.md`; historical September 14 device evidence is in `docs/qa/ios/1.1.0/`.
 
-In the candidate, Today/Pieces/Progress use phone tabs and an adaptive iPad sidebar. Import a PDF,
-read pages or enter Focus, draw multiple passage boxes with optional measure labels, and use
-Annotate score for PencilKit tools or explicit Draw with finger. Ink Undo/Redo is separate from
-practice Undo. Progress → session → What you practiced shows the original recorded target.
-Score options → Share annotated score creates a new flattened-ink PDF for system Files/sharing/Print;
-practice boxes are excluded and the source score/editable ink remain intact.
+Phone tabs are Today, Pieces, Warmups, Progress and More. On iPad, the sidebar exposes every section. Settings → Import from Mac opens a reviewed transfer from Files and adds compatible scores, passage boxes, pencil marks and goals without replacing mobile data. Progress → Mac practice record retains original Mac history and all table records. Supabase sync covers supported native records and private score/recording storage; original Mac archive, goals/routines and continuous desktop sync remain separate.
 
-Choose a passage or whole piece, then set focus/target/tempo. Clean/Sloppy/Again record your judgment;
-pause/resume and Undo preserve the practice contract. The metronome adds meter, beat accents/silence,
-subdivisions, sound/volume and optional haptics. Optional voice is at Score options → Hands-free
-commands → Enable hands-free; it uses supported on-device English recognition and never grades piano.
-Native schema2 backup contains the independent library, PDFs and editable ink. It does not import
-Mac SQLite data or provide automatic sync. See the workflow guide for source labels and error handling.
+In a score, Clean/Sloppy/Again record the pianist's verdict. Compact controls preserve large targets; acknowledgements no longer resize the music. Automatic passage-page turning is opt-in in Score options. Today → Start session follows warmup-first plans. First hands-free enable runs a voice check before starting requested listening. Performance mode explains that touching and holding exits it. Backup includes PDFs, editable ink, recordings and original Mac archives, within the bounded size limit.
 
-**Current simulator limits:** 29 core tests, 2,166 service assertions, 28 fake-device helper tests and 36/36 native hosted tests
-on each simulator pass. The final-toolbar iPad9 selected run passes 3/3: finger 59.497 s, meter 61.653 s,
-Focus 23.719 s. iPad7 supplies box editing/relaunch and accessibility markup in both orientations;
-five targeted iPad scenarios pass across runs. Phone3 passes 36 hosted plus 3 selected UI, and Phone2
-supplies the other four UI passes: seven distinct phone scenarios pass across runs. Phone4 also passes its final-toolbar finger 91.652 s/meter 84.624 s recheck. Final exact-source signed Release verification passes. Earlier failed runs remain
-failed; no all-green full-scheme or physical-feature claim is made.
-
-Phone3 visually verifies ink before Undo and after Redo; a prior iPad blank capture has an
-unexplained cause. The corrected drawing gestures and 44-point toolbar controls have scoped
-simulator evidence. The complete phone backup-dialog UI passes. Physical Pencil precision,
-printing, acoustic audio/voice, VoiceOver and in-app backup/restore remain separate checks.
-
-For free setup, conditional developer trust and seven-day renewal use
-[Install on iPad](/Users/c3/praelude/ios/docs/INSTALL_ON_IPAD.md). Help/status are read-only;
-`npm run ios:refresh -- --device "YOUR IPAD NAME"` explicitly builds and updates an existing app.
-Pause/end practice and leave the app idle. The helper has 28 passing fake-device safety tests: it
-retains full pre/post copies, compares every file name/length/hash before launch and never uninstalls
-or automatically restores. A failed post-install comparison says installed-but-unverified and blocks launch.
-
-**Device update installed; launch pending:** the guarded refresh now installed 1.1.0/build2 and
-verified all owned file names, byte counts and SHA-256 against complete private pre/post copies.
-The preserved ledger is still schema1; migration will be checked after launch. Earlier PDF-copy
-probes failed with EPERM. The 20:50 refresh again failed the complete copy, with only a generic
-failure reported. The 20:52 Xcode container download failed with CoreDevice7000/POSIX1 on a
-snapshot cache and did not create a complete practice backup. Copying succeeded after the user
-reported ready, so the prior update hold is cleared.
-
-Automatic launch was denied with a generic security/unlock error whose cause is unproven.
-Unlock the iPad and tap Praelude. If it requests Developer App trust, follow Settings → General →
-VPN & Device Management → Developer App as explained in the installation guide. Controlled launch
-and hardware acceptance remain pending. No deletion, reset, restore or explicit termination was used.
-The signed 1.1 snapshot remains outside Git and its profile expires September 21 at 21:24:58 UTC.
-The Mac Matches line stays unchanged.
+**Next steps:** guarded device update/import, physical score/ink/voice acceptance and real-account/two-device checks. No connected device was available October 2; installed Mac remains unchanged.
 
 ## Start a useful practice session
 
