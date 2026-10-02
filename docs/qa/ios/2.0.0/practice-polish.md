@@ -1,6 +1,6 @@
 # Build4 pianist workflow follow-up — October 2, 2026
 
-**2.0.0/build4 · schema4 · DEVELOPMENT CANDIDATE.** Base: `25fa176`.
+**2.0.0/build4 · schema4 · DEVELOPMENT CANDIDATE.** Base: `25fa176`. Implementation: `aeda81b`.
 Christian requested further hidden-error and practice-convenience work before importing his Mac library.
 No Mac DB rewrite, physical import or live-account operation has occurred in this round. The physical iPad has build4 installed, exact seven-file preservation verified; automatic launch was denied.
 
