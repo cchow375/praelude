@@ -92,5 +92,39 @@
     "profile_download": "completed; matching cached profile still excludes trusted certificate, includes connected device and remains unexpired",
     "native_release_followup": "User requested Build For Profiling due repeated stale-element menu automation failures",
     "private_key_export_or_trust_override": false
+  },
+  "weekly_provisioning_renewal": {
+    "recorded_utc": "2026-10-03T18:01:37.623369+00:00",
+    "previous_matching_local_profile_expires_utc": "2026-10-09T22:26:44+00:00",
+    "installed_profile_expiry": "not exposed by inspected device inventory",
+    "native_auto_signing_reset": "same team restored; Release build succeeded but strict signature still revoked",
+    "stale_cache_recovery": "one matching cache profile reversibly archived outside Git; native project reopened",
+    "profile_created_utc": "2026-10-03T17:55:53+00:00",
+    "profile_expires_utc": "2026-10-10T17:55:53+00:00",
+    "independent_profile_verification": {
+      "same_team_and_bundle": true,
+      "connected_device_included": true,
+      "development_enabled": true,
+      "trusted_unexpired_certificates": 2,
+      "revoked_certificates": 0
+    },
+    "native_release_state": "Completed; strict signature/profile/team/device checks pass",
+    "computer_use_securityagent": "prohibited by tool safety policy; no bypass attempted",
+    "project_mutations": "only tool-generated normalization/signing overrides restored after semantic validation",
+    "installation_attempted": false,
+    "next_step": "user authorizes signing locally, then actual Release signature verification and full guarded refresh"
+  },
+  "final_guarded_update": {
+    "installed_build": "6",
+    "installed_version": "2.0.0",
+    "signature_profile_owner_device_checks_passed": true,
+    "pre_backup": "releases/ios-device-backups/20261003T180209Z-5873bf15",
+    "post_backup": "releases/ios-device-backups/20261003T180241Z-c017a436",
+    "independent_complete_preservation": "11 files /6212619bytes exact; history/ownership/privacy intact",
+    "automatic_launch": "declined",
+    "user_launch": "confirmed opened",
+    "direct_postlaunch_schema": 5,
+    "direct_postlaunch_revision": 883,
+    "installation_record": "personal-ipad-install.json"
   }
 }

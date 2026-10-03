@@ -10,6 +10,23 @@
 
 ---
 
+### 2026-10-03 · Build6 installed and opened after provisioning renewal
+
+- **Installed:**2.0.0/build6 from `00375fa` over the same app identifier. Actual signature/profile/team/device checks pass; fresh profile expiresOctober10 at17:55:53UTC /1:55PM EDT.
+- **Preserved:** complete pre/post11-file tree matches by name/size/SHA256;6,212,619bytes, no symlinks. Independent ledger/history/account/privacy review passes: schema5/revision883,5pieces/30passages/24historical sets/15sessions/114attempts/no active set.
+- **Opened:** automatic launch declined; Christian confirms manual open. Direct ledger read confirms schema5/revision883. Physical Pencil/freeze/piano and actual two-device acceptance remain separate.
+- **Touched:** sanitized install manifest/attempt/QA, renewal guide, NOTES and living manuals/tutorial/Flaws. Private backups/signing material remain outside Git.
+- **Next steps:** actual practice judgment of the shallower dock and annotation repairs; renew Personal Team provisioning before its recorded expiry.
+
+### 2026-10-03 · Weekly Personal Team provisioning renewed
+
+- **Driven by:** Christian reminds us that free Personal Team provisioning requires weekly renewal. Apple's current rules confirm seven-day provisioning validity; this is routine reprovisioning, not a paid-license requirement.
+- **Verified:** previously inspected current profile expiresOctober9, while an older local package is expired. The installed-profile expiry is not exposed by the device inventory, so neither artifact establishes the installed app's expiry. The current concrete defect is exclusion of the trusted signing identity.
+- **Renewed:** native automatic-signing reset still builds an app with revoked signing. Reversibly archiving only the matching stale cache profile and reopening Xcode yields a fresh profile validOctober3–10,17:55:53UTC. Independent public checks confirm same app/team/device and two trusted, unexpired certificates. Project-only normalization/local overrides restored after semantic review.
+- **Remaining:** native Release waits at local codesign/SecurityAgent authorization. User handles Mac password locally; automation is prohibited from accessing SecurityAgent. Build6 installation has not occurred; actual signing and full guarded update are next.
+- **Touched:** INSTALL_ON_IPAD, current manuals/tutorial/Flaws, NOTES and sanitized attempt/QA. No private key/password/trust override or device reset.
+- **Next steps:** complete local signing authorization, verify signed Release, run guarded update and full pre/post comparison, then physical practice acceptance.
+
 ### 2026-10-03 · Supplied signing identity imported; profile recovery pending
 
 - **Driven by:** Christian supplies the exported signing identity for the requested build6 iPad update.

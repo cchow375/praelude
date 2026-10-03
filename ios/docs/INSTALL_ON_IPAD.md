@@ -70,6 +70,25 @@ The helper uses `xcodebuild` and `devicectl`; raw signing/device logs and identi
 Apple may show account or Keychain prompts that you must complete yourself. The script does not
 store your Apple password. Build output is under ignored `ios/DeviceDerivedData/`.
 
+## Weekly Personal Team renewal
+
+The seven-day expiry belongs to the development provisioning profile. Check its actual expiry;
+certificate revocation, missing keys and profile membership are separate checks. Renew by rebuilding
+and reinstalling the same app with the same team through `npm run ios:refresh`; a paid membership
+is not required for this existing personal-device workflow.
+
+If automatic signing retains a stale profile that excludes a trusted development identity, preserve
+that precisely matching local cache profile outside Git, let native Xcode regenerate it for the same
+app/team/device, and verify the new profile expiry and certificate membership. Download Manual
+Profiles can simply download the same stale profile. Do not revoke certificates as a weekly routine.
+Use **Product → Build For → Profiling** (Command-Shift-I) for a Release build without running/installing
+before resuming the guarded helper. If macOS asks to authorize codesign's key use, enter the Mac
+password locally. SecurityAgent is not accessible to automation; passwords remain local.
+
+The October3 renewal profile expires **October10 at17:55:53UTC /1:55PM EDT**. This is a recorded
+renewal, not an automatic future schedule. Actual app signing, in-place build6 installation and complete-file preservation pass; the user
+confirms launch. Future refreshes must verify those gates again.
+
 ## Move an existing signing identity between your Macs
 
 Sharing an existing identity is one recovery path. A new valid certificate/key pair on this Mac

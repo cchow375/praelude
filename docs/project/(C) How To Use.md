@@ -1,21 +1,18 @@
 # Praelude — How To Use
 
-## Installed mobile build5 and compact build6 candidate (October3)
+## Installed mobile build6 (October3)
 
-The physical iPad now runs2.0.0/build5/schema5 after the requested guarded update. Christian's Pencil/input/color/freeze reports came from build4; build5 implements the repairs, with actual Pencil/piano acceptance still open. The Mac tutorial's existing Matches:v11.1.0 line remains its installed-app contract.
+The physical iPad runs2.0.0/build6/schema5. The guarded update preserves all11 owned files exactly. Christian confirms it opens; direct schema5/revision883 read passes. Personal Team provisioning expiresOctober10 at1:55PM EDT; renew with the same app/team using `npm run ios:refresh`.
 
-Build5/schema5 is a development candidate with repaired input/color/responder paths, bottom Practice/Select/Draw and Done/double-tap, a visible Library exit, stamp preview/magnifier, expanding yellow notes, movement/measure assistance, default tempo/metronome controls and extended sync. Candidate instructions and verification: `/Users/c3/praelude/ios/docs/USING_MOBILE.md` and `docs/qa/ios/2.0.0/score-workflow.md`. These describe the personally installed build5 controls; actual Pencil/piano acceptance remains separate.
+The score controls now use the available width. Start without grading, Techniques and More options share44-point secondary actions; first-attempt and running verdicts use52-point horizontal labels. Setup/transport share rows when they fit; narrow and accessibility layouts reflow. Bottom Practice/Select/Draw, Done/double-tap, Library exit, colored hideable passages, stamp previews and expandable yellow notes remain available. Mobile usage: `/Users/c3/praelude/ios/docs/USING_MOBILE.md`.
 
-Build6’s compact layout passes its scoped native verification; installation awaits resolution of a Mac code-signing failure. The currently installed build5 instructions above remain authoritative until its guarded refresh completes.
-
-**Next steps:** imported identity is trusted and matches the existing team, but the provisioning profile excludes it. Regenerate that same-app/team profile in Xcode, then run `cd /Users/c3/praelude && npm run ios:refresh` and complete its preservation checks. User native Release Build For Profiling is requested after repeated menu-automation failures. Installed build5 remains authoritative; Pencil/freeze and real-account continuity remain open.
-
+**Next steps:** judge compact controls and Pencil/black ink/in-set annotation on the actual iPad, then verify real-account second-device continuity. These physical checks remain open.
 
 **Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-10-03.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.
 
 ## Separate iPhone/iPad development candidate
 
-The installed Mac instructions and Matches line above describe v11.1.0/schema21. Mobile source is **2.0.0/build6/schema5 DEVELOPMENT CANDIDATE**; the physical iPad now runs build5/schema5. Its candidate workflow is documented in `ios/docs/USING_MOBILE.md`; historical September14 device evidence is in `docs/qa/ios/1.1.0/`.
+The installed Mac instructions and Matches line above describe v11.1.0/schema21. Mobile source is **2.0.0/build6/schema5 DEVELOPMENT CANDIDATE**; the physical iPad now runs build6/schema5. Its candidate workflow is documented in `ios/docs/USING_MOBILE.md`; historical September14 device evidence is in `docs/qa/ios/1.1.0/`.
 
 Phone tabs are Today, Pieces, Warmups, Progress and More. On iPad, the sidebar exposes every section. Settings → Import from Mac opens a reviewed transfer from Files and adds compatible scores, passage boxes, pencil marks and goals without replacing mobile data. Progress → Mac practice record retains original Mac history and all table records. Build5 extends Supabase sync to goals/routines, preferences, score metadata and private covers alongside supported native records/PDFs/recordings. The original Mac archive stays local and backed up; continuous desktop sync still requires an adapter.
 

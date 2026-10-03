@@ -1,6 +1,6 @@
 # Build6 compact practice controls
 
-2.0.0/build6/schema5 development candidate. Installed build5 remains until guarded refresh; no schema, rules or sync changes.
+2.0.0/build6/schema5 development candidate. Build6 is installed and user-opened after guarded refresh; no schema, rules or sync changes.
 
 ## Requested correction
 
@@ -45,6 +45,10 @@ After the user challenged the transfer requirement, root independently matches t
 
 The user subsequently supplies the exported identity. Native File Import Items targets the login keychain; no password prompt appears. Independent checks confirm a new trusted, unexpired identity matching the configured team. The guarded refresh makes a fresh complete backup, then stops before install: the profile excludes the new certificate and CLI reports No Accounts. Native Download Manual Profiles finishes, but independent cache review still finds no matching usable profile. Native Release Build For Profiling is requested from the user after repeated stale-element automation errors. No trust override/revocation or device workaround occurs. Build5 remains installed.
 
+October3 weekly renewal: Apple confirms Personal Team profiles last seven days. The previously inspected current local profile expiresOctober9 (installed-profile expiry unavailable), but excluded the trusted certificate. Native automatic signing reset still produces revoked signing. One matching local cache profile was reversibly archived outside Git and project reopened. Fresh profile created17:55:53UTC expiresOctober10 at17:55:53UTC; independent app/team/device/development and2 trusted certificate checks pass. Project normalization/local signing overrides restored after semantic review. Native Release waits at codesign/SecurityAgent local authorization; tool safety policy prohibits accessing SecurityAgent. User password entry, actual signed-app verification and guarded installation remain pending.
+
+Final guarded update installs2.0.0/build6 with strict signature/profile/team/device checks. Complete pre/post11-file inventory (6,212,619bytes) matches exactly; independent history/account/privacy review passes. Automatic launch declined; user confirms open, and direct ledger copy confirms schema5/revision883. Profile expiresOctober10 at17:55:53UTC. [Install evidence](build6/personal-ipad-install.json).
+
 ## Next steps
 
-Six distinct scoped iPad and two phone cases pass across the recorded runs; final independent visual review passes. The imported identity is trusted. Regenerate the matching provisioning profile to include it, verify the signed Release app, then complete the guarded same-bundle build6 installation with full file preservation and actual practice judgment.
+Use installed build6 to judge score visibility, essential target sizes and annotation during actual practice. Physical Pencil/freeze/piano and real-account second-device acceptance remain open.
