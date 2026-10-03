@@ -79,5 +79,18 @@
     "private_key_export_or_import_confirmed": false,
     "scheme_change": "Xcode normalized format and two launcher identifiers; tool-created changes restored after confirming no other semantic differences",
     "conclusion": "native build success does not repair revoked signing; transfer is one recovery path, not established as the only one; coordinate any replacement with the other Mac"
+  },
+  "identity_import_followup": {
+    "recorded_utc": "2026-10-03T17:46:22.515826+00:00",
+    "native_import": "User-supplied PKCS12 selected via File Import Items into login; no password prompt reported",
+    "identity_inventory": 3,
+    "trusted_unexpired_same_team_identities": 1,
+    "older_revoked_identities": 2,
+    "fresh_pre_backup": "releases/ios-device-backups/20261003T173552Z-21b89623",
+    "installation_attempted": false,
+    "build_diagnostic": "No Accounts; provisioning profile excludes new trusted certificate",
+    "profile_download": "completed; matching cached profile still excludes trusted certificate, includes connected device and remains unexpired",
+    "native_release_followup": "User requested Build For Profiling due repeated stale-element menu automation failures",
+    "private_key_export_or_trust_override": false
   }
 }

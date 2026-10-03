@@ -8,7 +8,7 @@ Build5/schema5 is a development candidate with repaired input/color/responder pa
 
 Build6’s compact layout passes its scoped native verification; installation awaits resolution of a Mac code-signing failure. The currently installed build5 instructions above remain authoritative until its guarded refresh completes.
 
-**Next steps:** restore usable same-team signing by importing the existing encrypted identity from the available other Mac or coordinating a valid replacement (`ios/docs/INSTALL_ON_IPAD.md`); handle passwords locally. Native Release compiles but still fails strict signature verification with CERT_REVOKED. After verifying signing, run `cd /Users/c3/praelude && npm run ios:refresh` and complete its preservation checks, then verify Pencil/freeze behavior and real-account continuity.
+**Next steps:** imported identity is trusted and matches the existing team, but the provisioning profile excludes it. Regenerate that same-app/team profile in Xcode, then run `cd /Users/c3/praelude && npm run ios:refresh` and complete its preservation checks. User native Release Build For Profiling is requested after repeated menu-automation failures. Installed build5 remains authoritative; Pencil/freeze and real-account continuity remain open.
 
 
 **Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-10-03.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.

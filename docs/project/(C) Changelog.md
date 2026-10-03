@@ -10,6 +10,15 @@
 
 ---
 
+### 2026-10-03 · Supplied signing identity imported; profile recovery pending
+
+- **Driven by:** Christian supplies the exported signing identity for the requested build6 iPad update.
+- **Recovered:** native Keychain Access import targets login. No password prompt appears; independent public-certificate/identity checks establish one new trusted, unexpired same-team identity. Older certificates remain revoked; no key contents or password copied to Git.
+- **Device boundary:** fresh guarded backup passes; no install occurs. Release fails because the profile excludes the new certificate; CLI also reports No Accounts. Native Download Manual Profiles finishes but still excludes it.
+- **Remaining:** regenerate the same-app/team/device profile through Xcode. Menu automation repeatedly reports stale elements even after reconnection; user is asked to perform native Build For Profiling, without Run/install. Actual signed-app verification and complete guarded refresh follow.
+- **Touched:** current manuals, Flaws, tutorial, NOTES and sanitized attempt/QA.
+- **Next steps:** regenerate profile, verify actual signing, complete guarded installation and pre/post preservation, then physical practice acceptance.
+
 ### 2026-10-03 · Recheck signing before requiring key transfer
 
 - **Driven by:** Christian points out previous iPad updates worked and challenges the transfer requirement.
