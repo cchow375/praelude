@@ -1,0 +1,38 @@
+{
+  "recorded_utc": "2026-10-03T07:10:47.302209+00:00",
+  "source_commit": "00375fa",
+  "repository_commit_before_attempt": "41c8548",
+  "target_version": "2.0.0",
+  "target_build": "6",
+  "installed_build_after_attempt": "5",
+  "installation_attempted": false,
+  "verified_backup": "releases/ios-device-backups/20261003T070136Z-4e538abe",
+  "independent_backup_review": {
+    "files": 11,
+    "total_bytes": 6212619,
+    "manifest_hashes_equal_actual_files": true,
+    "symlinks": 0
+  },
+  "pre_update_state": {
+    "schema": 5,
+    "revision": 883,
+    "pieces": 5,
+    "passages": 30,
+    "historical_sets": 24,
+    "sessions": 15,
+    "session_attempts": 114,
+    "active_set_status": null
+  },
+  "blocker": "Release code signing returns errSecInternalComponent",
+  "diagnostics": {
+    "selected_identity_valid": true,
+    "certificate_unexpired": true,
+    "codesigning_certificate_trust_passed": true,
+    "default_keychain_unlocked": true,
+    "minimal_temporary_executable_signing": "same errSecInternalComponent outside sandbox",
+    "native_xcode_debug_build": "unrelated Helpers framework linker failure before signing"
+  },
+  "cause": "unresolved; private-key use authorization not established; no ACL/lock/trust cause inferred",
+  "security_mutations": false,
+  "next_step": "User runs guarded ios:refresh from local Terminal and handles any Mac signing prompt; then verify installed version and complete pre/post bytes."
+}

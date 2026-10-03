@@ -18,7 +18,8 @@
 - **Boundary:** source2.0.0/build6/schema5; no storage/sync/rule change. Installed build5 remains until guarded same-bundle refresh passes.
 - **Touched:** PracticeArmView, PracticeHUDView, ScoreWorkspace, PracticeLoopUITests, generator/project, QA, NOTES and living manuals.
 - **Device attempt:** the October3 guarded refresh stopped at the initial data copy; no installation was attempted. Unlock/readiness is requested before retrying; installed build5 remains.
-- **Next steps:** retry the guarded build6 installation once the iPad is ready, then physical practice judgment.
+- **October3 ship retry:** host access restores device discovery and verifies all11 owned files/6,212,619bytes, schema5/revision883 with no active set. Independent backup review passes. Release compilation reaches signing, which fails with errSecInternalComponent; a minimal temporary-file signing probe fails identically. The selected identity/certificate trust and unlocked-keychain checks pass. No installation or security/credential change was made. The user is asked to run the guarded helper locally and handle any signing prompt.
+- **Next steps:** complete the local signing step, guarded installation and complete pre/post file comparison, then physical practice judgment.
 
 ### 2026-10-02 · Mobile build5 guarded physical iPad update
 

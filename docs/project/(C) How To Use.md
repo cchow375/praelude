@@ -6,9 +6,9 @@ The physical iPad now runs2.0.0/build5/schema5 after the requested guarded updat
 
 Build5/schema5 is a development candidate with repaired input/color/responder paths, bottom Practice/Select/Draw and Done/double-tap, a visible Library exit, stamp preview/magnifier, expanding yellow notes, movement/measure assistance, default tempo/metronome controls and extended sync. Candidate instructions and verification: `/Users/c3/praelude/ios/docs/USING_MOBILE.md` and `docs/qa/ios/2.0.0/score-workflow.md`. These describe the personally installed build5 controls; actual Pencil/piano acceptance remains separate.
 
-Build6’s compact layout is under native verification before installation. The currently installed build5 instructions above remain authoritative until its guarded refresh completes.
+Build6’s compact layout passes its scoped native verification; installation awaits resolution of a Mac code-signing failure. The currently installed build5 instructions above remain authoritative until its guarded refresh completes.
 
-**Next steps:** unlock the iPad and complete the guarded build6 update (the first backup copy failed before installation), then verify Pencil/freeze behavior and real-account continuity.
+**Next steps:** run `cd /Users/c3/praelude && npm run ios:refresh` locally in Mac Terminal, handle any signing prompt there, and complete the guarded build6 update, then verify Pencil/freeze behavior and real-account continuity.
 
 
 **Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-10-03.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.

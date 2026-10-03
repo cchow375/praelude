@@ -10,7 +10,7 @@ This is the no-faking register. Never delete a flaw silently; resolved defects r
 
 ## Mobile build6 practice dock correction
 
-- **B127 — Practice dock still wastes score height (implemented candidate, physical acceptance open).** Build5 stacked tall verdict/secondary rows under a760-point maximum width. Build6 removes the width cap, shares wide setup/transport rows and retains44-point secondary/transport and52-point verdict targets. Narrow/accessibility fallback remains. Six scoped native iPad cases pass, including portrait/landscape143pt setup and100pt running geometry, saved first attempt, actual verdict/Undo and largest-text reachability. Two scoped phone geometry/action cases and independent final visual review also pass. The first guarded update stopped at the initial device-data copy; unlock/readiness is requested before retrying. Actual pianist acceptance stays separate.
+- **B127 — Practice dock still wastes score height (implemented candidate, physical acceptance open).** Build5 stacked tall verdict/secondary rows under a760-point maximum width. Build6 removes the width cap, shares wide setup/transport rows and retains44-point secondary/transport and52-point verdict targets. Narrow/accessibility fallback remains. Six scoped native iPad cases pass, including portrait/landscape143pt setup and100pt running geometry, saved first attempt, actual verdict/Undo and largest-text reachability. Two scoped phone geometry/action cases and independent final visual review also pass. A host-access retry verifies the complete backup, but code signing fails before installation; a local signing retry is requested. Actual pianist acceptance stays separate.
 
 ## Mobile build5 repair candidate — October2 physical feedback
 

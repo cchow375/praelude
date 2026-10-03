@@ -33,8 +33,10 @@ Synthetic fixture scores only. No personal PDF/data, device IDs, account names o
 
 ## Guarded device update
 
-The October3 refresh attempt stopped at the initial device data copy. No build or installation was attempted by that helper run. Its failed local copy is retained; installed build5 remains. The user has been asked to unlock the iPad and leave Praelude idle before an authorized retry. No lock/trust cause is inferred beyond the helper’s copy failure.
+The October3 refresh attempt stopped at the initial device data copy. No build or installation was attempted by that helper run. Its failed local copy is retained; installed build5 remains. No lock/trust cause is inferred beyond the helper’s copy failure.
+
+The user then explicitly requested shipment again. A sandbox retry could not reach the device service; the host-access retry verifies11 files/6,212,619bytes with independent manifest/byte review, schema5/revision883 and no active set. Release compilation reaches code signing and fails with `errSecInternalComponent`; the same exact-identity signing probe fails on a plain temporary executable outside the sandbox. Two identities are valid; the selected certificate is unexpired and its code-signing trust check passes; the default keychain is unlocked. Native Xcode’s default Debug build stops earlier at an unrelated Helpers framework linker error and does not establish signing. The cause remains unresolved; no ACL/credential/trust change was performed. The user is asked to run `npm run ios:refresh` locally in Terminal and handle any signing prompt there. [Sanitized attempt](build6/device-update-attempt.json). No installation has been attempted.
 
 ## Next steps
 
-Six distinct scoped iPad and two phone cases pass across the recorded runs; final independent visual review passes. Complete the guarded same-bundle build6 installation with full file preservation, then actual practice judgment.
+Six distinct scoped iPad and two phone cases pass across the recorded runs; final independent visual review passes. Resolve the local signing step, then complete the guarded same-bundle build6 installation with full file preservation and actual practice judgment.
