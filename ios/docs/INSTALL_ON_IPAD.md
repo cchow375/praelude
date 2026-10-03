@@ -70,6 +70,34 @@ The helper uses `xcodebuild` and `devicectl`; raw signing/device logs and identi
 Apple may show account or Keychain prompts that you must complete yourself. The script does not
 store your Apple password. Build output is under ignored `ios/DeviceDerivedData/`.
 
+## Move an existing signing identity between your Macs
+
+Sharing an existing identity is one recovery path. A new valid certificate/key pair on this Mac
+is another; coordinate any replacement or revocation with the Mac using the existing identity.
+
+If Xcode shows the usable development certificate as **Not in Keychain** on this Mac,
+recover its certificate **and matching private key** from the Mac where it was created.
+Downloading provisioning profiles does not restore that private key.
+
+1. On the source Mac, open **Xcode → Settings → Apple Accounts → your account → Personal Team → Manage Certificates**.
+2. Control-click the matching Apple Development certificate and choose **Export Certificate**.
+   Save the PKCS#12 (`.p12`) identity with a password entered locally.
+3. Transfer that encrypted file locally between your Macs, for example with AirDrop.
+4. On the destination Mac, import it into the **login** keychain. Double-click the file,
+   or open Keychain Access via Spotlight, choose **File → Import Items**, and select
+   **login** as the destination. Enter the export/import passwords locally.
+5. Verify certificate trust and usable identity, then run the complete guarded
+   `npm run ios:refresh` procedure. Restoring the key does not by itself establish installation.
+
+The `.p12` file and its password stay outside the project documentation and Git.
+The repository already ignores `.p12`, `.pem`, `.key` and `.mobileprovision` files.
+If export is unavailable on the source Mac too, stop and inspect the signing-key location;
+this procedure does not revoke another Mac's certificate or change certificate trust.
+
+Sources: [Apple's identity-export instructions](https://developer.apple.com/documentation/xcode/sharing-your-teams-signing-certificates),
+[Keychain import/export](https://support.apple.com/guide/keychain-access/import-and-export-keychain-items-kyca35961/mac),
+and [missing-key recovery](https://help.apple.com/xcode/mac/current/en.lproj/dev8a2822e0b.html).
+
 ## If the first launch is blocked
 
 Developer Mode, **Trust This Computer**, and **Developer App trust** are separate steps. If iPadOS

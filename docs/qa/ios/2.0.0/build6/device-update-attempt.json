@@ -60,5 +60,24 @@
     "profile_refresh": "native Download Manual Profiles activity completed without displayed error; guarded retry still fails before installation",
     "credential_or_trust_mutations": false,
     "next_step": "Determine which Mac holds the valid signing key and restore a usable same-team development certificate/key pair, then rerun full guarded update."
+  },
+  "key_recovery": {
+    "recorded_utc": "2026-10-03T16:39:25.227247+00:00",
+    "user_report": "certificate likely created on another Mac; source Mac available",
+    "procedure": "existing identity exported as password-protected .p12 on source Mac, locally transferred, imported into destination login keychain by user",
+    "state": "awaiting user export/import confirmation",
+    "agent_key_export_or_import": false,
+    "installation_attempted": false
+  },
+  "recheck_after_user_challenge": {
+    "recorded_utc": "2026-10-03T17:11:07.833597+00:00",
+    "independent_exact_identity_check": "both local Apple Development certificates fail default and required live OCSP codeSign policy with CSSMERR_TP_CERT_REVOKED; one matches earlier codesign fingerprint",
+    "native_xcode_action": "Build For Profiling; existing scheme uses Release; physical iPad selected; no Run/install",
+    "native_release_build": "succeeded",
+    "native_release_strict_signature_verification": "failed CSSMERR_TP_CERT_REVOKED for arm64",
+    "installation_attempted": false,
+    "private_key_export_or_import_confirmed": false,
+    "scheme_change": "Xcode normalized format and two launcher identifiers; tool-created changes restored after confirming no other semantic differences",
+    "conclusion": "native build success does not repair revoked signing; transfer is one recovery path, not established as the only one; coordinate any replacement with the other Mac"
   }
 }

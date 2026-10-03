@@ -10,6 +10,23 @@
 
 ---
 
+### 2026-10-03 · Recheck signing before requiring key transfer
+
+- **Driven by:** Christian points out previous iPad updates worked and challenges the transfer requirement.
+- **Rechecked:** root independently matches the earlier codesign identity and verifies both local public certificates with default and required live OCSP codeSign policies; all return CSSMERR_TP_CERT_REVOKED. The cause of revocation remains unproven.
+- **Native alternative:** physical iPad selected; existing Release Build For Profiling action compiles successfully, but strict signature verification of that app fails CERT_REVOKED. No Run/install action issued. Earlier desktop Debug linker failure did not test signing.
+- **Correction:** transfer was presented too quickly as the only path. It is one option; valid local replacement is another, requiring coordination with the other Mac. No agent private-key export/import or certificate revocation. Xcode's tool-created formatting and launcher-identifier normalization was restored after checking no other semantic changes.
+- **Touched:** attempt/QA, INSTALL_ON_IPAD, NOTES, living manuals and Flaws.
+- **Next steps:** restore a usable signing identity by transfer or coordinated replacement, verify the actual signed app, then complete the guarded build6 update.
+
+### 2026-10-03 · Existing signing-key recovery from the other Mac
+
+- **Driven by:** Christian says the available certificate likely came from another Mac and confirms that Mac is available.
+- **Prepared:** verified Apple's existing-identity export/import workflow and provided local `.p12` export, password protection, AirDrop and login-keychain import steps. Export/import passwords are entered by the user locally. This preserves the other Mac's certificate instead of revoking it.
+- **Boundary:** key transfer/import has not been confirmed; no key exported/imported by the agent, credential/trust change or new device install occurred. Build5 remains installed; build6 awaits usable signing and the complete guarded update.
+- **Touched:** INSTALL_ON_IPAD, sanitized build6 attempt, QA, NOTES, Flaws and living mobile/manual status.
+- **Next steps:** user completes the local identity transfer/import; verify current certificate trust/signing, then complete guarded build6 installation and exact pre/post file preservation.
+
 ### 2026-10-03 · Connected iPad retry identifies revoked signing certificates
 
 - **Driven by:** Christian reconnected the iPad for the requested build6 update.
