@@ -10,6 +10,15 @@
 
 ---
 
+### 2026-10-03 · Connected iPad retry identifies revoked signing certificates
+
+- **Driven by:** Christian reconnected the iPad for the requested build6 update.
+- **Preserved:** both fresh guarded backups verify11 owned files/6,212,619bytes, exactly equal to the earlier backup; schema5/revision883, no active set. Independent complete-file review passes. Build5 remains installed; no install was attempted.
+- **New blocker:** private Xcode diagnostics report No Accounts and invalid signing certificate. Fresh trust checks identify both local matching development certificates as revoked, although unexpired and still enumerated as identities; this supersedes the earlier passing trust result. GUI Xcode has the account/Personal Team, but another certificate is Not in Keychain and create/export/delete actions are unavailable. Native profile download completes without a displayed error; guarded retry still fails.
+- **Boundary:** no keys exported, account removed, certificate revoked, trust override or credential change. The user is asked whether the certificate was created on another Mac. Restore a usable same-team certificate/private-key pair before resuming shipment.
+- **Touched:** sanitized build6 attempt, compact QA, NOTES, mobile/living manuals and Flaws.
+- **Next steps:** establish the valid signing-key location, restore local signing, then run the complete guarded build6 refresh and file-preservation comparison.
+
 ### 2026-10-03 · Mobile build6 shallower practice controls
 
 - **Driven by:** Christian’s installed build5 feedback: secondary buttons wasted horizontal room and the bottom dock took too much score height.

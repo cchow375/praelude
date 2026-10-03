@@ -8,6 +8,10 @@ This is the no-faking register. Never delete a flaw silently; resolved defects r
 
 **Current acceptance:** v11.1 source/browser checks and exact native installation pass; native audible quality, voice/chime overlap, sustained motivation, microphone/Steinway, real mapping, cover-picker and Windows acceptance remain open. Score/Variants now render in the freshly installed app. Earlier release limitations below are retained as dated evidence.
 
+## Mobile build6 installation blocker
+
+- **B128 — Local development signing certificates revoked (open, October3).** Fresh trust verification returns CSSMERR_TP_CERT_REVOKED for both local selected-name certificates; their expiry dates and identity enumeration do not establish usable signing. Xcode reports invalid signing certificate/No Accounts, while native account settings show the account and another certificate Not in Keychain. Certificate creation/export/deletion are unavailable there; a profile refresh does not fix it. Complete fresh backups pass; build5 remains installed. Determine the Mac holding the usable key, restore a valid same-team certificate/key pair, then resume the guarded update. No security/credential mutation or destructive device workaround occurred. Evidence: `docs/qa/ios/2.0.0/build6/device-update-attempt.json`.
+
 ## Mobile build6 practice dock correction
 
 - **B127 — Practice dock still wastes score height (implemented candidate, physical acceptance open).** Build5 stacked tall verdict/secondary rows under a760-point maximum width. Build6 removes the width cap, shares wide setup/transport rows and retains44-point secondary/transport and52-point verdict targets. Narrow/accessibility fallback remains. Six scoped native iPad cases pass, including portrait/landscape143pt setup and100pt running geometry, saved first attempt, actual verdict/Undo and largest-text reachability. Two scoped phone geometry/action cases and independent final visual review also pass. A host-access retry verifies the complete backup, but code signing fails before installation; a local signing retry is requested. Actual pianist acceptance stays separate.

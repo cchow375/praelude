@@ -34,5 +34,31 @@
   },
   "cause": "unresolved; private-key use authorization not established; no ACL/lock/trust cause inferred",
   "security_mutations": false,
-  "next_step": "User runs guarded ios:refresh from local Terminal and handles any Mac signing prompt; then verify installed version and complete pre/post bytes."
+  "next_step": "User runs guarded ios:refresh from local Terminal and handles any Mac signing prompt; then verify installed version and complete pre/post bytes.",
+  "connected_retry": {
+    "recorded_utc": "2026-10-03T15:53:29.791383+00:00",
+    "pre_backups": [
+      "releases/ios-device-backups/20261003T153955Z-ca9b1c31",
+      "releases/ios-device-backups/20261003T154800Z-a9fa03f8"
+    ],
+    "files": 11,
+    "bytes": 6212619,
+    "complete_manifests_match_actual_bytes": true,
+    "equal_prior_backup": true,
+    "symlinks": 0,
+    "installed_build": "5",
+    "schema": 5,
+    "revision": 883,
+    "active_set_status": null,
+    "installation_attempted": false,
+    "latest_build_errors": [
+      "No Accounts",
+      "Signing certificate is invalid; may have been revoked or expired"
+    ],
+    "fresh_certificate_trust": "both local matching signing certificates return CSSMERR_TP_CERT_REVOKED; unexpired",
+    "native_xcode_observation": "Existing account and Personal Team present. Another certificate says Not in Keychain. Create Apple Development, export and delete unavailable in inspected menus.",
+    "profile_refresh": "native Download Manual Profiles activity completed without displayed error; guarded retry still fails before installation",
+    "credential_or_trust_mutations": false,
+    "next_step": "Determine which Mac holds the valid signing key and restore a usable same-team development certificate/key pair, then rerun full guarded update."
+  }
 }
