@@ -43,7 +43,8 @@ final class PracticeLoopUITests: XCTestCase {
         // The arm controls enter the accessibility tree during the picker dismissal animation.
         // Wait until the picker is gone and the underlying score footer accepts input before tap 2.
         let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            !app.navigationBars["Passages"].exists && passages.isHittable
+            !app.navigationBars["Passages"].exists &&
+                (passages.isHittable || app.scrollViews["accessiblePracticeControls"].exists)
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 10), .completed, app.debugDescription)
     }
@@ -61,6 +62,11 @@ final class PracticeLoopUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.4))
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = name; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    // Native pixel rounding can report a44pt frame as43.999999pt; allow0.01pt numerical tolerance.
+    @MainActor private func logCompactGeometry(_ state: String, orientation: String, dock: XCUIElement, score: XCUIElement) {
+        print("compact-geometry state=\(state) orientation=\(orientation) dockWidth=\(dock.frame.width) dockHeight=\(dock.frame.height) scoreHeight=\(score.frame.height)")
     }
 
     private func tempoBPM(_ element: XCUIElement) -> Int? {
@@ -417,32 +423,69 @@ final class PracticeLoopUITests: XCTestCase {
     // MARK: - HUD collapse (§10c: collapsible to a thin strip; §3d: controls always one tap)
 
     @MainActor func testHUDCollapseKeepsControlsReachable() {
-        let app = launch()
-        openScore(app)
-        choosePassage(app)
-        app.buttons["coldGrade_clean"].press(forDuration: 0.15)
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = launch(); openScore(app); choosePassage(app)
+        // Declining the first-attempt grade leaves the ordinary HUD without a cold-review banner;
+        // microphone/status and deliberate rule banners have their own additional space.
+        app.buttons["skipColdGrade"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
         ensureExpanded(app)
-        XCTAssertTrue(app.staticTexts["repProgress"].exists, app.debugDescription)
         let collapse = app.buttons["hudCollapse"]
         XCTAssertTrue(collapse.waitForExistence(timeout: 15), app.debugDescription)
         collapse.press(forDuration: 0.15)
-        let expand = app.buttons["hudExpand"]
-        XCTAssertTrue(expand.waitForExistence(timeout: 15), app.debugDescription)
-        XCTAssertFalse(app.staticTexts["repProgress"].exists, "Collapsing must hide the big readout.\n\(app.debugDescription)")
-        // Collapsing must never take Undo/Pause/Stop/metronome-toggle/verdicts below one tap.
-        XCTAssertTrue(app.buttons["verdict_clean"].isHittable, app.debugDescription)
-        XCTAssertTrue(app.buttons["undoRep"].exists)
-        XCTAssertTrue(app.buttons["pausePractice"].exists)
-        XCTAssertTrue(app.buttons["stopSet"].exists)
-        XCTAssertTrue(app.buttons["toggleMetronomeHUD"].exists)
-        screenshot("loop-05-hud-collapsed", app: app)
-        // A verdict must still record while collapsed — expanding again afterward confirms it, since
-        // the collapsed strip's own numeral uses a different, more compact format ("N/M").
-        app.buttons["verdict_clean"].press(forDuration: 0.15)
-        expand.press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["hudExpand"].waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertFalse(app.buttons["hudCollapse"].exists)
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
+        let progress = app.staticTexts["repProgress"]
+        let score = app.descendants(matching: .any).matching(identifier: "scorePDF").firstMatch
+        let dock = app.descendants(matching: .any).matching(identifier: "scorePracticeDock").firstMatch
+        for (orientation, name) in [(UIDeviceOrientation.portrait, "portrait"), (.landscapeLeft, "landscape")] {
+            XCUIDevice.shared.orientation = orientation
+            let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                app.buttons["verdict_clean"].isHittable &&
+                    (name == "portrait" ? app.frame.height > app.frame.width : app.frame.width > app.frame.height)
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 10), .completed, app.debugDescription)
+            XCTAssertLessThanOrEqual(dock.frame.height, isPad ? 140 : 220,
+                                    "The ordinary collapsed HUD plus score modes must preserve score space.")
+            for identifier in ["verdict_clean", "verdict_sloppy", "verdict_again", "undoRep", "pausePractice", "stopSet", "toggleMetronomeHUD"] {
+                let button = app.buttons[identifier]
+                // Undo is disabled until the first saved rep, but its hit area must already fit.
+                if identifier != "undoRep" { XCTAssertTrue(button.isHittable, identifier + "\n" + app.debugDescription) }
+                XCTAssertGreaterThanOrEqual(button.frame.width, 44 - 0.01, identifier)
+                XCTAssertGreaterThanOrEqual(button.frame.height, 44 - 0.01, identifier)
+                XCTAssertTrue(dock.frame.insetBy(dx: -1, dy: -1).contains(button.frame), identifier)
+            }
+            let tempo = app.staticTexts["tempoDialValue"]
+            XCTAssertTrue(tempo.isHittable, app.debugDescription)
+            XCTAssertGreaterThanOrEqual(tempo.frame.width, 44 - 0.01)
+            XCTAssertGreaterThanOrEqual(tempo.frame.height, 44 - 0.01)
+            XCTAssertTrue(dock.frame.insetBy(dx: -1, dy: -1).contains(tempo.frame))
+            XCTAssertEqual(progress.label, "0 of 5 clean")
+            let before = score.frame
+            logCompactGeometry("collapsed-HUD", orientation: name, dock: dock, score: score)
+            app.buttons["verdict_clean"].press(forDuration: 0.15)
+            let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "1 of 5 clean"), object: progress)
+            XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 10), .completed, app.debugDescription)
+            XCTAssertEqual(score.frame.minX, before.minX, accuracy: 1)
+            XCTAssertEqual(score.frame.minY, before.minY, accuracy: 1)
+            XCTAssertEqual(score.frame.width, before.width, accuracy: 1)
+            XCTAssertEqual(score.frame.height, before.height, accuracy: 1)
+            let undo = app.buttons["undoRep"]
+            XCTAssertTrue(undo.isEnabled); XCTAssertTrue(undo.isHittable)
+            undo.press(forDuration: 0.15)
+            let reversed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "0 of 5 clean"), object: progress)
+            XCTAssertEqual(XCTWaiter.wait(for: [reversed], timeout: 10), .completed, app.debugDescription)
+            XCTAssertEqual(score.frame.minX, before.minX, accuracy: 1)
+            XCTAssertEqual(score.frame.minY, before.minY, accuracy: 1)
+            XCTAssertEqual(score.frame.width, before.width, accuracy: 1)
+            XCTAssertEqual(score.frame.height, before.height, accuracy: 1)
+            screenshot("compact-collapsed-HUD-verdict-undo-" + name, app: app)
+        }
+        app.buttons["hudExpand"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["hudCollapse"].waitForExistence(timeout: 15), app.debugDescription)
-        XCTAssertTrue(app.staticTexts["2 of 5 clean"].waitForExistence(timeout: 15), "A verdict must still record while collapsed.\n\(app.debugDescription)")
+        XCTAssertTrue(app.staticTexts["0 of 5 clean"].exists, "Undo must also be reflected in the expanded readout.")
     }
     @MainActor func testTechniqueChoicePreservesColdGateAndRepeatSettings() {
         let app = launch(); openScore(app); choosePassage(app)
@@ -576,6 +619,124 @@ final class PracticeLoopUITests: XCTestCase {
         app.buttons["Done"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["armedConditions"].label.contains("1 stage"), app.debugDescription)
+    }
+
+    /// Run on both iPad and iPhone: normal text has a bounded dock in either orientation, and
+    /// wide layouts use the second column instead of wasting the newly available score width.
+    @MainActor func testPracticeArmKeepsScoreSpaceAndSecondaryActionsInline() {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = launch(); openScore(app)
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
+        for (orientation, name) in [(UIDeviceOrientation.portrait, "portrait"), (.landscapeLeft, "landscape")] {
+            XCUIDevice.shared.orientation = orientation
+            let start = app.buttons["armStartSet"]
+            let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                start.isHittable && (name == "portrait" ? app.frame.height > app.frame.width : app.frame.width > app.frame.height)
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 10), .completed, app.debugDescription)
+            let dock = app.descendants(matching: .any).matching(identifier: "scorePracticeDock").firstMatch
+            XCTAssertLessThanOrEqual(dock.frame.height, isPad ? 160 : 190,
+                                    "Ordinary setup should keep Start and secondary actions compact.")
+            for button in [start, app.buttons["armVariants"], app.buttons["More options"], app.buttons["armMetronome"]] {
+                XCTAssertTrue(button.isHittable, app.debugDescription)
+                XCTAssertGreaterThanOrEqual(button.frame.width, 44 - 0.01)
+                XCTAssertGreaterThanOrEqual(button.frame.height, 44 - 0.01)
+                XCTAssertTrue(dock.frame.insetBy(dx: -1, dy: -1).contains(button.frame))
+            }
+            XCTAssertFalse(app.buttons["skipColdGrade"].exists)
+            let score = app.descendants(matching: .any).matching(identifier: "scorePDF").firstMatch
+            logCompactGeometry("idle-arm", orientation: name, dock: dock, score: score)
+            screenshot("compact-arm-idle-" + name, app: app)
+        }
+        XCUIDevice.shared.orientation = .portrait
+        choosePassage(app)
+        for (orientation, name) in [(UIDeviceOrientation.portrait, "portrait"), (.landscapeLeft, "landscape")] {
+            XCUIDevice.shared.orientation = orientation
+            let clean = app.buttons["coldGrade_clean"]
+            let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                clean.isHittable && (name == "portrait" ? app.frame.height > app.frame.width : app.frame.width > app.frame.height)
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 10), .completed, app.debugDescription)
+            let dock = app.descendants(matching: .any).matching(identifier: "scorePracticeDock").firstMatch
+            XCTAssertTrue(dock.exists, app.debugDescription)
+            XCTAssertLessThanOrEqual(dock.frame.height, isPad ? 190 : 240,
+                                    "Cold-attempt setup plus score modes must preserve score space.\n" + app.debugDescription)
+            let identifiers = ["coldGrade_missed", "coldGrade_shaky", "coldGrade_clean", "skipColdGrade", "armVariants", "armMetronome", "armToggleOptions"]
+            for identifier in identifiers {
+                let button = app.buttons[identifier]
+                XCTAssertTrue(button.isHittable, identifier + "\n" + app.debugDescription)
+                XCTAssertGreaterThanOrEqual(button.frame.width, 44 - 0.01)
+                XCTAssertGreaterThanOrEqual(button.frame.height, 44 - 0.01)
+                XCTAssertTrue(dock.frame.insetBy(dx: -1, dy: -1).contains(button.frame), identifier + " must fit in the dock")
+            }
+            let skip = app.buttons["skipColdGrade"], techniques = app.buttons["armVariants"], options = app.buttons["More options"]
+            XCTAssertTrue(options.isHittable, app.debugDescription)
+            XCTAssertEqual(skip.frame.midY, techniques.frame.midY, accuracy: 2)
+            XCTAssertEqual(techniques.frame.midY, options.frame.midY, accuracy: 2)
+            XCTAssertLessThanOrEqual(skip.frame.height, 46)
+            XCTAssertLessThanOrEqual(techniques.frame.height, 46)
+            XCTAssertLessThanOrEqual(options.frame.height, 46)
+            if dock.frame.width >= 740 {
+                let metadata = app.staticTexts["armedConditions"]
+                XCTAssertGreaterThan(clean.frame.minX, metadata.frame.maxX,
+                                     "A wide score should put cold verdicts beside the setup metadata.")
+                let missed = app.buttons["coldGrade_missed"]
+                XCTAssertLessThan(missed.frame.minY, skip.frame.maxY,
+                                  "Wide columns should share vertical space instead of becoming separate blocks.")
+                XCTAssertGreaterThan(missed.frame.maxY, metadata.frame.minY)
+            }
+            let pdf = app.descendants(matching: .any).matching(identifier: "scorePDF").firstMatch
+            XCTAssertGreaterThan(pdf.frame.height, 0)
+            XCTAssertLessThanOrEqual(pdf.frame.maxY, dock.frame.minY + 1, "Setup must not cover notation.")
+            logCompactGeometry("cold-arm", orientation: name, dock: dock, score: pdf)
+            screenshot("compact-arm-" + name, app: app)
+        }
+        app.buttons["coldGrade_clean"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 10))
+        ensureExpanded(app)
+        XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 10),
+                      "The compact cold-grade control must still save the first actual repetition.")
+    }
+
+    @MainActor func testPracticeArmLargestTextPreservesCompleteReachableActions() {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--reset", "--seed", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch(); openScore(app); choosePassage(app)
+        let panel = app.scrollViews["accessiblePracticeControls"]
+        XCTAssertTrue(panel.waitForExistence(timeout: 10), app.debugDescription)
+        for (orientation, name) in [(UIDeviceOrientation.portrait, "portrait"), (.landscapeLeft, "landscape")] {
+            XCUIDevice.shared.orientation = orientation
+            let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                name == "portrait" ? app.frame.height > app.frame.width : app.frame.width > app.frame.height
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 10), .completed)
+            for (identifier, title) in [("coldGrade_missed", "Missed"), ("coldGrade_shaky", "Shaky"), ("coldGrade_clean", "Clean"),
+                                        ("skipColdGrade", "Start without grading"), ("armVariants", "Techniques"),
+                                        ("More options", "More options")] {
+                let button = app.buttons[identifier]
+                for _ in 0..<10 {
+                    if button.isHittable && panel.frame.insetBy(dx: -1, dy: -1).contains(button.frame) { break }
+                    if button.exists && button.frame.minY < panel.frame.minY { panel.swipeDown() }
+                    else { panel.swipeUp() }
+                }
+                XCTAssertTrue(button.isHittable, identifier + "\n" + app.debugDescription)
+                XCTAssertEqual(button.label, title)
+                XCTAssertTrue(panel.frame.insetBy(dx: -1, dy: -1).contains(button.frame), "The complete action must be reachable.")
+                XCTAssertGreaterThanOrEqual(button.frame.width, 44 - 0.01)
+                XCTAssertGreaterThanOrEqual(button.frame.height, 44 - 0.01)
+                let text = button.staticTexts[title]
+                if text.exists { XCTAssertTrue(button.frame.insetBy(dx: -1, dy: -1).contains(text.frame), "The whole label must fit.") }
+            }
+            let pdf = app.descendants(matching: .any).matching(identifier: "scorePDF").firstMatch
+            XCTAssertGreaterThan(min(pdf.frame.maxY, panel.frame.minY) - max(pdf.frame.minY, app.frame.minY), 0)
+            let dock = app.descendants(matching: .any).matching(identifier: "scorePracticeDock").firstMatch
+            logCompactGeometry("accessibility-arm", orientation: name, dock: dock, score: pdf)
+            screenshot("compact-arm-largest-text-" + name, app: app)
+        }
     }
 
 }

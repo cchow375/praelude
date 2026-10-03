@@ -1,0 +1,68 @@
+{
+  "recorded_utc": "2026-10-03T03:25:43.273479+00:00",
+  "source_commit": "9ec916a",
+  "bundle_id": "com.christian.praelude.ios",
+  "installed_version": "2.0.0",
+  "installed_build": "5",
+  "signed_release_binary_sha256": "16a744ad60fd70f714082d1f5beb21a8569a72008b883a22a439e7c970f65ca7",
+  "profile_expires_utc": "2026-10-09T22:26:44+00:00",
+  "signature_profile_owner_device_checks_passed": true,
+  "pre_backup": "releases/ios-device-backups/20261003T032227Z-8f7571c4",
+  "post_backup": "releases/ios-device-backups/20261003T032359Z-b2bb3eab",
+  "prelaunch_schema": 4,
+  "preserved_files": 10,
+  "complete_file_tree_hashes_equal": true,
+  "ledger_bytes_equal": true,
+  "automatic_launch": "declined; user open requested",
+  "migration": "schema5 verified by direct read-only ledger copy",
+  "hardware_feature_acceptance": "open",
+  "postlaunch_ledger_copy": "releases/ios-device-backups/20261003T032813Z-postlaunch-c501d36f/library.json",
+  "independent_prelaunch_review": {
+    "files": 10,
+    "total_bytes": 5774773,
+    "all_file_bytes_equal": true,
+    "symlinks": 0
+  },
+  "first_schema5_read": {
+    "schema": 5,
+    "revision": 864,
+    "pieces": 5,
+    "passages": 28,
+    "historical_sets": 23,
+    "sessions": 15,
+    "session_attempts": 114,
+    "active_set_status": null,
+    "exact_schema4_original_retained_on_device": true
+  },
+  "prelaunch_state": {
+    "schema": 4,
+    "revision": 853,
+    "pieces": 5,
+    "passages": 28,
+    "historical_sets": 23,
+    "sessions": 15,
+    "session_attempts": 114,
+    "active_set_status": null
+  },
+  "postlaunch_state": {
+    "schema": 5,
+    "revision": 868,
+    "pieces": 5,
+    "passages": 29,
+    "historical_sets": 23,
+    "sessions": 15,
+    "session_attempts": 114,
+    "ink_rows": 10,
+    "stamps": 2,
+    "notes": 1,
+    "profile_owner_and_privacy_preserved": true,
+    "existing_practice_history_contracts_passages_ink_stamps_unchanged": true,
+    "additions": {
+      "passages": 1,
+      "ink_rows": 2,
+      "notes": 1
+    },
+    "other_changes": "Navigation and profile username/dates changed consistently with normal use/account hydration; not treated as pure migration."
+  },
+  "independent_postlaunch_preservation_review": "passed; complete original record values and account ownership/privacy preserved, additions distinguished"
+}

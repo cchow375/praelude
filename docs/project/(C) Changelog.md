@@ -10,6 +10,24 @@
 
 ---
 
+### 2026-10-03 · Mobile build6 shallower practice controls
+
+- **Driven by:** Christian’s installed build5 feedback: secondary buttons wasted horizontal room and the bottom dock took too much score height.
+- **Changed:** removed the760-point dock cap; wide setup shares metadata/tempo and grading side by side. Start without grading, Techniques and More options share44-point secondary actions. Cold/running verdicts use52-point horizontal labels; running tempo/progress/transport share available width. Narrow and accessibility layouts keep all actions reachable; expansion remains deliberate.
+- **Verified:** six scoped iPad and two phone cases pass including actual first-attempt save, completion/restart, click/hand technique choices, portrait/landscape geometry and largest-text reachability. Setup143pt/running100pt, secondary44pt/verdict52pt. Simulator rotation timeouts resolve after restarting only the synthetic simulator; progress wrapping and touch-intercepting informational flashes were corrected.
+- **Boundary:** source2.0.0/build6/schema5; no storage/sync/rule change. Installed build5 remains until guarded same-bundle refresh passes.
+- **Touched:** PracticeArmView, PracticeHUDView, ScoreWorkspace, PracticeLoopUITests, generator/project, QA, NOTES and living manuals.
+- **Next steps:** native portrait/landscape action/geometry review, then guarded build6 installation and physical practice judgment.
+
+### 2026-10-02 · Mobile build5 guarded physical iPad update
+
+- **Driven by:** Christian connected the iPad and explicitly requested its update.
+- **Installed:**2.0.0/build5 from `9ec916a`, signed with the existing Personal Team and same app identifier. Strict signature/profile/device gates pass; provisioning expires2026-10-09 22:26:44UTC. Mac app/data remain separate.
+- **Preserved:** all10 owned files/5,774,773bytes match the pre/post-install backups exactly; ledger schema4/revision853,5pieces/28passages/23historical sets/15sessions/114attempts/no active set. Independent byte/tree review passes; private backups retained outside Git.
+- **First run:** automatic launch was declined. Direct read then confirms schema5 and an exact schema4 original on the device. A later read includes additive passage/ink/note and page/account hydration changes; existing practice history/contracts remain intact. No Pencil/freeze/piano or two-device verdict is inferred.
+- **Touched:** QA installation manifest/score-workflow record, current mobile guides/platform contract, NOTES and living manuals; source remains `9ec916a`.
+- **Next steps:** use installed build5 for actual Pencil/black ink/in-set annotation acceptance, then real-account second-device continuity and reviewed Mac import.
+
 ### 2026-10-02 · Mobile build5 score workflow and cross-platform sync follow-up
 
 - **Driven by Christian's physical feedback:** Pencil input, white black-ink/stamps, freezing annotation during practice, crowded controls, slow ambiguous passages, missing movement/measure context and digital reminders; plus user information/shared sync for future platforms.

@@ -80,7 +80,7 @@ Core/fake two-device tests cover deterministic convergence, deletion, account is
 nullable clears. Hosted rollback-only SQL checks cover owner isolation and the actual RPC schema.
 These do not establish a musician's account/PDF/ink history on two physical devices. Real-account
 sign-in, round-trip edits/files/Undo and offline recovery remain required before declaring live
-cross-device continuity accepted. Physical iPad remains build4 until a guarded in-place update.
+cross-device continuity accepted. The physical iPad now has build5/schema5 after a guarded in-place update with complete file preservation; this establishes one device's installation/migration, not second-device convergence.
 
-**Next steps:** update the verified candidate safely, accept a real two-device account flow,
+**Next steps:** accept a real two-device account flow using the installed candidate,
 then implement each future platform adapter against this contract with migration and fixture tests.

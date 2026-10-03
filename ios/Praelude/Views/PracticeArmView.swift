@@ -22,58 +22,55 @@ struct PracticeArmView: View {
     @State private var setupExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             if arm.configuration != nil {
-                let headerLayout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
-                headerLayout {
-                    header
-                    HStack(spacing: 8) {
-                        TempoDial(bpm: startBPMBinding(configBinding), numeralSize: 22, compact: true)
-                        Text("BPM").font(.caption).foregroundStyle(.secondary)
-                        Button {
-                            configBinding.wrappedValue.useMetronome.toggle()
-                        } label: {
-                            VStack(spacing: 2) {
-                                Image(systemName: "metronome")
-                                Text(configBinding.wrappedValue.useMetronome ? "On" : "Off").font(.caption2)
-                            }.frame(width: 44, height: 44).contentShape(Rectangle())
-                                .background(configBinding.wrappedValue.useMetronome ? PraeludeColor.inkFillQuiet : Color.clear, in: RoundedRectangle(cornerRadius: 10))
-                        }.buttonStyle(.plain)
-                            .accessibilityLabel("Metronome")
-                            .accessibilityValue(configBinding.wrappedValue.useMetronome ? "On" : "Off")
-                            .accessibilityIdentifier("armMetronome")
-                        Button { setupExpanded.toggle() } label: {
-                            Image(systemName: setupExpanded ? "chevron.down" : "slider.horizontal.3")
-                                .frame(width: 44, height: 44).contentShape(Rectangle())
-                        }.buttonStyle(.plain).accessibilityLabel(setupExpanded ? "Hide practice options" : "Show practice options")
-                            .accessibilityIdentifier("armToggleOptions")
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        header
+                        tempoControls
+                        primaryActions
+                        secondaryActions(stacked: true)
+                    }
+                } else {
+                    // Fit the score's available width rather than assuming an iPad orientation.
+                    // The explicit minimums keep the two columns legible in narrow windows.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .center, spacing: 16) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                headerAndTempo
+                                secondaryActions(stacked: false)
+                            }.frame(minWidth: 400, maxWidth: .infinity)
+                            primaryActions
+                                .frame(minWidth: arm.awaitingColdGrade ? 292 : 120,
+                                       maxWidth: arm.awaitingColdGrade ? 340 : 180)
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            headerAndTempo
+                            if arm.awaitingColdGrade {
+                                coldGradeSection
+                                secondaryActions(stacked: false)
+                            } else {
+                                HStack(spacing: 8) {
+                                    secondaryActions(stacked: false)
+                                    startButton.frame(minWidth: 80, maxWidth: 120)
+                                }
+                            }
+                        }
                     }
                 }
                 if setupExpanded {
                     quickConditions
                     Button("Use \(Int(configBinding.wrappedValue.startBPM)) BPM as piece default") {
                         savePieceTempo()
-                    }.font(.caption).buttonStyle(.praeludeQuiet)
+                    }.font(.footnote).buttonStyle(.plain)
+                        .frame(minHeight: 44).contentShape(Rectangle())
                         .accessibilityIdentifier("savePiecePracticeTempo")
-                }
-                if arm.awaitingColdGrade { coldGradeSection }
-                let actionLayout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
-                actionLayout {
-                    Button {
-                        variantDraft = configBinding.wrappedValue.stages
-                        showVariants = true
-                    } label: { Label("Techniques", systemImage: "list.bullet") }
-                        .buttonStyle(.praeludeQuiet).accessibilityIdentifier("armVariants")
-                    Button("More options", action: onOpenAdvanced).buttonStyle(.praeludeQuiet)
-                    if !arm.awaitingColdGrade {
-                        Button(action: { start() }) {
-                            Label("Start", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 44)
-                        }.buttonStyle(.praeludePrimary).accessibilityIdentifier("armStartSet")
-                    }
                 }
             }
             if let error { ErrorMessage(message: error) }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("practiceArmPanel")
         .onChange(of: configBinding.wrappedValue.startBPM) { _, newValue in
             if configBinding.wrappedValue.targetBPM < newValue { configBinding.wrappedValue.targetBPM = newValue }
         }
@@ -93,15 +90,90 @@ struct PracticeArmView: View {
         }
     }
 
+    private var headerAndTempo: some View {
+        HStack(spacing: 8) {
+            header.frame(maxWidth: .infinity, alignment: .leading)
+            tempoControls.fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private var tempoControls: some View {
+        HStack(spacing: 6) {
+            TempoDial(bpm: startBPMBinding(configBinding), numeralSize: 22, compact: true)
+            Text("BPM").font(.caption).foregroundStyle(.secondary)
+            Button {
+                configBinding.wrappedValue.useMetronome.toggle()
+            } label: {
+                VStack(spacing: 2) {
+                    Image(systemName: "metronome")
+                    Text(configBinding.wrappedValue.useMetronome ? "On" : "Off").font(.caption2)
+                }.frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    .background(configBinding.wrappedValue.useMetronome ? PraeludeColor.inkFillQuiet : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 8))
+            }.buttonStyle(.plain)
+                .accessibilityLabel("Metronome")
+                .accessibilityValue(configBinding.wrappedValue.useMetronome ? "On" : "Off")
+                .accessibilityIdentifier("armMetronome")
+            Button { setupExpanded.toggle() } label: {
+                Image(systemName: setupExpanded ? "chevron.down" : "slider.horizontal.3")
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel(setupExpanded ? "Hide practice options" : "Show practice options")
+                .accessibilityIdentifier("armToggleOptions")
+        }
+    }
+
     private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(passage?.title ?? "Whole piece").font(.headline).lineLimit(1)
-            Text(passage.map { target in ScoreOrganization.locationLabel(for: target, in: store.pieces.first { $0.id == target.pieceID }) } ?? pieceSubtitle).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(passage?.title ?? "Whole piece").font(.subheadline.weight(.semibold))
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+            Text(passage.map { target in ScoreOrganization.locationLabel(for: target, in: store.pieces.first { $0.id == target.pieceID }) } ?? pieceSubtitle)
+                .font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
             if let value = arm.configuration {
                 Text("\(Self.goalLabel(value.goal)) · \(value.hands) · \(value.targetSummary)" + (value.useMetronome && metronome.groupedCompoundPulse ? " · dotted-quarter pulse" : ""))
-                    .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("armedConditions")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .accessibilityIdentifier("armedConditions")
             }
         }
+    }
+
+    @ViewBuilder private var primaryActions: some View {
+        if arm.awaitingColdGrade { coldGradeSection } else { startButton }
+    }
+
+    private var startButton: some View {
+        Button(action: { start() }) {
+            Label("Start", systemImage: "play.fill").padding(.horizontal, 10)
+        }.buttonStyle(ArmPracticeButtonStyle(emphasis: true))
+            .accessibilityIdentifier("armStartSet")
+    }
+
+    @ViewBuilder private func secondaryActions(stacked: Bool) -> some View {
+        if stacked {
+            VStack(alignment: .leading, spacing: 0) { secondaryButtons }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) { secondaryButtons }.fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading, spacing: 0) { secondaryButtons }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private var secondaryButtons: some View {
+        if arm.awaitingColdGrade {
+            Button("Start without grading") { start(skippingColdGrade: true) }
+                .accessibilityIdentifier("skipColdGrade")
+                .buttonStyle(ArmSecondaryButtonStyle())
+        }
+        Button {
+            variantDraft = configBinding.wrappedValue.stages
+            showVariants = true
+        } label: { Text("Techniques") }
+            .accessibilityIdentifier("armVariants")
+            .buttonStyle(ArmSecondaryButtonStyle())
+        Button("More options", action: onOpenAdvanced)
+            .buttonStyle(ArmSecondaryButtonStyle())
     }
 
     /// §10a: "conditions — goal, streak target, ladder, variants — reachable in ≤2 taps... with
@@ -152,29 +224,28 @@ struct PracticeArmView: View {
     /// normal Start affordance for a cold-eligible passage — grading *is* the second tap/word, never
     /// an extra third step (see `PracticeArmController.arm`'s doc comment).
     private var coldGradeSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("First attempt today: play it once, then report how it went.")
-                .font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
-            let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 10))
+        VStack(alignment: .leading, spacing: 4) {
+            Text("First attempt today").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
+                .accessibilityHint("Play this passage once, then report Clean, Shaky or Missed. Your grade saves the first repetition.")
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
             layout {
                 coldButton(.missed, title: "Missed", glyph: .verdictAgain)
                 coldButton(.shaky, title: "Shaky", glyph: .verdictSloppy)
                 coldButton(.clean, title: "Clean", glyph: .verdictClean, primary: true)
             }
-            Button("Start without grading") { start(skippingColdGrade: true) }
-                .buttonStyle(.praeludeQuiet).frame(minHeight: 44)
-                .accessibilityIdentifier("skipColdGrade")
         }
     }
 
     private func coldButton(_ grade: ColdGrade, title: String, glyph: PraeludeGlyph, primary: Bool = false) -> some View {
         Button { start(grade: grade) } label: {
-            VStack(spacing: 7) {
-                PraeludeIcon(glyph: glyph, size: 22)
-                Text(title).font(.headline)
-            }
+            HStack(spacing: 6) {
+                PraeludeIcon(glyph: glyph, size: 17)
+                Text(title).font(.subheadline.weight(.semibold))
+            }.padding(.horizontal, 10).padding(.vertical, 6)
         }
-        .buttonStyle(.praeludeVerdict(emphasis: primary))
+        .buttonStyle(ArmPracticeButtonStyle(emphasis: primary))
+        .accessibilityLabel(title)
         .accessibilityIdentifier("coldGrade_\(grade.rawValue)")
     }
 
@@ -245,4 +316,30 @@ private func targetCountBinding(_ configuration: Binding<PracticeConfiguration>)
 }
 private func startBPMBinding(_ configuration: Binding<PracticeConfiguration>) -> Binding<Double> {
     Binding(get: { configuration.wrappedValue.startBPM }, set: { configuration.wrappedValue.startBPM = $0 })
+}
+
+/// Local practice-setup treatments keep essential hit areas without inheriting full-page buttons.
+private struct ArmPracticeButtonStyle: ButtonStyle {
+    var emphasis: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .contentShape(Rectangle())
+            .foregroundStyle(emphasis ? PraeludeColor.paper : PraeludeColor.ink)
+            .background(emphasis ? PraeludeColor.ink : PraeludeColor.inkFillQuiet,
+                        in: RoundedRectangle(cornerRadius: 9))
+            .opacity(configuration.isPressed ? 0.7 : 1)
+    }
+}
+
+private struct ArmSecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.footnote).foregroundStyle(PraeludeColor.inkSecondary)
+            .padding(.horizontal, 4)
+            .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.55 : 1)
+    }
 }

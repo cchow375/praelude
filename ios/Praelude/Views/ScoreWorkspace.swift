@@ -704,9 +704,10 @@ struct ScoreWorkspace: View {
             scoreModeControls
         }
         .padding(.horizontal, sizeClass == .regular ? 16 : 8).padding(.vertical, compactScoreControls ? 2 : 14)
-        .frame(maxWidth: sizeClass == .regular ? 760 : .infinity)
         .frame(maxWidth: .infinity)
         .praeludeFloatingControls()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("scorePracticeDock")
     }
     /// §10a: tap 1. Both an on-score box tap and a Passages-list row land here, arming rule defaults
     /// immediately so the very next tap (or "Start") is tap 2 — no modal in between.
