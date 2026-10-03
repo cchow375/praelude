@@ -31,6 +31,10 @@ Synthetic fixture scores only. No personal PDF/data, device IDs, account names o
 - [Phone running landscape](build6/phone-running-landscape.png)
 - [Native bounds](build6/layout-metrics.json)
 
+## Guarded device update
+
+The October3 refresh attempt stopped at the initial device data copy. No build or installation was attempted by that helper run. Its failed local copy is retained; installed build5 remains. The user has been asked to unlock the iPad and leave Praelude idle before an authorized retry. No lock/trust cause is inferred beyond the helper’s copy failure.
+
 ## Next steps
 
 Six distinct scoped iPad and two phone cases pass across the recorded runs; final independent visual review passes. Complete the guarded same-bundle build6 installation with full file preservation, then actual practice judgment.

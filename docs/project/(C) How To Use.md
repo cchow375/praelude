@@ -1,6 +1,6 @@
 # Praelude — How To Use
 
-## Installed mobile build5 and compact build6 candidate (October2)
+## Installed mobile build5 and compact build6 candidate (October3)
 
 The physical iPad now runs2.0.0/build5/schema5 after the requested guarded update. Christian's Pencil/input/color/freeze reports came from build4; build5 implements the repairs, with actual Pencil/piano acceptance still open. The Mac tutorial's existing Matches:v11.1.0 line remains its installed-app contract.
 
@@ -8,7 +8,7 @@ Build5/schema5 is a development candidate with repaired input/color/responder pa
 
 Build6’s compact layout is under native verification before installation. The currently installed build5 instructions above remain authoritative until its guarded refresh completes.
 
-**Next steps:** finish the compact build6 checks and guarded update, then verify Pencil/freeze behavior and real-account continuity.
+**Next steps:** unlock the iPad and complete the guarded build6 update (the first backup copy failed before installation), then verify Pencil/freeze behavior and real-account continuity.
 
 
 **Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-10-03.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.

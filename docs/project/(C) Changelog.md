@@ -17,7 +17,8 @@
 - **Verified:** six scoped iPad and two phone cases pass including actual first-attempt save, completion/restart, click/hand technique choices, portrait/landscape geometry and largest-text reachability. Setup143pt/running100pt, secondary44pt/verdict52pt. Simulator rotation timeouts resolve after restarting only the synthetic simulator; progress wrapping and touch-intercepting informational flashes were corrected.
 - **Boundary:** source2.0.0/build6/schema5; no storage/sync/rule change. Installed build5 remains until guarded same-bundle refresh passes.
 - **Touched:** PracticeArmView, PracticeHUDView, ScoreWorkspace, PracticeLoopUITests, generator/project, QA, NOTES and living manuals.
-- **Next steps:** native portrait/landscape action/geometry review, then guarded build6 installation and physical practice judgment.
+- **Device attempt:** the October3 guarded refresh stopped at the initial data copy; no installation was attempted. Unlock/readiness is requested before retrying; installed build5 remains.
+- **Next steps:** retry the guarded build6 installation once the iPad is ready, then physical practice judgment.
 
 ### 2026-10-02 · Mobile build5 guarded physical iPad update
 
