@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import PencilKit
 
 private enum ScoreSheet: String, Identifiable {
-    case setup, passages, metronome, pages, voice, passageDetails, share, heatmap, bookmarks, links, pageTools
+    case setup, passages, metronome, pages, voice, passageDetails, share, heatmap, bookmarks, links, pageTools, sections, measureMap
     var id: String { rawValue }
 }
 
@@ -22,6 +22,7 @@ struct ScoreWorkspace: View {
     var initialPage: Int? = nil
     var onInitialPageConsumed: () -> Void = {}
     @Environment(PracticeStore.self) private var store
+    @Environment(SyncCoordinator.self) private var syncCoordinator
     @Environment(MetronomeService.self) private var metronome
     @Environment(SpeechCommandService.self) private var speech
     @Environment(PracticeRuntime.self) private var runtime
@@ -32,8 +33,16 @@ struct ScoreWorkspace: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
     @AppStorage("ios.feedback") private var feedbackEnabled = true
-    @AppStorage("ios.autoTurnPassageAfterVerdict") private var autoTurnPassageAfterVerdict = false
+    private var showPassageBoxes: Bool { store.preferences.showPassageBoxes }
+    private var compactScoreControls: Bool { store.preferences.compactScoreControls }
+    private var autoTurnPassageAfterVerdict: Bool { store.preferences.autoTurnPassageAfterVerdict }
+    private func preference<Value>(_ keyPath: WritableKeyPath<Preferences, Value>) -> Binding<Value> {
+        Binding(get: { store.preferences[keyPath: keyPath] }, set: { value in
+            perform { var updated = store.preferences; updated[keyPath: keyPath] = value; try store.updatePreferences(updated); syncCoordinator.pushPreferences() }
+        })
+    }
     /// §9 "onboarding voice setup... check recognition in room": previously reachable only from
     /// Settings, never from the point a player actually turns hands-free on for the first time. See
     /// "(C) Audit.md".
@@ -46,6 +55,7 @@ struct ScoreWorkspace: View {
     private var markup: ScoreMarkupState { sharedMarkup ?? localMarkup }
     @State private var drawAfterDismiss: Passage?
     @State private var confirmDiscardSelection = false
+    @State private var closeAfterDiscard = false
     @State private var selectedPassage: Passage?
     @State private var pendingPracticePassage: Passage?
     @State private var sheet: ScoreSheet?
@@ -107,9 +117,9 @@ struct ScoreWorkspace: View {
         return effectivePages[display - 1].sourcePage
     }
     private var practicedIDs: Set<UUID> {
-        let practiced = (store.state.history + [active].compactMap { $0 }).filter { !$0.effectiveAttempts.isEmpty }
-            .compactMap(\.configuration.passageSnapshot).flatMap(\.regions)
-        return Set(visibleRegions.filter { practiced.contains($0) }.map(\.id))
+        let practiced = Dictionary(grouping: (store.state.history + [active].compactMap { $0 }).filter { !$0.effectiveAttempts.isEmpty }
+            .compactMap(\.configuration.passageSnapshot).flatMap(\.regions), by: \.id)
+        return Set(visibleRegions.filter { practiced[$0.id]?.contains($0) == true }.map(\.id))
     }
     // §8 recolor: every saved passage's chosen color, keyed by region so ScorePageOverlay can paint
     // a box in the color its own passage (not necessarily the practicing one) was given.
@@ -180,35 +190,19 @@ struct ScoreWorkspace: View {
                             EmptyView()
                         } else if focusMode {
                             HStack {
+                                Button(action: closeScore) { Image(systemName: "chevron.left").frame(width: 44, height: 44) }.accessibilityLabel("Close score")
                                 Button { focusMode = false } label: { Label("Exit focus", systemImage: "arrow.down.right.and.arrow.up.left") }.buttonStyle(.praeludeQuiet).fixedSize()
                                 Spacer()
                                 jumpBackButton
                                 pageControls(compact: true)
                             }.padding(.horizontal, 16).padding(.vertical, 8).praeludeScoreChrome()
-                        } else if piece.pageCount > 0 {
-                            HStack {
-                                Button { sheet = .passages } label: {
-                                    if dynamicTypeSize.isAccessibilitySize {
-                                        PraeludeIcon(glyph: .passageBox, size: 20).frame(minWidth: 44)
-                                            .accessibilityLabel(selectedPassage?.title ?? "Passages")
-                                    } else {
-                                        Label {
-                                            Text(selectedPassage?.title ?? "Passages").lineLimit(1).font(.subheadline.weight(.medium))
-                                        } icon: { PraeludeIcon(glyph: .passageBox, size: 16) }
-                                            .frame(minHeight: 44).contentShape(Rectangle())
-                                    }
-                                }.frame(minHeight: 44).accessibilityIdentifier("passages")
-                                Button { beginSelection(nil) } label: { PraeludeIcon(glyph: .passageBox, size: 20).frame(width: 44, height: 44) }
-                                    .accessibilityLabel("Draw passage").accessibilityIdentifier("drawPassageOnScore")
-                                Spacer(minLength: 8)
-                                jumpBackButton
-                                pageControls(compact: false)
-                            }.padding(.horizontal, 16).praeludeScoreChrome()
                         }
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         if markup.mode == .selecting {
                             selectionTools
+                        } else if markup.mode == .writing {
+                            writingTools
                         } else if markup.mode == .reading && focusMode && !performanceMode {
                             // "Focus on score" must still leave Stop/Undo/the metronome toggle and a
                             // verdict fallback one tap away (§3d) — only true performance mode ("the
@@ -231,12 +225,14 @@ struct ScoreWorkspace: View {
                     }
                 }
                 .navigationTitle(piece.title).navigationBarTitleDisplayMode(.inline)
-                .toolbar(focusMode || performanceMode || markup.mode != .reading ? .hidden : .visible, for: .navigationBar)
+                .navigationBarBackButtonHidden(true)
+                .toolbar(focusMode || performanceMode ? .hidden : .visible, for: .navigationBar)
                 .toolbar {
-                    if let onClose { ToolbarItem(placement: .topBarLeading) { Button(action: onClose) { Image(systemName: "chevron.down").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Close score") } }
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: closeScore) { Label("Library", systemImage: "chevron.left").font(.subheadline).frame(minHeight: 44) }
+                            .accessibilityLabel("Close score").accessibilityIdentifier("closeScore")
+                    }
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button { beginWriting() } label: { Image(systemName: "pencil.tip.crop.circle").frame(width: 44, height: 44).contentShape(Rectangle()) }
-                            .accessibilityLabel("Annotate score").accessibilityIdentifier("annotateScore")
                         Button { sheet = .metronome } label: { PraeludeIcon(glyph: .metronome, size: 22).frame(width: 44, height: 44).contentShape(Rectangle()) }
                             .accessibilityLabel("Metronome").accessibilityIdentifier("openMetronome")
                         Menu {
@@ -253,7 +249,11 @@ struct ScoreWorkspace: View {
                             Button("Bookmarks", systemImage: "bookmark.fill") { sheet = .bookmarks }
                             Button("Links", systemImage: "arrow.triangle.turn.up.right.diamond") { sheet = .links }
                             if !jumpBackStack.isEmpty { Button("Jump back to page \(jumpBackStack.last ?? page)", systemImage: "arrow.uturn.backward") { jumpBack() } }
+                            Button("Movements & pieces", systemImage: "list.bullet.rectangle") { sheet = .sections }
+                            Button("Measure map", systemImage: "number.square") { sheet = .measureMap }
                             Button("Page tools", systemImage: "square.stack") { sheet = .pageTools }
+                            Toggle("Show passage boxes", isOn: preference(\.showPassageBoxes))
+                            Toggle("Compact score controls", isOn: preference(\.compactScoreControls))
                             if let selectedPassage {
                                 Button("Edit passage boxes", systemImage: "rectangle.and.pencil.and.ellipsis") { beginSelection(selectedPassage) }
                                 Button("Passage details", systemImage: "slider.horizontal.3") { sheet = .passageDetails }
@@ -262,9 +262,9 @@ struct ScoreWorkspace: View {
                             Button(speech.isListening ? "Turn voice off" : "Hands-free commands", systemImage: speech.isListening ? "mic.slash" : "mic") {
                                 if speech.isListening { speech.stop() } else { sheet = .voice }
                             }
-                            Button("Score heatmap", systemImage: "square.grid.3x3.fill") { sheet = .heatmap }
+                            Button("Practice results on score", systemImage: "square.grid.3x3.fill") { sheet = .heatmap }
                                 .disabled(scoreURL == nil)
-                            Toggle("Turn passage page after each verdict", isOn: $autoTurnPassageAfterVerdict)
+                            Toggle("Turn passage page after each verdict", isOn: preference(\.autoTurnPassageAfterVerdict))
                             Button("Replace score PDF", systemImage: "doc.badge.plus") { importing = true }
                             Button("Share annotated score", systemImage: "square.and.arrow.up") {
                                 guard markup.flushInk() else { return }
@@ -324,6 +324,10 @@ struct ScoreWorkspace: View {
             case .bookmarks: BookmarksView(pieceID: pieceID, currentPage: page, onJump: { if markup.flushInk() { page = $0; savePage($0) } })
             case .links: ScoreLinksView(pieceID: pieceID, pageCount: max(1, effectivePageCount), currentPage: page)
             case .pageTools: PageToolsView(pieceID: pieceID, pageCount: max(1, piece?.pageCount ?? 1))
+            case .sections: ScoreSectionsView(pieceID: pieceID, onOpenPage: { source in
+                if markup.flushInk() { page = displayPage(forSourcePage: source); savePage(page) }
+            })
+            case .measureMap: ScoreMeasureMapView(pieceID: pieceID, currentPage: sourcePage(forDisplayPage: page) ?? 1)
             }
         }
         .confirmationDialog("Switch practice passage?", isPresented: Binding(get: { pendingPracticePassage != nil }, set: { if !$0 { pendingPracticePassage = nil } }), titleVisibility: .visible, presenting: pendingPracticePassage) { passage in
@@ -338,8 +342,11 @@ struct ScoreWorkspace: View {
             Button("Keep current passage", role: .cancel) { pendingPracticePassage = nil }
         } message: { passage in Text("Saved repetitions stay with the current passage. Then prepare \(passage.title).") }
         .confirmationDialog("Discard these passage edits?", isPresented: $confirmDiscardSelection, titleVisibility: .visible) {
-            Button("Discard edits", role: .destructive) { markup.finish() }
-            Button("Keep editing", role: .cancel) {}
+            Button("Discard edits", role: .destructive) {
+                markup.finish()
+                if closeAfterDiscard { closeAfterDiscard = false; if let onClose { onClose() } else { dismiss() } }
+            }
+            Button("Keep editing", role: .cancel) { closeAfterDiscard = false }
         }
         .confirmationDialog("Ink changed in another window", isPresented: Binding(get: { markup.conflictPage != nil }, set: { if !$0 { markup.conflictPage = nil } }), titleVisibility: .visible, presenting: markup.conflictPage) { page in
             Button("Keep my drawing") { markup.resolveInkConflict(page, true) }
@@ -358,9 +365,15 @@ struct ScoreWorkspace: View {
         .sheet(item: $editingTextBox) { box in
             let isSaved = store.state.textAnnotations.contains { $0.id == box.id }
             TextBoxEditorView(text: box.text, onSave: { text in
-                perform { try store.saveTextAnnotation(TextBoxAnnotation(id: box.id, pieceID: box.pieceID, page: box.page, region: box.region,
-                                                                          text: text, layer: box.layer, createdAt: box.createdAt)) }
-            }, onDelete: isSaved ? { perform { try store.deleteTextAnnotation(box.id) } } : nil)
+                do {
+                    try store.saveTextAnnotation(TextBoxAnnotation(id: box.id, pieceID: box.pieceID, page: box.page, region: box.region,
+                                                                  text: text, layer: box.layer, createdAt: box.createdAt))
+                    return true
+                } catch { self.error = error.localizedDescription; return false }
+            }, onDelete: isSaved ? {
+                do { try store.deleteTextAnnotation(box.id); return true }
+                catch { self.error = error.localizedDescription; return false }
+            } : nil)
         }
         .confirmationDialog("End this practice session?", isPresented: $ending, titleVisibility: .visible) {
             Button("End practice", role: .destructive) { perform { try endSessionAndShare(); metronome.stop(); speech.stop() } }
@@ -370,6 +383,8 @@ struct ScoreWorkspace: View {
         .onAppear {
             page = min(max(1, initialPage ?? piece?.lastPage ?? 1), max(1, effectivePageCount))
             if initialPage != nil { savePage(page); onInitialPageConsumed() }
+            markup.showPassageBoxes = showPassageBoxes
+            markup.onConfirmSelection = saveSelection
             runtime.scoreAppeared(ownerID: voiceOwnerID)
             if let autoSelectPassageID, let target = savedPassages.first(where: { $0.id == autoSelectPassageID }) {
                 selectPassage(target)
@@ -380,9 +395,13 @@ struct ScoreWorkspace: View {
         }
         .onDisappear { _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); runtime.scoreDisappeared(ownerID: voiceOwnerID) }
         .onChange(of: pieceID) { _, _ in
+            markup.onConfirmSelection = saveSelection
+            markup.showPassageBoxes = showPassageBoxes
+            if markup.flushInk() { markup.finish() }
             page = piece?.lastPage ?? 1; selectedPassage = nil; jumpBackStack = []; speech.stop(ifOwnedBy: voiceOwnerID); arm.clearArm()
             offerBreakPointTap = false; markup.breakPointArmed = false
         }
+        .onChange(of: showPassageBoxes) { _, value in markup.showPassageBoxes = value }
         .onChange(of: scenePhase) { _, phase in if phase != .active { _ = markup.flushInk() } }
         .onChange(of: markup.errorMessage) { _, message in if let message { error = message; markup.errorMessage = nil } }
         .onChange(of: markup.pendingQuickBox) { _, box in
@@ -431,68 +450,61 @@ struct ScoreWorkspace: View {
         selectPassage(tapped)
     }
     private var markupHeader: some View {
-        @Bindable var markup = markup
-        let shortScreen = verticalSizeClass == .compact
-        let simplifiedLabels = shortScreen || dynamicTypeSize.isAccessibilitySize
-        return VStack(spacing: 4) {
-            HStack(spacing: 8) {
-                if markup.mode == .selecting {
-                    Button { confirmDiscardSelection = true } label: {
-                        if simplifiedLabels {
-                            Image(systemName: "xmark").font(.system(size: 20))
-                                .frame(width: 44, height: 44).contentShape(Rectangle())
-                        } else {
-                            Text("Cancel").frame(minWidth: 60, minHeight: 44).contentShape(Rectangle())
-                        }
-                    }.accessibilityLabel("Cancel")
-                }
-                if shortScreen {
-                    pageControls(compact: true)
-                } else if !simplifiedLabels {
-                    Text(markup.mode == .selecting ? "Select passage" : "Write on score")
-                        .font(.headline).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                Spacer(minLength: 0)
-                Button {
-                    if markup.mode == .selecting { saveSelection() }
-                    else if markup.flushInk() { markup.mode = .reading }
-                } label: {
-                    Text("Done").fontWeight(.semibold).fixedSize(horizontal: true, vertical: false)
-                        .frame(minWidth: 60, minHeight: 44).contentShape(Rectangle())
-                }
-                .disabled(markup.mode == .selecting && markup.regions.isEmpty)
-                .accessibilityIdentifier("finishScoreMarkup")
-            }
-            if markup.mode == .writing {
-                AnnotationToolbar(markup: markup, simplifiedLabels: simplifiedLabels, onRemoveSelectedStamp: removeSelectedStamp)
-            }
-            if !shortScreen {
-                let status = markup.mode == .selecting ? "\(markup.regions.count) \(markup.regions.count == 1 ? "box" : "boxes")" : markup.fingerDrawing ? "Finger drawing on" : "Pencil writes · fingers navigate"
-                if dynamicTypeSize.isAccessibilitySize {
-                    pageControls(compact: true)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text(status).font(.subheadline).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityIdentifier("markupStatus")
-                } else {
-                    HStack {
-                        Text(status).font(.subheadline).foregroundStyle(.secondary)
-                            .accessibilityIdentifier("markupStatus")
-                        Spacer(minLength: 0)
-                        pageControls(compact: true)
-                    }
-                }
-            }
-        }.padding(.horizontal, 14).padding(.bottom, 4).praeludeScoreChrome()
+        HStack(spacing: 8) {
+            Text(markup.mode == .selecting ? "\(markup.regions.count) \(markup.regions.count == 1 ? "box" : "boxes")" : markup.fingerDrawing ? "Finger drawing on" : "Pencil writes · fingers navigate")
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                .accessibilityIdentifier("markupStatus")
+            Spacer(minLength: 0)
+            pageControls(compact: true)
+        }.padding(.horizontal, 12).praeludeScoreChrome()
+    }
+    private var writingTools: some View {
+        VStack(spacing: 2) {
+            AnnotationToolbar(markup: markup, simplifiedLabels: verticalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize,
+                              onRemoveSelectedStamp: removeSelectedStamp)
+            scoreModeControls
+        }.padding(.horizontal, 12).praeludeScoreChrome()
+    }
+    private var scoreModeControls: some View {
+        HStack(spacing: 4) {
+            Button { sheet = .passages } label: { Image(systemName: "bookmark").frame(width: 44, height: 44) }
+                .accessibilityLabel("Passages").accessibilityIdentifier("passages")
+            if markup.mode == .reading { pageControls(compact: true) }
+            Spacer(minLength: 0)
+            Button { returnToPractice() } label: {
+                Image(systemName: markup.mode == .writing ? "checkmark" : "play.rectangle").frame(width: 44, height: 44)
+                    .background(markup.mode == .reading ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 9))
+            }.accessibilityLabel(markup.mode == .writing ? "Done" : "Practice mode")
+                .accessibilityIdentifier(markup.mode == .writing ? "finishScoreMarkup" : "scorePracticeMode")
+            Button { beginSelection(nil) } label: {
+                Image(systemName: "rectangle.dashed").frame(width: 44, height: 44)
+            }.accessibilityLabel("Draw passage").accessibilityIdentifier("drawPassageOnScore")
+            Button { beginWriting() } label: {
+                Image(systemName: "pencil.tip.crop.circle").frame(width: 44, height: 44)
+                    .background(markup.mode == .writing ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 9))
+            }.accessibilityLabel("Annotate score").accessibilityIdentifier("annotateScore")
+        }.font(.system(size: 18))
+    }
+    private func returnToPractice() {
+        if markup.mode == .selecting { confirmDiscardSelection = true; return }
+        guard markup.flushInk() else { return }
+        markup.stampDraft = nil
+        if !markup.tool.kind.isInkingTool { markup.tool.kind = .pen }
+        markup.mode = .reading
+    }
+    private func closeScore() {
+        guard markup.flushInk() else { return }
+        if markup.mode == .selecting { closeAfterDiscard = true; confirmDiscardSelection = true; return }
+        markup.stampDraft = nil
+        if let onClose { onClose() } else { dismiss() }
     }
     private var selectionTools: some View {
         VStack(spacing: 2) {
             if verticalSizeClass != .compact && !dynamicTypeSize.isAccessibilitySize {
-                Text("Drag to add a box. Drag a box or its corners to edit.")
+                Text("Drag a box. Double-tap the score or tap Done to save.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
-            HStack(spacing: 20) {
+            HStack(spacing: 6) {
                 Button { markup.undoSelection() } label: {
                     Image(systemName: "arrow.uturn.backward").font(.system(size: 20))
                         .frame(width: 44, height: 44).contentShape(Rectangle())
@@ -512,26 +524,38 @@ struct ScoreWorkspace: View {
                 }
                 .disabled(markup.selectedRegionID == nil).accessibilityLabel("Remove selected box")
                 .accessibilityIdentifier("removeBox")
+                Button("Cancel") { confirmDiscardSelection = true }.frame(minWidth: 44, minHeight: 44)
+                Button("Done") { saveSelection() }.fontWeight(.semibold).frame(minWidth: 52, minHeight: 44)
+                    .disabled(markup.regions.isEmpty).accessibilityIdentifier("finishScoreMarkup")
             }
-        }.padding(.horizontal, 20).padding(.top, 8).praeludeScoreChrome()
+        }.padding(.horizontal, 12).padding(.top, 2).praeludeScoreChrome()
     }
     private func newPassage() -> Passage {
         let count = savedPassages.count + 1
-        return Passage(pieceID: pieceID, title: "Passage \(count)", page: page)
+        let palette = ["blue", "green", "purple", "orange", "red"]
+        return Passage(pieceID: pieceID, title: "Passage \(count)", page: sourcePage(forDisplayPage: page) ?? 1,
+                       color: palette[(count - 1) % palette.count])
     }
     private func beginSelection(_ passage: Passage?) {
         focusMode = false
         guard scoreURL != nil else { importing = true; return }
+        guard markup.flushInk() else { return }
+        markup.stampDraft = nil
         markup.begin(passage ?? newPassage(), baseline: passage)
     }
     private func beginWriting() {
         guard scoreURL != nil else { importing = true; return }
-        focusMode = false; markup.mode = .writing
+        guard markup.flushInk() else { return }
+        if markup.mode == .selecting { confirmDiscardSelection = true; return }
+        focusMode = false; markup.quickBoxArmed = false; markup.breakPointArmed = false; markup.mode = .writing
     }
     private func saveSelection() {
         guard var draft = markup.draft, !draft.regions.isEmpty else { return }
         perform {
             draft.page = draft.regions.map(\.page).min() ?? page
+            if let piece, let range = ScoreOrganization.measureRange(for: draft.regions, in: piece) {
+                draft.startMeasure = range.lowerBound; draft.endMeasure = range.upperBound
+            }
             draft.updatedAt = Date()
             try store.savePassage(draft, replacing: markup.baseline)
             selectedPassage = draft; markup.finish()
@@ -553,12 +577,13 @@ struct ScoreWorkspace: View {
             return true
         } catch { markup.errorMessage = "Ink could not be saved. \(error.localizedDescription)"; return false }
     }
-    private func placeStamp(_ page: Int, _ position: NormalizedRect) {
-        guard let armed = markup.armedStamp else { return }
-        perform {
+    private func placeStamp(_ page: Int, _ position: NormalizedRect) -> Bool {
+        guard let armed = markup.armedStamp else { return false }
+        do {
             try store.saveStampAnnotation(StampAnnotation(pieceID: pieceID, page: page, position: position,
                                                            kind: armed.kind, label: armed.label, layer: markup.activeLayer))
-        }
+            return true
+        } catch { self.error = error.localizedDescription; return false }
     }
     private func placeTextBox(_ page: Int, _ position: NormalizedRect) {
         editingTextBox = TextBoxAnnotation(pieceID: pieceID, page: page, region: position, text: "", layer: markup.activeLayer)
@@ -586,8 +611,11 @@ struct ScoreWorkspace: View {
             let parent = selectedPassage
             let siblingCount = savedPassages.filter { $0.parentPassageID == parent?.id }.count
             let title = parent.map { "\($0.title) — spot \(siblingCount + 1)" } ?? "New spot \(siblingCount + 1)"
-            let passage = Passage(pieceID: pieceID, title: title, page: region.page, focus: parent?.focus ?? "Pulse",
-                                  regions: [region], color: parent?.color, parentPassageID: parent?.id)
+            var passage = Passage(pieceID: pieceID, title: title, page: region.page, focus: parent?.focus ?? "Pulse",
+                                  regions: [region], color: parent?.color ?? "blue", parentPassageID: parent?.id)
+            if let piece, let range = ScoreOrganization.measureRange(for: [region], in: piece) {
+                passage.startMeasure = range.lowerBound; passage.endMeasure = range.upperBound
+            }
             try store.savePassage(passage)
         }
     }
@@ -600,7 +628,7 @@ struct ScoreWorkspace: View {
         }
     }
     @ViewBuilder private var practiceDock: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: compactScoreControls ? 4 : 12) {
             if markup.quickBoxArmed {
                 HStack {
                     Text("Drag on the score to mark this spot.").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
@@ -655,10 +683,7 @@ struct ScoreWorkspace: View {
                     onStarted: {}, onOpenAdvanced: { sheet = .setup },
                     onSplitPassage: { beginSelection($0) }
                 )
-                Button { sheet = .passages } label: {
-                    Label(selectedPassage == nil ? "Choose a passage" : "Choose a different passage", systemImage: "bookmark")
-                        .font(.caption).frame(minHeight: 32)
-                }.buttonStyle(.plain).foregroundStyle(PraeludeColor.inkSecondary).accessibilityIdentifier("choosePassage")
+
             }
             if let failure = arm.errorMessage { ErrorMessage(message: failure) }
             if let failure = store.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
@@ -676,8 +701,9 @@ struct ScoreWorkspace: View {
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }.accessibilityElement(children: .combine)
             }
+            scoreModeControls
         }
-        .padding(.horizontal, sizeClass == .regular ? 24 : 16).padding(.vertical, 14)
+        .padding(.horizontal, sizeClass == .regular ? 16 : 8).padding(.vertical, compactScoreControls ? 2 : 14)
         .frame(maxWidth: sizeClass == .regular ? 760 : .infinity)
         .frame(maxWidth: .infinity)
         .praeludeFloatingControls()
@@ -730,12 +756,26 @@ struct ScoreWorkspace: View {
         default: break
         }
     }
+    private var pageIndicatorText: String {
+        if let piece, let source = sourcePage(forDisplayPage: page),
+           let section = ScoreOrganization.section(for: source, in: piece) {
+            return "\(source - section.startPage + 1) / \(section.endPage - section.startPage + 1)"
+        }
+        return "\(page) / \(max(1, effectivePageCount))"
+    }
+    private var pageIndicatorDescription: String {
+        if let piece, let source = sourcePage(forDisplayPage: page),
+           let section = ScoreOrganization.section(for: source, in: piece) {
+            return "\(section.title), page \(source - section.startPage + 1) of \(section.endPage - section.startPage + 1), PDF page \(source)"
+        }
+        return "Page \(page) of \(max(1, effectivePageCount))"
+    }
     private func pageControls(compact: Bool) -> some View {
         HStack(spacing: compact ? 8 : 4) {
             Button { turnPage(-1) } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
                 .disabled(page <= 1).accessibilityLabel("Previous page").keyboardShortcut(.leftArrow, modifiers: [])
-            Button { sheet = .pages } label: { Text("\(page) / \(max(1, effectivePageCount))").font(.subheadline.monospacedDigit()).fixedSize(horizontal: true, vertical: false).frame(minWidth: 54, minHeight: 44) }
-                .accessibilityLabel("Page \(page) of \(max(1, effectivePageCount))").accessibilityIdentifier("pageIndicator")
+            Button { sheet = .pages } label: { Text(pageIndicatorText).font(.subheadline.monospacedDigit()).fixedSize(horizontal: true, vertical: false).frame(minWidth: 54, minHeight: 44) }
+                .accessibilityLabel(pageIndicatorDescription).accessibilityIdentifier("pageIndicator")
             Button { turnPage(1) } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }
                 .disabled(page >= max(1, effectivePageCount)).accessibilityLabel("Next page").keyboardShortcut(.rightArrow, modifiers: [])
         }

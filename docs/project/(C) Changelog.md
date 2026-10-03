@@ -10,6 +10,21 @@
 
 ---
 
+### 2026-10-02 · Mobile build5 score workflow and cross-platform sync follow-up
+
+- **Driven by Christian's physical feedback:** Pencil input, white black-ink/stamps, freezing annotation during practice, crowded controls, slow ambiguous passages, missing movement/measure context and digital reminders; plus user information/shared sync for future platforms.
+- **Implemented:** repaired Pencil routing/light traits/deferred responder; sized movable stamp preview/magnifier/Place; expanding yellow notes; bottom modes/Done/double-tap; colored hideable boxes; Library exit; piece tempo/pre-start metronome; stable hand Techniques; compact chrome/width-fit Focus; direct notebook action/rank-first Rewards.
+- **Organization:** source-page-stable movement/book ranges, bookmark suggestions, reviewed local printed-number hints/confirmed measure regions, page/measure grouping and bounded off-main previews, meaningful history labels. Automatic OMR remains unbuilt.
+- **Sync:** profile/privacy and native records extend to goals/routines tombstones, score metadata, preferences and private covers; lowercase storage UUID paths; local-edit debounce; no-op adoption; old-client absent-field preservation and explicit nullable clears. Additive backend migrations24–27 and rollback-only owner/legacy-clear/future-preference checks pass. Continuous Tauri/native sync and actual two-device convergence remain open.
+- **Verified:** 385 core tests, 2,211 service assertions and 54 Python tests pass; the final native run executes 193 tests with one live-account test skipped and zero failures. Seven scoped iPad and five phone interaction cases pass across runs; independent input/stamp/note/rank/profile review passes its stated scope. Final unsigned arm64 device Release passes, DEBUG fixture markers/test plug-ins absent. No all-green full UI scheme, physical Pencil or live two-device acceptance is claimed.
+- **Preservation:** schema5 keeps exact originals; backupv4 prevents older readers dropping metadata. Original imported Mac archive remains local/in native backups. No physical install or personal-library mutation in this development round.
+- **Touched:** native Core/store/schema/DTOs, score/annotation/organization/practice/notebook/rewards/history/settings views, native storage/auth/sync lifecycle, generator/tests, Supabase schema/tests/contracts, QA and living manuals. Final verification tracked at `docs/qa/ios/2.0.0/score-workflow.md`.
+- **Next steps:** guarded build5 update when the iPad is connected and no set is open, then physical piano/Pencil and actual account acceptance.
+
+- **Compact/performance follow-up:** new-device practice readout starts collapsed, preserving existing device choices. Preview caches are bounded by actual pixel bytes. Slider controls sit outside horizontal scrolling; native preview grow/shrink and one-place checks pass.
+- **Compatibility review:** nullable clears are explicit for known DTO fields; absent new SQL columns and unknown preference keys survive older clients. Deleted scores retain parent tombstones before dependent goals; confirmed maps now label/sort older passage snapshots on display without rewriting their history. Device helper supports schema5 and continues refusing running sets/unknown schemas.
+- **Profile recovery review:** fresh sign-in reads the existing account before publishing guest defaults. Deliberate name/photo/privacy changes stage durably before local save; failed saves keep the editor open. Same-account sign-out retains bound intent, while another account cannot inherit its queue. Regression review also found and corrected abandoned staged choices when reverting a draft before retry.
+
 ### 2026-10-02 · Mobile build4 pianist workflow and metronome follow-up
 
 - **First open confirmed:** Christian opened build4 without a trust prompt; read-only device verification confirms2.0.0/build4, schema4, three existing pieces and ten historical sets. Mac import still pending.

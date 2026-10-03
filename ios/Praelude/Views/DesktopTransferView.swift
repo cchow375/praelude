@@ -39,7 +39,7 @@ struct DesktopTransferView: View {
                         } catch { self.error = error.localizedDescription }
                     }.disabled(imported || store.activeSet != nil)
                 } header: { Text("Ready to import") } footer: {
-                    Text("Scores and equivalent practice targets become usable in Pieces. The original Mac history, rules, corrections and other data stay intact in Mac practice record. Importing does not grant new rewards. Cloud sync covers supported mobile records and score PDFs. Goals, routines and the original Mac archive stay local; custom cover bytes do not sync yet. Ongoing Mac↔iOS sync is a separate step.")
+                    Text("Scores and equivalent practice targets become usable in Pieces. The original Mac history, rules, corrections and other data stay intact in Mac practice record. Importing does not grant new rewards. Cloud sync includes native goals, routines, score organization, practice records, private PDFs, recordings and custom covers. The original Mac archive stays on this device and in native backups. Ongoing Mac↔iOS sync is a separate step.")
                 }
             }
             if !store.state.desktopImports.isEmpty {

@@ -71,6 +71,10 @@ public struct PieceSyncRow: Codable, Equatable, Sendable {
     public var folder_ids: [UUID]
     public var difficulty: Int?
     public var custom_cover_ref: String?
+    public var score_sections: [ScoreSection]?
+    public var measure_anchors: [ScoreMeasureAnchor]?
+    public var default_practice_bpm: Double?
+    public var hasDefaultPracticeTempo: Bool = false
     public var performance_dates: [Date]
     public var created_at: Date
     public var updated_at: Date
@@ -88,14 +92,71 @@ public struct PieceSyncRow: Codable, Equatable, Sendable {
         difficulty = piece.difficulty; custom_cover_ref = piece.customCoverRef; performance_dates = piece.performanceDates
         created_at = piece.createdAt; updated_at = piece.updatedAt; last_page_updated_at = piece.lastPageUpdatedAt
         deleted_at = piece.deletedAt
+        score_sections = piece.scoreSections; measure_anchors = piece.measureAnchors
+        default_practice_bpm = piece.defaultPracticeBPM; hasDefaultPracticeTempo = true
     }
-    public var coreValue: Piece? {
+    public var coreValue: Piece? { coreValue(preserving: nil) }
+    public func coreValue(preserving existing: Piece?) -> Piece? {
         guard let status = PieceStatus(rawValue: status) else { return nil }
         return Piece(id: id, title: title, composer: composer, pdfFileName: pdf_file_name, pageCount: page_count,
                       lastPage: last_page, status: status, notes: notes, createdAt: created_at, instrumentID: instrument_id,
                       tagIDs: tag_ids, folderIDs: folder_ids, difficulty: difficulty, customCoverRef: custom_cover_ref,
-                      performanceDates: performance_dates, updatedAt: updated_at, lastPageUpdatedAt: last_page_updated_at,
+                      performanceDates: performance_dates,
+                      scoreSections: score_sections ?? existing?.scoreSections ?? [],
+                      measureAnchors: measure_anchors ?? existing?.measureAnchors ?? [],
+                      defaultPracticeBPM: hasDefaultPracticeTempo ? default_practice_bpm : existing?.defaultPracticeBPM,
+                      updatedAt: updated_at, lastPageUpdatedAt: last_page_updated_at,
                       deletedAt: deleted_at)
+    }
+    private enum CodingKeys: String, CodingKey { case id, title, composer, pdf_file_name, page_count, last_page, status, notes, instrument_id, tag_ids, folder_ids, difficulty, custom_cover_ref, score_sections, measure_anchors, default_practice_bpm, performance_dates, created_at, updated_at, last_page_updated_at, deleted_at }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        title = try values.decode(String.self, forKey: .title)
+        composer = try values.decode(String.self, forKey: .composer)
+        pdf_file_name = try values.decodeIfPresent(String.self, forKey: .pdf_file_name)
+        page_count = try values.decode(Int.self, forKey: .page_count)
+        last_page = try values.decode(Int.self, forKey: .last_page)
+        status = try values.decode(String.self, forKey: .status)
+        notes = try values.decode(String.self, forKey: .notes)
+        instrument_id = try values.decodeIfPresent(UUID.self, forKey: .instrument_id)
+        tag_ids = try values.decode([UUID].self, forKey: .tag_ids)
+        folder_ids = try values.decode([UUID].self, forKey: .folder_ids)
+        difficulty = try values.decodeIfPresent(Int.self, forKey: .difficulty)
+        custom_cover_ref = try values.decodeIfPresent(String.self, forKey: .custom_cover_ref)
+        score_sections = try values.decodeIfPresent([ScoreSection].self, forKey: .score_sections)
+        measure_anchors = try values.decodeIfPresent([ScoreMeasureAnchor].self, forKey: .measure_anchors)
+        default_practice_bpm = try values.decodeIfPresent(Double.self, forKey: .default_practice_bpm)
+        performance_dates = try values.decode([Date].self, forKey: .performance_dates)
+        created_at = try values.decode(Date.self, forKey: .created_at)
+        updated_at = try values.decode(Date.self, forKey: .updated_at)
+        last_page_updated_at = try values.decode(Date.self, forKey: .last_page_updated_at)
+        deleted_at = try values.decodeIfPresent(Date.self, forKey: .deleted_at)
+        hasDefaultPracticeTempo = values.contains(.default_practice_bpm)
+    }
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(title, forKey: .title)
+        try values.encode(composer, forKey: .composer)
+        try values.encodeIfPresent(pdf_file_name, forKey: .pdf_file_name)
+        try values.encode(page_count, forKey: .page_count)
+        try values.encode(last_page, forKey: .last_page)
+        try values.encode(status, forKey: .status)
+        try values.encode(notes, forKey: .notes)
+        try values.encodeIfPresent(instrument_id, forKey: .instrument_id)
+        try values.encode(tag_ids, forKey: .tag_ids)
+        try values.encode(folder_ids, forKey: .folder_ids)
+        try values.encodeIfPresent(difficulty, forKey: .difficulty)
+        try values.encodeIfPresent(custom_cover_ref, forKey: .custom_cover_ref)
+        try values.encodeIfPresent(score_sections, forKey: .score_sections)
+        try values.encodeIfPresent(measure_anchors, forKey: .measure_anchors)
+        if hasDefaultPracticeTempo { try values.encode(default_practice_bpm, forKey: .default_practice_bpm) }
+        try values.encode(performance_dates, forKey: .performance_dates)
+        try values.encode(created_at, forKey: .created_at)
+        try values.encode(updated_at, forKey: .updated_at)
+        try values.encode(last_page_updated_at, forKey: .last_page_updated_at)
+        try values.encodeIfPresent(deleted_at, forKey: .deleted_at)
     }
 }
 
@@ -305,6 +366,20 @@ public struct BackendPerformance: Codable, Equatable, Sendable {
 }
 
 public struct ProfileSyncRow: Codable, Equatable, Sendable {
+    static let coreEditableKeys = ["username", "display_name", "photo_path", "bio", "teacher_or_school", "location",
+                                   "currently_working_on_piece_ids", "privacy_name", "privacy_username", "privacy_photo",
+                                   "privacy_bio", "privacy_instruments", "privacy_teacher_or_school", "privacy_location",
+                                   "privacy_currently_working_on", "privacy_upcoming_performances", "privacy_stats"]
+    static func coreObject(_ profile: Profile) throws -> [String: SyncJSON] {
+        var object = try SyncJSON(encoding: ProfileSyncRow(profile, extras: ProfileBackendFields())).objectValue ?? [:]
+        object["photo_path"] = object["photo_path"] ?? .null
+        return object
+    }
+    func applyingCoreFields(_ fields: [String: SyncJSON], ownerID: UUID?) throws -> Profile {
+        var object = try SyncJSON(encoding: self).objectValue ?? [:]
+        for key in Self.coreEditableKeys { if let value = fields[key] { object[key] = value } }
+        return try SyncJSON.object(object).decoded(as: ProfileSyncRow.self).coreProfile(ownerID: ownerID)
+    }
     public var username: String
     public var display_name: String
     public var photo_path: String?
@@ -377,5 +452,27 @@ public struct ProfileSyncRow: Codable, Equatable, Sendable {
         extras.privacyNotes = ProfileVisibility(rawValue: privacy_notes) ?? .friends
         extras.upcomingPerformances = upcoming_performances
         return extras
+    }
+    /// Account identity/privacy wins the first read. Nonempty guest identity fills only blank
+    /// account fields; explicit edits staged during that read override only their represented keys.
+    func initialCoreProfile(local: Profile, explicitFields: [String: SyncJSON], at date: Date) throws -> Profile {
+        var object = try SyncJSON(encoding: self).objectValue ?? [:]
+        let guest = try SyncJSON(encoding: ProfileSyncRow(local, extras: backendFields)).objectValue ?? [:]
+        let identityKeys = ["display_name", "bio", "teacher_or_school", "location", "photo_path", "currently_working_on_piece_ids"]
+        var changed = false
+        for key in identityKeys {
+            let empty = object[key] == nil || object[key]?.isNull == true || object[key] == .string("") || object[key] == .array([])
+            if empty, let value = guest[key], !value.isNull, value != .string(""), value != .array([]), value != object[key] {
+                object[key] = value; changed = true
+            }
+        }
+        let placeholder = local.ownerID.map { "user_" + String($0.uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(12)) }
+        if username == placeholder, !local.username.isEmpty, local.username != username { object["username"] = .string(local.username); changed = true }
+        for key in Self.coreEditableKeys {
+            if let value = explicitFields[key], object[key] != value { object[key] = value; changed = true }
+        }
+        var result = try SyncJSON.object(object).decoded(as: ProfileSyncRow.self).coreProfile(ownerID: local.ownerID)
+        if changed { result.updatedAt = max(date, updated_at.addingTimeInterval(0.001)) }
+        return result
     }
 }

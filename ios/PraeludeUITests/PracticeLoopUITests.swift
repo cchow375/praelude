@@ -40,6 +40,12 @@ final class PracticeLoopUITests: XCTestCase {
         if !row.waitForExistence(timeout: 3), passages.isHittable { passages.press(forDuration: 0.15) }
         XCTAssertTrue(row.waitForExistence(timeout: 15), app.debugDescription)
         row.press(forDuration: 0.15)
+        // The arm controls enter the accessibility tree during the picker dismissal animation.
+        // Wait until the picker is gone and the underlying score footer accepts input before tap 2.
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !app.navigationBars["Passages"].exists && passages.isHittable
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 10), .completed, app.debugDescription)
     }
 
     /// `ios.hudCollapsed` is a deliberate cross-launch preference (the same pattern as the existing
@@ -532,6 +538,44 @@ final class PracticeLoopUITests: XCTestCase {
             XCTAssertLessThanOrEqual(button.frame.maxX, app.frame.maxX)
         }
         screenshot("practice-largest-text-dark-opaque-running", app: app)
+    }
+
+    @MainActor func testMetronomeIsImmediatelyEditableBeforeFirstAttempt() {
+        let app = launch(); openScore(app); choosePassage(app)
+        let toggle = app.buttons["armMetronome"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(toggle.isHittable, app.debugDescription)
+        let initial = toggle.value as? String
+        toggle.press(forDuration: 0.15)
+        XCTAssertNotEqual(toggle.value as? String, initial)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].exists)
+        screenshot("practice-metronome-before-first-attempt", app: app)
+        app.buttons["More options"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["confirmStartSet"].waitForExistence(timeout: 10))
+        app.buttons["confirmStartSet"].press(forDuration: 0.15)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        XCTAssertNotEqual(toggle.value as? String, initial, "Advanced settings must retain the chosen click state.")
+    }
+
+    @MainActor func testHandTechniqueSheetKeepsItsHeightWhileScrolling() {
+        let app = launch(); openScore(app); choosePassage(app)
+        let techniques = app.buttons["armVariants"]
+        XCTAssertTrue(techniques.waitForExistence(timeout: 10), app.debugDescription)
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in techniques.isHittable }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, app.debugDescription)
+        techniques.press(forDuration: 0.15)
+        let navigation = app.navigationBars["Practice techniques"]
+        XCTAssertTrue(navigation.waitForExistence(timeout: 10), app.debugDescription)
+        let initialTop = navigation.frame.minY
+        let leftHand = app.buttons["technique_leftHand"]
+        for _ in 0..<4 where !leftHand.isHittable { app.swipeUp() }
+        XCTAssertTrue(leftHand.isHittable, app.debugDescription)
+        XCTAssertEqual(navigation.frame.minY, initialTop, accuracy: 2, "Scrolling should move the list inside the sheet.")
+        leftHand.press(forDuration: 0.15)
+        screenshot("practice-left-hand-technique", app: app)
+        app.buttons["Done"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["armedConditions"].label.contains("1 stage"), app.debugDescription)
     }
 
 }

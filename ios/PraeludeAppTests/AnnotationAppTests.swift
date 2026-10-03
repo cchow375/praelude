@@ -146,6 +146,26 @@ final class AnnotationAppTests: XCTestCase {
         return stride(from: 3, to: pixels.count, by: 4).contains { pixels[$0] > 10 }
     }
 
+    @MainActor func testCanvasAndRenderedStampsKeepDarkInkInDarkAppearance() throws {
+        let markup = ScoreMarkupState()
+        let overlay = ScorePageOverlay(page: 1, markup: markup)
+        XCTAssertEqual(overlay.overrideUserInterfaceStyle, .light)
+        XCTAssertEqual(overlay.canvas.overrideUserInterfaceStyle, .light)
+        for kind: StampKind in [.fingering, .dynamic, .breath, .bowing, .accidental, .circle, .watch] {
+            let renderer = ImageRenderer(content: PraeludeStamp(kind: kind, size: 48).environment(\.colorScheme, .dark))
+            let image = try XCTUnwrap(renderer.cgImage)
+            var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let context = try XCTUnwrap(CGContext(data: &pixels, width: image.width, height: image.height,
+                bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            let darkPixel = stride(from: 0, to: pixels.count, by: 4).contains {
+                pixels[$0 + 3] > 200 && pixels[$0] < 80 && pixels[$0 + 1] < 80 && pixels[$0 + 2] < 80
+            }
+            XCTAssertTrue(darkPixel, "\(kind) must contain visible dark ink even under dark SwiftUI appearance")
+        }
+    }
+
     // MARK: - ScoreMarkupState additions
 
     @MainActor func testRememberInkGuardsAgainstCrossLayerLeakTheSameWayItGuardsAgainstCrossDocumentLeak() {

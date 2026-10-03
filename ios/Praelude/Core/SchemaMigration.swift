@@ -9,10 +9,18 @@ extension Date {
 }
 
 enum SchemaMigration {
-    /// Schema4 protects durable, in-set tempo edits from readers that would discard them.
+    /// Schema5 protects score sections, confirmed measure maps, preferences and defaults from older readers.
     /// No historical contracts, reps, clocks, identities or reward values are rewritten.
     static func migrateToCurrent(_ state: LibraryState, at date: Date) -> LibraryState {
         var migrated = migrateToSchema3(state, at: date)
+        for index in migrated.goals.indices {
+            if migrated.goals[index].createdAt == .praeludeEpochSentinel { migrated.goals[index].createdAt = date }
+            if migrated.goals[index].updatedAt == .praeludeEpochSentinel { migrated.goals[index].updatedAt = date }
+        }
+        for index in migrated.routines.indices {
+            if migrated.routines[index].createdAt == .praeludeEpochSentinel { migrated.routines[index].createdAt = date }
+            if migrated.routines[index].updatedAt == .praeludeEpochSentinel { migrated.routines[index].updatedAt = date }
+        }
         migrated.schemaVersion = max(migrated.schemaVersion, LibraryState.currentSchemaVersion)
         return migrated
     }

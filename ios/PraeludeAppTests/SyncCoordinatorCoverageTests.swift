@@ -55,6 +55,8 @@ final class SyncCoordinatorCoverageTests: XCTestCase {
         coordinator.pushWarmupExercise(WarmupExercise(kind: .scale, key: "C", name: "C major"))
         coordinator.pushRecording(AudioRecording(fileName: "take.m4a", duration: 10, byteSize: 1000))
         coordinator.pushNotebookEntry(NotebookEntry(kind: .daily, text: "Practiced slowly"))
+        coordinator.pushGoal(PracticeGoal(title: "Memorize the opening"))
+        coordinator.pushRoutine(PracticeRoutine(name: "Rhythms", stages: PracticeTechnique.rhythmPair.stages()))
         XCTAssertEqual(coordinator.pendingCount, 0, "Nothing is queued while signed out.")
     }
 

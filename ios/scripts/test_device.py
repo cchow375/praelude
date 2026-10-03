@@ -233,7 +233,7 @@ class DeviceSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(device.DeviceError, "practice set is running"):
             self.execute()
         self.assert_no_install()
-        for schema in (True, 5):
+        for schema in (True, 6):
             with self.assertRaisesRegex(device.DeviceError, "unsupported format"):
                 device.validate_library(json.dumps({"schemaVersion": schema}).encode())
 
@@ -247,6 +247,19 @@ class DeviceSafetyTests(unittest.TestCase):
         self.assertEqual(len(copies), 2)
         self.assertTrue(all(path.read_bytes() == original for path in copies))
         self.runner.files["library.json"] = json.dumps({"schemaVersion": 4, "activeSet": {"status": "running"}}).encode()
+        with self.assertRaisesRegex(device.DeviceError, "practice set is running"):
+            self.execute()
+
+    def test_schema5_organized_library_is_preserved_and_running_set_still_blocks(self):
+        state = {"schemaVersion": 5, "activeSet": None, "pieces": [{"scoreSections": [{"title": "II", "startPage": 3, "endPage": 4}], "measureAnchors": [], "defaultPracticeBPM": 65}]}
+        original = json.dumps(state).encode()
+        self.runner.files["library.json"] = original
+        self.execute()
+        self.assertEqual(self.runner.files["library.json"], original)
+        copies = list((self.root.parent / "releases/ios-device-backups").glob("*/Praelude/library.json"))
+        self.assertEqual(len(copies), 2)
+        self.assertTrue(all(path.read_bytes() == original for path in copies))
+        self.runner.files["library.json"] = json.dumps({"schemaVersion": 5, "activeSet": {"status": "running"}}).encode()
         with self.assertRaisesRegex(device.DeviceError, "practice set is running"):
             self.execute()
 

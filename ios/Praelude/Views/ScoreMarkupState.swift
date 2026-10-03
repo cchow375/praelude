@@ -21,6 +21,16 @@ import PencilKit
     private(set) var baseline: Passage?
     var selectedRegionID: UUID?
     var fingerDrawing = false
+    var showPassageBoxes = true
+    struct StampDraft {
+        let page: Int
+        var position: NormalizedRect
+    }
+    var stampSize: Double = 0.045
+    var stampDraft: StampDraft?
+    @ObservationIgnored var confirmStamp: () -> Void = {}
+    @ObservationIgnored var resizeStampPreview: () -> Void = {}
+    @ObservationIgnored var onConfirmSelection: () -> Void = {}
     /// §7: pen/highlighter/eraser/lasso/stamp/text, with the curated color/width that go with it.
     /// Drives the canvas's live `PKTool` directly (`AnnotationTool.pkTool`) — the custom
     /// `AnnotationToolbar` is the primary way to change this; the system `PKToolPicker` stays
@@ -110,7 +120,7 @@ import PencilKit
     }
     func finish() {
         mode = .reading; draft = nil; baseline = nil; selectedRegionID = nil; undoRegions = []; redoRegions = []
-        quickBoxArmed = false; pendingQuickBox = nil
+        quickBoxArmed = false; pendingQuickBox = nil; stampDraft = nil
     }
 }
 

@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "build": "5",
+  "bundle_id": "com.christian.praelude.ios",
+  "minimum_ios": "17.0",
+  "architectures": "arm64",
+  "signing": "unsigned development candidate; CODE_SIGNING_ALLOWED=NO",
+  "binary_bytes": 29322928,
+  "binary_sha256": "c284bd1a1211971383ca26f0c2ef45a18522f2b8b24ae0762c354350cde0832d",
+  "debug_fixture_markers_absent": [
+    "--uitesting",
+    "--reset",
+    "--seed",
+    "stampPreviewWidth=",
+    "stampCountPage",
+    "Practice study",
+    "PraeludeUITest:"
+  ],
+  "test_plugins_absent": true,
+  "native_input_files": 237,
+  "native_input_sha256": "044205078d1afac14c2c757e843877d8fcb9a507004284626d6b8b14cae5fd93",
+  "code_signature_directory_present": false,
+  "embedded_provisioning_profile_present": false,
+  "bundle_signature_verifies": false
+}

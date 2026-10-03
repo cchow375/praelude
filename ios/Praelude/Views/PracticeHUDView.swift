@@ -11,7 +11,7 @@ struct PracticeHUDView: View {
     @Environment(MetronomeService.self) private var metronome
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("ios.hudCollapsed") private var collapsed = false
+    @AppStorage("ios.hudCollapsed") private var collapsed = true
     var active: ActiveSet
     var passageTitle: String
     var arm: PracticeArmController

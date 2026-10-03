@@ -352,7 +352,7 @@ struct LibraryPieceGridCell: View {
 }
 
 private enum PieceDetailSheet: String, Identifiable {
-    case addInstrument, tags, folders
+    case addInstrument, tags, folders, sections
     var id: String { rawValue }
 }
 
@@ -390,7 +390,14 @@ private struct PieceDetailsView: View {
                     }
                 }
             }
+            Section("Practice default") {
+                Toggle("Remember a tempo for this piece", isOn: Binding(get: { draft.defaultPracticeBPM != nil }, set: { draft.defaultPracticeBPM = $0 ? 60 : nil }))
+                if draft.defaultPracticeBPM != nil {
+                    Stepper("\(Int(draft.defaultPracticeBPM ?? 60)) bpm", value: Binding(get: { draft.defaultPracticeBPM ?? 60 }, set: { draft.defaultPracticeBPM = $0 }), in: 20...300)
+                }
+            }
             Section("Organization") {
+                Button("Movements & pieces", systemImage: "list.bullet.rectangle") { detailSheet = .sections }
                 Button { detailSheet = .folders } label: { organizationRow(title: "Folders", names: folderNames) }
                 Button { detailSheet = .tags } label: { organizationRow(title: "Tags", names: tagNames) }
             }
@@ -412,8 +419,11 @@ private struct PieceDetailsView: View {
             }
         }
         .interactiveDismissDisabled()
-        .sheet(item: $detailSheet) { which in
+        .sheet(item: $detailSheet, onDismiss: {
+            if let current = store.pieces.first(where: { $0.id == draft.id }) { draft.scoreSections = current.scoreSections; draft.measureAnchors = current.measureAnchors }
+        }) { which in
             switch which {
+            case .sections: ScoreSectionsView(pieceID: draft.id)
             case .addInstrument: AddInstrumentView(onAdded: { draft.instrumentID = $0 })
             case .tags: LibraryLabelMultiSelectView(title: "Tags", all: store.state.tags, selectedIDs: $draft.tagIDs)
             case .folders: LibraryLabelMultiSelectView(title: "Folders", all: store.state.folders, selectedIDs: $draft.folderIDs)

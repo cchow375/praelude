@@ -5,9 +5,7 @@ import Network
 /// Wires `SyncEngine` (Core, transport-agnostic) to `PracticeStore` and `AuthManager` for every table
 /// registered in `public.sync_tables`/`public.append_only_tables` this app has a schema3 Core model
 /// for (`SyncDTO.swift`/`SyncDTO2.swift`) — see `supabase/(C) Sync Protocol.md` §1 for the full
-/// allow-list, and `SyncDTO2.swift`'s own header for the two tables deliberately left unwired
-/// (`practice_goals`/`practice_routines` — no `updatedAt`/`deletedAt` on the Core side yet, and a
-/// hard-delete-vs-tombstone gap in `PracticeStore` itself).
+/// allow-list. Goals and routines preserve their edit clocks and deleted records across devices.
 ///
 /// Most tables push explicitly — a caller invokes `push*` right after the matching `PracticeStore`
 /// mutation, e.g. `AccountView.swift`/`ProfileEditView.swift` for profile/instrument edits. The
@@ -27,6 +25,21 @@ public final class SyncCoordinator {
     private var pathMonitor: NWPathMonitor?
     private var wasSatisfied = true
     private var isSyncing = false
+    @ObservationIgnored private var scheduledSync: Task<Void, Never>?
+    private var requestedDuringSync = false
+    /// Debounce ordinary local edits, including score organization and annotations whose views
+    /// have no explicit push hook. Never cancel an in-flight pull just because it adopted a row.
+    public func scheduleLibrarySync() {
+        guard canSync else { return }
+        if isSyncing { requestedDuringSync = true; return }
+        scheduledSync?.cancel()
+        scheduledSync = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled, let self else { return }
+            if self.isSyncing { self.requestedDuringSync = true; return }
+            await self.syncAll()
+        }
+    }
     private var canSync: Bool {
         guard case .signedIn(let userID, _) = auth.state else { return false }
         guard store.state.profile.ownerID == userID else { engine.blockAccountMismatch(); return false }
@@ -47,14 +60,26 @@ public final class SyncCoordinator {
     /// The spec §4c backend-only profile fields (`ProfileSyncRow`'s extras) this device last pulled,
     /// for `ProfileEditView` to read/edit without clobbering them on the next push.
     public var profileBackendFields: ProfileBackendFields { engine.state.profileBackendFields }
-    public func setProfileBackendFields(_ fields: ProfileBackendFields) { try? engine.updateProfileBackendFields(fields) }
+    public func saveProfile(_ profile: Profile, extras: ProfileBackendFields,
+                            baselineProfile: Profile? = nil, baselineExtras: ProfileBackendFields? = nil,
+                            sourceID: UUID? = nil) throws {
+        guard canSync, case .signedIn(let ownerID, _) = auth.state else { throw SyncError.transport("Sign into this library's account before saving its profile.") }
+        do {
+            try engine.bindAccount(ownerID)
+            try engine.saveProfileEdit(profile, extras: extras, baselineProfile: baselineProfile ?? store.state.profile,
+                                       baselineExtras: baselineExtras ?? engine.state.profileBackendFields,
+                                       currentProfile: store.state.profile, sourceID: sourceID, persistProfile: store.applySyncedProfile)
+            scheduleLibrarySync()
+        } catch { engine.reportFailure(error); throw error }
+    }
 
     /// Wired to `AuthManager.onSignedOut` in `PraeludeApp.init` (ordinary sign-out and a successful
     /// account deletion both end there). Clears this device's outbound queue and pull cursors so
     /// nothing queued for account A is ever sent under account B's session, and so a signed-back-in
     /// account pulls fresh rather than trusting a cursor left over from whoever was signed in last.
     public func resetLocalAccountState() {
-        try? engine.resetLocalAccountState()
+        do { try engine.resetLocalAccountState(preservingProfileFor: store.state.profile.ownerID) }
+        catch { engine.reportFailure(error) }
         pushedAttemptCounts.removeAll(); pushedUndoIDs.removeAll()
         lastKnownSetUpdatedAt.removeAll(); lastKnownSessionUpdatedAt.removeAll()
     }
@@ -72,8 +97,10 @@ public final class SyncCoordinator {
         ("tags", "updated_at"), ("folders", "updated_at"), ("setlists", "updated_at"), ("bookmarks", "updated_at"),
         ("page_edits", "updated_at"), ("score_links", "updated_at"), ("annotations", "updated_at"),
         ("warmup_exercises", "updated_at"), ("audio_recordings", "updated_at"), ("notebook_entries", "updated_at"),
+        ("practice_goals", "updated_at"), ("practice_routines", "updated_at"),
         ("practice_sessions", "updated_at"), ("sets", "updated_at"),
         ("rule_settings", "updated_at"), ("rewards_state", "updated_at"), ("profiles", "updated_at"),
+        ("account_preferences", "updated_at"),
         ("attempts", "date"), ("rule_events", "fired_at"), ("reward_ledger", "date"), ("badges", "earned_at"),
         ("milestone_events", "date"), ("cold_grades", "date"), ("break_point_taps", "date")
     ]
@@ -133,9 +160,16 @@ public final class SyncCoordinator {
     public func syncAll() async {
         guard canSync, !isSyncing, case .signedIn(let userID, _) = auth.state else { return }
         isSyncing = true
-        defer { isSyncing = false }
+        defer {
+            isSyncing = false
+            if requestedDuringSync { requestedDuringSync = false; scheduleLibrarySync() }
+        }
         do {
             try engine.bindAccount(userID)
+            try await engine.initializeProfileIfNeeded(currentProfile: { self.store.state.profile }) { profile in
+                guard self.canSync else { throw SyncError.transport("Account changed during profile sync.") }
+                try self.store.applySyncedProfile(profile)
+            }
             try engine.enqueueLibrarySnapshot(store.state)
             guard await engine.drain(applyPulledRow: applyAdoptedRow, adoptPracticeSnapshot: pullPracticeSnapshot) else { return }
             for entry in Self.pullTables {
@@ -197,7 +231,13 @@ public final class SyncCoordinator {
     public func pushInkStroke(_ stroke: InkStroke) { if let row = InkStrokeSyncRow(stroke) { enqueueUpsert(table: "ink_strokes", encoding: row) } }
     public func pushRuleSettings() { enqueueUpsert(table: "rule_settings", encoding: RuleSettingsSyncRow(store.state.ruleSettings)) }
     public func pushRewardsState() { enqueueUpsert(table: "rewards_state", encoding: RewardsStateSyncRow(store.state.rewardsState)) }
+    public func pushPreferences() { enqueueUpsert(table: "account_preferences", encoding: AccountPreferencesSyncRow(store.preferences)) }
     public func pushProfile() {
+        guard canSync else { return }
+        guard engine.hasHydratedProfile else {
+            do { try engine.stageProfileEdit(store.state.profile) } catch { engine.reportFailure(error) }
+            scheduleLibrarySync(); return
+        }
         enqueueUpsert(table: "profiles", encoding: ProfileSyncRow(store.state.profile, extras: engine.state.profileBackendFields))
     }
     public func pushLastPage(pieceID: UUID, lastPage: Int) { try? engine.enqueueLastPage(pieceID: pieceID, lastPage: lastPage) }
@@ -216,6 +256,8 @@ public final class SyncCoordinator {
     public func pushWarmupExercise(_ exercise: WarmupExercise) { enqueueUpsert(table: "warmup_exercises", encoding: WarmupExerciseSyncRow(exercise)) }
     public func pushWarmupExercises(_ exercises: [WarmupExercise]) { for exercise in exercises { pushWarmupExercise(exercise) } }
     public func pushRecording(_ recording: AudioRecording) { enqueueUpsert(table: "audio_recordings", encoding: AudioRecordingSyncRow(recording)) }
+    public func pushGoal(_ goal: PracticeGoal) { enqueueUpsert(table: "practice_goals", encoding: PracticeGoalSyncRow(goal)) }
+    public func pushRoutine(_ routine: PracticeRoutine) { enqueueUpsert(table: "practice_routines", encoding: PracticeRoutineSyncRow(routine)) }
     public func pushNotebookEntry(_ entry: NotebookEntry) { enqueueUpsert(table: "notebook_entries", encoding: NotebookEntrySyncRow(entry)) }
 
     /// Call from `.onChange(of: store.state.recordings.count)` (`PraeludeApp.swift`) — no existing
@@ -344,7 +386,7 @@ public final class SyncCoordinator {
             // upserts correctly (`applySynced*` throughout `PracticeStore.swift`).
             let dto = try wrapped.decoded(as: PieceSyncRow.self)
             canonicalRow = try SyncJSON(encoding: dto).objectValue
-            guard let value = dto.coreValue else { throw SyncError.invalidRemoteRow(table) }
+            guard let value = dto.coreValue(preserving: store.state.pieces.first { $0.id == dto.id }) else { throw SyncError.invalidRemoteRow(table) }
             try store.applySyncedPiece(value)
         case "passages":
             let dto = try wrapped.decoded(as: PassageSyncRow.self)
@@ -422,6 +464,20 @@ public final class SyncCoordinator {
             if shouldApply(value.updatedAt, currentUpdatedAt: store.state.notebookEntries.first { $0.id == value.id }?.updatedAt) {
                 try store.applySyncedNotebookEntry(value)
             }
+        case "practice_goals":
+            let dto = try wrapped.decoded(as: PracticeGoalSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            let value = dto.coreValue
+            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.goals.first { $0.id == value.id }?.updatedAt) {
+                try store.applySyncedGoal(value)
+            }
+        case "practice_routines":
+            let dto = try wrapped.decoded(as: PracticeRoutineSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            let value = dto.coreValue
+            if shouldApply(value.updatedAt, currentUpdatedAt: store.state.routines.first { $0.id == value.id }?.updatedAt) {
+                try store.applySyncedRoutine(value)
+            }
         case "practice_sessions":
             let dto = try wrapped.decoded(as: PracticeSessionSyncRow.self)
             canonicalRow = try SyncJSON(encoding: dto).objectValue
@@ -453,6 +509,13 @@ public final class SyncCoordinator {
             canonicalRow = try SyncJSON(encoding: dto).objectValue
             let value = dto.coreValue
             if !engine.hasSnapshot(table: table) || shouldApply(value.updatedAt, currentUpdatedAt: store.state.rewardsState.updatedAt) { try store.applySyncedRewardsState(value) }
+        case "account_preferences":
+            let dto = try wrapped.decoded(as: AccountPreferencesSyncRow.self)
+            canonicalRow = try SyncJSON(encoding: dto).objectValue
+            let value = dto.coreValue
+            if !engine.hasSnapshot(table: table) || shouldApply(value.updatedAt, currentUpdatedAt: store.state.preferences.updatedAt) {
+                try store.applySyncedPreferences(value)
+            }
         case "profiles":
             let dto = try wrapped.decoded(as: ProfileSyncRow.self)
             canonicalRow = try SyncJSON(encoding: dto).objectValue
@@ -491,9 +554,10 @@ public final class SyncCoordinator {
             throw SyncError.invalidRemoteRow(table)
         }
         // Normalize optional values through the DTO before comparing an outbound snapshot.
-        // `owner_id` is not part of the client DTO and SQL nulls differ from omitted Codable keys.
+        // `owner_id` is not part of the client DTO. Keep explicit nulls for fields such as a
+        // cleared default tempo; SyncEngine also normalizes known nullable Codable omissions.
         guard let canonicalRow else { throw SyncError.invalidRemoteRow(table) }
-        var normalized = canonicalRow.filter { !$0.value.isNull }
+        var normalized = canonicalRow
         normalized.removeValue(forKey: "owner_id")
         try engine.acknowledgePulledRow(table: table, row: normalized)
     }

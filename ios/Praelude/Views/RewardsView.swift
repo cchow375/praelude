@@ -15,9 +15,9 @@ struct RewardsView: View {
     var body: some View {
         List {
             Section { header }.listRowBackground(Color.clear).listRowSeparator(.hidden)
-            studioSection
-            badgesSection
             milestonesSection
+            badgesSection
+            studioSection
         }
         .scrollContentBackground(.hidden)
         .background(PraeludeColor.paper)
@@ -26,7 +26,7 @@ struct RewardsView: View {
     }
 
     private var header: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 10) {
             VStack(spacing: 3) {
                 Text(rankProgress.rankName).praeludeDisplay(32)
                 Text("Division \(rankProgress.division)").font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
@@ -35,17 +35,17 @@ struct RewardsView: View {
                 .tint(PraeludeColor.ink).frame(maxWidth: 280)
                 .accessibilityLabel("\(rankProgress.divisionXP) of \(rankProgress.divisionXPRequired) experience toward the next division")
             HStack(spacing: 30) {
-                statTile(glyph: .coin, value: "\(totalCoins)", label: "Coins")
+                statTile(glyph: .rank, value: "\(totalXP)", label: "Practice XP")
                 statTile(glyph: .streak, value: "\(streakDays)", label: "Day streak")
-                statTile(glyph: .rank, value: "\(rankProgress.rank)", label: "Rank")
             }
+            Text("Your rank grows with recorded practice.").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
             if store.state.rewardsState.streakFreezesAvailable > 0 {
                 let count = store.state.rewardsState.streakFreezesAvailable
                 Text("\(count) streak freeze\(count == 1 ? "" : "s") available").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
+        .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
     }
 
@@ -59,22 +59,21 @@ struct RewardsView: View {
 
     private var studioSection: some View {
         Section {
-            ForEach(StudioSlot.allCases, id: \.self) { slot in
-                if let item = StudioCatalog.bestUnlocked(lifetimeCoins: totalCoins, rank: rankProgress.rank)[slot] {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(slot.title).font(.caption.weight(.medium)).foregroundStyle(PraeludeColor.inkSecondary)
-                        Text(item.name).font(.headline)
-                        Text(item.description).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
-                        if let next = StudioCatalog.nextLocked(in: slot, lifetimeCoins: totalCoins, rank: rankProgress.rank) {
-                            Text(nextHint(next)).font(.caption).foregroundStyle(PraeludeColor.inkTertiary)
-                        }
-                    }.padding(.vertical, 4)
+            DisclosureGroup("Studio · \(totalCoins) coins") {
+                ForEach(StudioSlot.allCases, id: \.self) { slot in
+                    if let item = StudioCatalog.bestUnlocked(lifetimeCoins: totalCoins, rank: rankProgress.rank)[slot] {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(slot.title).font(.caption.weight(.medium)).foregroundStyle(PraeludeColor.inkSecondary)
+                            Text(item.name).font(.headline)
+                            Text(item.description).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
+                            if let next = StudioCatalog.nextLocked(in: slot, lifetimeCoins: totalCoins, rank: rankProgress.rank) {
+                                Text(nextHint(next)).font(.caption).foregroundStyle(PraeludeColor.inkTertiary)
+                            }
+                        }.padding(.vertical, 4)
+                    }
                 }
+                Text("Furnishings unlock as your lifetime coins and rank grow.").font(.caption).foregroundStyle(.secondary)
             }
-        } header: {
-            Text("Studio")
-        } footer: {
-            Text("Furnishings unlock automatically as your lifetime coins and rank grow — nothing to buy or lose.")
         }
     }
 
@@ -85,23 +84,25 @@ struct RewardsView: View {
     }
 
     private var badgesSection: some View {
-        Section("Badges") {
-            ForEach(RewardsEngine.badgeCatalog, id: \.key) { definition in
-                let earned = store.state.badges.first { $0.key == definition.key }
-                HStack(spacing: 12) {
-                    PraeludeIcon(glyph: .badge, size: 22).foregroundStyle(earned != nil ? PraeludeColor.ink : PraeludeColor.inkTertiary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(definition.title).font(.headline).foregroundStyle(earned != nil ? PraeludeColor.ink : PraeludeColor.inkTertiary)
-                        Text(definition.detail).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
+        Section {
+            DisclosureGroup("Badges · \(store.state.badges.count) earned") {
+                ForEach(RewardsEngine.badgeCatalog, id: \.key) { definition in
+                    let earned = store.state.badges.first { $0.key == definition.key }
+                    HStack(spacing: 12) {
+                        PraeludeIcon(glyph: .badge, size: 22).foregroundStyle(earned != nil ? PraeludeColor.ink : PraeludeColor.inkTertiary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(definition.title).font(.headline).foregroundStyle(earned != nil ? PraeludeColor.ink : PraeludeColor.inkTertiary)
+                            Text(definition.detail).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
+                        }
+                        Spacer()
+                        if let earned {
+                            Text(earned.earnedAt, format: .dateTime.month(.abbreviated).day()).font(.caption).foregroundStyle(PraeludeColor.inkTertiary)
+                        }
                     }
-                    Spacer()
-                    if let earned {
-                        Text(earned.earnedAt, format: .dateTime.month(.abbreviated).day()).font(.caption).foregroundStyle(PraeludeColor.inkTertiary)
-                    }
+                    .padding(.vertical, 3)
+                    .opacity(earned != nil ? 1 : 0.55)
+                    .accessibilityElement(children: .combine)
                 }
-                .padding(.vertical, 3)
-                .opacity(earned != nil ? 1 : 0.55)
-                .accessibilityElement(children: .combine)
             }
         }
     }

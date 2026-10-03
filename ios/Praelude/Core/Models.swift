@@ -24,6 +24,10 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
     public var customCoverRef: String?
     /// §11: upcoming/past performance dates for this piece.
     public var performanceDates: [Date]
+    /// Schema5 score organization; source page coordinates remain unchanged. Synced with the owner-scoped piece row.
+    public var scoreSections: [ScoreSection]
+    public var measureAnchors: [ScoreMeasureAnchor]
+    public var defaultPracticeBPM: Double?
     /// Sync metadata (§4d) for everything except `lastPage`, which turning a page changes far more
     /// often than any of the above; it gets its own clock so ordinary reading never races a
     /// deliberate metadata edit made offline on another device (see "(C) Schema3.md").
@@ -34,18 +38,20 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
                 pageCount: Int = 0, lastPage: Int = 1, status: PieceStatus = .active,
                 notes: String = "", createdAt: Date = Date(), instrumentID: UUID? = nil,
                 tagIDs: [UUID] = [], folderIDs: [UUID] = [], difficulty: Int? = nil, customCoverRef: String? = nil,
-                performanceDates: [Date] = [], updatedAt: Date = Date(), lastPageUpdatedAt: Date = Date(),
+                performanceDates: [Date] = [], scoreSections: [ScoreSection] = [], measureAnchors: [ScoreMeasureAnchor] = [],
+                defaultPracticeBPM: Double? = nil, updatedAt: Date = Date(), lastPageUpdatedAt: Date = Date(),
                 deletedAt: Date? = nil) {
         self.id = id; self.title = title; self.composer = composer; self.pdfFileName = pdfFileName
         self.pageCount = pageCount; self.lastPage = lastPage; self.status = status
         self.notes = notes; self.createdAt = createdAt
         self.instrumentID = instrumentID; self.tagIDs = tagIDs; self.folderIDs = folderIDs
         self.difficulty = difficulty; self.customCoverRef = customCoverRef; self.performanceDates = performanceDates
+        self.scoreSections = scoreSections; self.measureAnchors = measureAnchors; self.defaultPracticeBPM = defaultPracticeBPM
         self.updatedAt = updatedAt; self.lastPageUpdatedAt = lastPageUpdatedAt; self.deletedAt = deletedAt
     }
     private enum CodingKeys: String, CodingKey {
         case id, title, composer, pdfFileName, pageCount, lastPage, status, notes, createdAt, instrumentID,
-             tagIDs, folderIDs, difficulty, customCoverRef, performanceDates, updatedAt, lastPageUpdatedAt, deletedAt
+             tagIDs, folderIDs, difficulty, customCoverRef, performanceDates, scoreSections, measureAnchors, defaultPracticeBPM, updatedAt, lastPageUpdatedAt, deletedAt
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -64,6 +70,9 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
         difficulty = try values.decodeIfPresent(Int.self, forKey: .difficulty)
         customCoverRef = try values.decodeIfPresent(String.self, forKey: .customCoverRef)
         performanceDates = try values.decodeIfPresent([Date].self, forKey: .performanceDates) ?? []
+        scoreSections = try values.decodeIfPresent([ScoreSection].self, forKey: .scoreSections) ?? []
+        measureAnchors = try values.decodeIfPresent([ScoreMeasureAnchor].self, forKey: .measureAnchors) ?? []
+        defaultPracticeBPM = try values.decodeIfPresent(Double.self, forKey: .defaultPracticeBPM)
         // Absent on schema1/2 data; SchemaMigration backfills the sentinel to the migration timestamp.
         updatedAt = try values.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .praeludeEpochSentinel
         lastPageUpdatedAt = try values.decodeIfPresent(Date.self, forKey: .lastPageUpdatedAt) ?? .praeludeEpochSentinel
@@ -302,8 +311,23 @@ public struct PracticeGoal: Identifiable, Codable, Equatable, Sendable {
     public var pieceID: UUID?
     public var dueDate: Date?
     public var isComplete: Bool
-    public init(id: UUID = UUID(), title: String, pieceID: UUID? = nil, dueDate: Date? = nil, isComplete: Bool = false) {
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var deletedAt: Date?
+    public init(id: UUID = UUID(), title: String, pieceID: UUID? = nil, dueDate: Date? = nil, isComplete: Bool = false,
+                createdAt: Date = Date(), updatedAt: Date = Date(), deletedAt: Date? = nil) {
         self.id = id; self.title = title; self.pieceID = pieceID; self.dueDate = dueDate; self.isComplete = isComplete
+        self.createdAt = createdAt; self.updatedAt = updatedAt; self.deletedAt = deletedAt
+    }
+    private enum CodingKeys: String, CodingKey { case id, title, pieceID, dueDate, isComplete, createdAt, updatedAt, deletedAt }
+    public init(from decoder: Decoder) throws {
+        let v = try decoder.container(keyedBy: CodingKeys.self)
+        id = try v.decode(UUID.self, forKey: .id); title = try v.decode(String.self, forKey: .title)
+        pieceID = try v.decodeIfPresent(UUID.self, forKey: .pieceID); dueDate = try v.decodeIfPresent(Date.self, forKey: .dueDate)
+        isComplete = try v.decode(Bool.self, forKey: .isComplete)
+        createdAt = try v.decodeIfPresent(Date.self, forKey: .createdAt) ?? .praeludeEpochSentinel
+        updatedAt = try v.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .praeludeEpochSentinel
+        deletedAt = try v.decodeIfPresent(Date.self, forKey: .deletedAt)
     }
 }
 
@@ -311,7 +335,21 @@ public struct PracticeRoutine: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var name: String
     public var stages: [VariantStage]
-    public init(id: UUID = UUID(), name: String, stages: [VariantStage]) { self.id = id; self.name = name; self.stages = stages }
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var deletedAt: Date?
+    public init(id: UUID = UUID(), name: String, stages: [VariantStage], createdAt: Date = Date(), updatedAt: Date = Date(), deletedAt: Date? = nil) {
+        self.id = id; self.name = name; self.stages = stages; self.createdAt = createdAt; self.updatedAt = updatedAt; self.deletedAt = deletedAt
+    }
+    private enum CodingKeys: String, CodingKey { case id, name, stages, createdAt, updatedAt, deletedAt }
+    public init(from decoder: Decoder) throws {
+        let v = try decoder.container(keyedBy: CodingKeys.self)
+        id = try v.decode(UUID.self, forKey: .id); name = try v.decode(String.self, forKey: .name)
+        stages = try v.decode([VariantStage].self, forKey: .stages)
+        createdAt = try v.decodeIfPresent(Date.self, forKey: .createdAt) ?? .praeludeEpochSentinel
+        updatedAt = try v.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .praeludeEpochSentinel
+        deletedAt = try v.decodeIfPresent(Date.self, forKey: .deletedAt)
+    }
 }
 
 public struct Preferences: Codable, Equatable, Sendable {
@@ -319,12 +357,31 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var metronomeHaptics: Bool = false
     public var voiceEnabled: Bool = false
     public var theme: String = "system"
+    public var showPassageBoxes: Bool = true
+    public var compactScoreControls: Bool = true
+    public var autoTurnPassageAfterVerdict: Bool = false
+    public var updatedAt: Date = .distantPast
     public init() {}
+    private enum CodingKeys: String, CodingKey {
+        case keepScreenAwake, metronomeHaptics, voiceEnabled, theme, showPassageBoxes,
+             compactScoreControls, autoTurnPassageAfterVerdict, updatedAt
+    }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        keepScreenAwake = try values.decodeIfPresent(Bool.self, forKey: .keepScreenAwake) ?? true
+        metronomeHaptics = try values.decodeIfPresent(Bool.self, forKey: .metronomeHaptics) ?? false
+        voiceEnabled = try values.decodeIfPresent(Bool.self, forKey: .voiceEnabled) ?? false
+        theme = try values.decodeIfPresent(String.self, forKey: .theme) ?? "system"
+        showPassageBoxes = try values.decodeIfPresent(Bool.self, forKey: .showPassageBoxes) ?? true
+        compactScoreControls = try values.decodeIfPresent(Bool.self, forKey: .compactScoreControls) ?? true
+        autoTurnPassageAfterVerdict = try values.decodeIfPresent(Bool.self, forKey: .autoTurnPassageAfterVerdict) ?? false
+        updatedAt = try values.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
+    }
 }
 
 public struct LibraryState: Codable, Equatable, Sendable {
     public var desktopImports: [DesktopImportReceipt] = []
-    public static let currentSchemaVersion = 4
+    public static let currentSchemaVersion = 5
     public var schemaVersion: Int = Self.currentSchemaVersion
     public var revision: Int = 0
     public var pieces: [Piece] = []

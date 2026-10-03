@@ -13,7 +13,7 @@ import Observation
     @ObservationIgnored private let writeData: (Data, URL) throws -> Void
     @ObservationIgnored private let preserveFile: (URL, URL) throws -> Void
     public var fileURL: URL { directory.appendingPathComponent("library.json") }
-    public var pieces: [Piece] { state.pieces }
+    public var pieces: [Piece] { state.pieces.filter { $0.deletedAt == nil } }
     public var sessions: [PracticeSession] { state.sessions }
     public var activeSet: ActiveSet? { state.activeSet }
     public var preferences: Preferences { state.preferences }
@@ -116,14 +116,61 @@ import Observation
     }
     /// A piece with practice evidence stays available in Resting; its ledger is never deleted.
     public func deletePiece(_ id: UUID) throws {
+        let date = now()
         try transaction { next in
             guard next.activeSet?.configuration.pieceID != id else { throw PracticeError.conflict("End this piece’s practice set before removing it.") }
             guard !next.history.contains(where: { $0.configuration.pieceID == id }), !next.sessions.contains(where: { $0.pieceID == id }) else {
                 throw PracticeError.conflict("This piece has practice history. Move it to Resting to preserve your record.")
             }
-            next.pieces.removeAll { $0.id == id }; next.passages.removeAll { $0.pieceID == id }
-            next.goals.removeAll { $0.pieceID == id }
-            next.inkStrokes.removeAll { $0.pieceID == id }
+            guard let index = next.pieces.firstIndex(where: { $0.id == id }) else { return }
+            next.pieces[index].deletedAt = date; next.pieces[index].updatedAt = date
+            // Parent rows remain available to FK-constrained sync, even when created and deleted
+            // offline before the first push. Keep source files and annotation data for backups.
+            for index in next.passages.indices where next.passages[index].pieceID == id {
+                next.passages[index].archived = true; next.passages[index].deletedAt = date; next.passages[index].updatedAt = date
+            }
+            for index in next.goals.indices where next.goals[index].pieceID == id {
+                next.goals[index].deletedAt = date; next.goals[index].updatedAt = date
+            }
+            for index in next.inkStrokes.indices where next.inkStrokes[index].pieceID == id {
+                next.inkStrokes[index].deletedAt = date; next.inkStrokes[index].updatedAt = date
+            }
+            for index in next.bookmarks.indices where next.bookmarks[index].pieceID == id {
+                next.bookmarks[index].deletedAt = date; next.bookmarks[index].updatedAt = date
+            }
+            for index in next.pageEdits.indices where next.pageEdits[index].pieceID == id {
+                next.pageEdits[index].deletedAt = date; next.pageEdits[index].updatedAt = date
+            }
+            for index in next.scoreLinks.indices where next.scoreLinks[index].pieceID == id {
+                next.scoreLinks[index].deletedAt = date; next.scoreLinks[index].updatedAt = date
+            }
+            for index in next.textAnnotations.indices where next.textAnnotations[index].pieceID == id {
+                next.textAnnotations[index].deletedAt = date; next.textAnnotations[index].updatedAt = date
+            }
+            for index in next.stampAnnotations.indices where next.stampAnnotations[index].pieceID == id {
+                next.stampAnnotations[index].deletedAt = date; next.stampAnnotations[index].updatedAt = date
+            }
+        }
+    }
+    public func setDefaultPracticeTempo(_ bpm: Double?, for pieceID: UUID) throws {
+        let date = now()
+        try transaction { next in
+            guard let index = next.pieces.firstIndex(where: { $0.id == pieceID }) else { throw PracticeError.invalid("Piece not found.") }
+            next.pieces[index].defaultPracticeBPM = bpm; next.pieces[index].updatedAt = date
+        }
+    }
+    public func setScoreSections(_ sections: [ScoreSection], for pieceID: UUID) throws {
+        let date = now()
+        try transaction { next in
+            guard let index = next.pieces.firstIndex(where: { $0.id == pieceID }) else { throw PracticeError.invalid("Piece not found.") }
+            next.pieces[index].scoreSections = sections; next.pieces[index].updatedAt = date
+        }
+    }
+    public func setMeasureAnchors(_ anchors: [ScoreMeasureAnchor], for pieceID: UUID) throws {
+        let date = now()
+        try transaction { next in
+            guard let index = next.pieces.firstIndex(where: { $0.id == pieceID }) else { throw PracticeError.invalid("Piece not found.") }
+            next.pieces[index].measureAnchors = anchors; next.pieces[index].updatedAt = date
         }
     }
     public func updateLastPage(pieceID: UUID, page: Int) throws {
@@ -829,20 +876,45 @@ import Observation
         }
     }
     public func saveGoal(_ goal: PracticeGoal) throws {
+        var value = goal; value.updatedAt = now(); try applySyncedGoal(value)
+    }
+    public func applySyncedGoal(_ goal: PracticeGoal) throws {
         try transaction { next in
             if let index = next.goals.firstIndex(where: { $0.id == goal.id }) { next.goals[index] = goal }
             else { next.goals.append(goal) }
         }
     }
-    public func deleteGoal(_ id: UUID) throws { try transaction { $0.goals.removeAll { $0.id == id } } }
+    public func deleteGoal(_ id: UUID) throws {
+        let date = now()
+        try transaction { next in
+            guard let index = next.goals.firstIndex(where: { $0.id == id }) else { return }
+            next.goals[index].deletedAt = date; next.goals[index].updatedAt = date
+        }
+    }
     public func saveRoutine(_ routine: PracticeRoutine) throws {
+        var value = routine; value.updatedAt = now(); try applySyncedRoutine(value)
+    }
+    public func applySyncedRoutine(_ routine: PracticeRoutine) throws {
         try transaction { next in
             if let index = next.routines.firstIndex(where: { $0.id == routine.id }) { next.routines[index] = routine }
             else { next.routines.append(routine) }
         }
     }
-    public func deleteRoutine(_ id: UUID) throws { try transaction { $0.routines.removeAll { $0.id == id } } }
-    public func updatePreferences(_ preferences: Preferences) throws { try transaction { $0.preferences = preferences } }
+    public func deleteRoutine(_ id: UUID) throws {
+        let date = now()
+        try transaction { next in
+            guard let index = next.routines.firstIndex(where: { $0.id == id }) else { return }
+            next.routines[index].deletedAt = date; next.routines[index].updatedAt = date
+        }
+    }
+    public func updatePreferences(_ preferences: Preferences) throws {
+        var updated = preferences; updated.updatedAt = now()
+        try transaction { $0.preferences = updated }
+    }
+    public func applySyncedPreferences(_ preferences: Preferences) throws {
+        guard preferences.updatedAt > state.preferences.updatedAt else { return }
+        try transaction { $0.preferences = preferences }
+    }
 
     // MARK: - §6 Instruments
     public func saveInstrument(_ instrument: Instrument) throws {
@@ -1175,6 +1247,7 @@ import Observation
         do {
             try change(&next)
             Self.projectSessions(&next)
+            guard next != state else { errorMessage = nil; return }
             next.revision = state.revision + 1
             try Self.validate(next)
             let data = try Self.encoder().encode(next)
@@ -1236,6 +1309,21 @@ import Observation
         for piece in state.pieces {
             try require(text(piece.title) && text(piece.composer, blank: true) && text(piece.notes, maximum: 100_000, blank: true) && date(piece.createdAt), "A piece contains invalid text or dates.")
             try require((0...10000).contains(piece.pageCount) && (1...effectivePageBound(piece)).contains(piece.lastPage), "A score contains an invalid page number.")
+            try require(piece.defaultPracticeBPM.map { $0.isFinite && (20...300).contains($0) } != false, "The default practice tempo must be between 20 and 300 bpm.")
+            try require(piece.scoreSections.count <= 1000 && unique(piece.scoreSections.map(\.id)), "The score has too many or duplicate sections.")
+            let ordered = piece.scoreSections.sorted { $0.startPage < $1.startPage }
+            for (index, section) in ordered.enumerated() {
+                try require(text(section.title, maximum: 200) && section.startPage >= 1 && section.endPage >= section.startPage && section.endPage <= piece.pageCount,
+                            "A movement has an invalid title or source page range.")
+                if index > 0 { try require(ordered[index - 1].endPage < section.startPage, "Movement page ranges overlap. Choose separate source pages.") }
+            }
+            try require(piece.measureAnchors.count <= 10000 && unique(piece.measureAnchors.map(\.id)), "The score has too many or duplicate measure anchors.")
+            for anchor in piece.measureAnchors {
+                try require(anchor.page >= 1 && anchor.page <= piece.pageCount && anchor.region.isValid && anchor.startMeasure >= 1 && anchor.endMeasure >= anchor.startMeasure && anchor.endMeasure <= 100000,
+                            "A measure anchor has an invalid page, region or measure range.")
+            }
+            try require(state.schemaVersion >= 5 || (piece.scoreSections.isEmpty && piece.measureAnchors.isEmpty && piece.defaultPracticeBPM == nil),
+                        "This score metadata requires a newer library format.")
             if let name = piece.pdfFileName {
                 try require(!name.isEmpty && name.count <= 255 && !name.contains("/") && !name.contains("\\") && !name.contains("..") && name.lowercased().hasSuffix(".pdf") && !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }), "A score filename is not a local PDF filename.")
             }
@@ -1324,12 +1412,15 @@ import Observation
         var projected = state; projectSessions(&projected)
         try require(projected.sessions == state.sessions, "Session totals do not match the saved practice ledger.")
         for goal in state.goals {
-            try require(text(goal.title) && (goal.pieceID == nil || pieceIDs.contains(goal.pieceID!)) && goal.dueDate.map(date) != false, "A goal contains invalid text or references.")
+            try require(text(goal.title) && (goal.deletedAt != nil || goal.pieceID == nil || pieceIDs.contains(goal.pieceID!)) && goal.dueDate.map(date) != false && date(goal.createdAt) && date(goal.updatedAt) && goal.deletedAt.map(date) != false, "A goal contains invalid text or references.")
         }
         for routine in state.routines {
-            try require(text(routine.name) && !routine.stages.isEmpty && routine.stages.count <= 24 && unique(routine.stages.map(\.id)) && routine.stages.allSatisfy { text($0.name, maximum: 100) && (1...100).contains($0.targetCount) }, "A routine contains invalid variants.")
+            try require(date(routine.createdAt) && date(routine.updatedAt) && routine.deletedAt.map(date) != false && text(routine.name) && !routine.stages.isEmpty && routine.stages.count <= 24 && unique(routine.stages.map(\.id)) && routine.stages.allSatisfy { text($0.name, maximum: 100) && (1...100).contains($0.targetCount) }, "A routine contains invalid variants.")
         }
-        try require(["system", "light", "dark"].contains(state.preferences.theme), "The appearance preference is invalid.")
+        try require(state.schemaVersion >= 5 || (state.preferences.updatedAt == .distantPast && state.preferences.showPassageBoxes && state.preferences.compactScoreControls && !state.preferences.autoTurnPassageAfterVerdict
+                    && state.goals.allSatisfy { $0.deletedAt == nil } && state.routines.allSatisfy { $0.deletedAt == nil }),
+                    "These preferences and deleted records require a newer library format.")
+        try require((state.preferences.updatedAt == .distantPast || date(state.preferences.updatedAt)) && ["system", "light", "dark"].contains(state.preferences.theme), "The appearance preference is invalid.")
 
         // MARK: New in schema3 (§6-§15). Each collection gets unique ids and sane bounds; append-only
         // logs (coldGrades, breakPointTaps, ruleEvents, rewardLedger, badges, milestoneEvents) skip

@@ -30,7 +30,7 @@ final class Schema4PreservationTests: XCTestCase {
         let upgraded = PracticeStore(directory: store.directory)
         XCTAssertFalse(upgraded.isReadOnly)
         XCTAssertEqual(try Data(contentsOf: XCTUnwrap(upgraded.preservedOriginalURL)), original)
-        var expected = try decode(original); expected.schemaVersion = 4; expected.revision += 1
+        var expected = try decode(original); expected.schemaVersion = LibraryState.currentSchemaVersion; expected.revision += 1
         XCTAssertEqual(upgraded.state, expected)
         XCTAssertEqual(PracticeStore(directory: store.directory).state, expected)
     }
@@ -56,14 +56,14 @@ final class Schema4PreservationTests: XCTestCase {
         try source.adjustActiveTempo(65)
         let data = try source.backupData()
         let decoded = try PracticeStore.decodeBackup(data)
-        XCTAssertEqual(decoded.schemaVersion, 4)
+        XCTAssertEqual(decoded.schemaVersion, LibraryState.currentSchemaVersion)
         XCTAssertEqual(decoded.activeSet?.configuration.tempoChanges, source.activeSet?.configuration.tempoChanges)
         XCTAssertEqual(SchemaMigration.migrateToSchema3(decoded, at: Date()), decoded)
         let destination = try fixture(); try destination.endSet()
         try destination.restoreBackup(decoded)
         XCTAssertEqual(destination.activeSet?.currentBPM, 65)
         XCTAssertEqual(destination.activeSet?.streak, 1)
-        XCTAssertEqual(destination.state.schemaVersion, 4)
+        XCTAssertEqual(destination.state.schemaVersion, LibraryState.currentSchemaVersion)
         XCTAssertEqual(PracticeStore(directory: destination.directory).state, destination.state)
     }
     @MainActor func testOlderSchemaCannotCarryNewTempoSemantics() async throws {

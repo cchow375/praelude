@@ -71,6 +71,12 @@ public struct SyncEngineState: Codable, Equatable, Sendable {
     public var cursors: [String: Date] = [:]
     public var profileBackendFields = ProfileBackendFields()
     public var accountOwnerID: UUID?
+    /// The account profile must be read before a fresh or upgraded queue publishes defaults.
+    public var profileHydratedOwnerID: UUID?
+    public var profileKnownOwnerID: UUID?
+    public var pendingProfileCoreFields: [String: SyncJSON]?
+    public var pendingProfileBackendFields: [String: SyncJSON]?
+    public var pendingProfileIntentSources: [String: String]?
     /// Payloads already durably enqueued or received. Optional for older state-file compatibility.
     public var outboundSnapshots: [String: [String: SyncJSON]]?
     public init() { outboundSnapshots = [:] }
@@ -100,6 +106,7 @@ public final class SyncQueue {
     public func enqueue(contentsOf values: [SyncQueueEntry]) throws { try replace(entries + values) }
     public func removeFirst(_ count: Int = 1) throws { guard !entries.isEmpty else { return }; try replace(Array(entries.dropFirst(count))) }
     public func removeAll() throws { try replace([]) }
+    func removeUpserts(table: String) throws { try replace(entries.filter { $0.kind != .upsert || $0.table != table }) }
     private func replace(_ next: [SyncQueueEntry]) throws {
         try writeData(JSONEncoder().encode(next), fileURL)
         entries = next
@@ -187,7 +194,9 @@ public final class SyncEngine {
         guard !storageIsUnavailable else { throw SyncError.transport("Sync storage is unavailable.") }
         var snapshots = state.outboundSnapshots ?? [:]
         var pending: [SyncQueueEntry] = []
-        for entry in entries {
+        for candidate in entries {
+            var entry = candidate
+            if entry.kind == .upsert { entry.row = Self.explicitNullableColumns(table: entry.table, row: entry.row) }
             let key = Self.snapshotKey(entry)
             let payload = Self.snapshotPayload(entry)
             guard snapshots[key] != payload else { continue }
@@ -202,7 +211,7 @@ public final class SyncEngine {
         catch { state.outboundSnapshots = old; throw error }
     }
     public func acknowledgePulledRow(table: String, row: [String: SyncJSON]) throws {
-        let entry = SyncQueueEntry.upsert(table: table, row: row)
+        let entry = SyncQueueEntry.upsert(table: table, row: Self.explicitNullableColumns(table: table, row: row))
         // Event signatures use the append namespace, including for receiving remote attempts.
         let kind: SyncOpKind = Self.appendTables.contains(table) ? .append : .upsert
         var received = entry; received.kind = kind
@@ -226,6 +235,148 @@ public final class SyncEngine {
         state.accountOwnerID = userID
         try persistState()
     }
+    public var hasHydratedProfile: Bool {
+        state.accountOwnerID != nil && state.profileHydratedOwnerID == state.accountOwnerID
+    }
+    /// Hydrate account identity/privacy before any pending profile write can reach the server.
+    /// Save the resolved local profile first; a failed read/save retains all queued guest practice.
+    public func initializeProfileIfNeeded(currentProfile: () -> Profile, applyProfile: (Profile) throws -> Void) async throws {
+        guard !storageIsUnavailable else { throw SyncError.transport("Sync storage is unavailable.") }
+        guard !hasHydratedProfile else { return }
+        guard let ownerID = state.accountOwnerID else { throw SyncError.transport("Bind an account before reading its profile.") }
+        let generation = accountGeneration
+        let rows = try await transport.fetch(table: "profiles", field: "updated_at", updatedSince: nil)
+        guard generation == accountGeneration, state.accountOwnerID == ownerID else { throw SyncError.transport("Account changed during profile sync.") }
+        let local = currentProfile()
+        guard local.ownerID == ownerID else { throw SyncError.transport("The local profile belongs to another account.") }
+        let remote = try rows.first.map { row -> ProfileSyncRow in
+            if let id = row["id"]?.stringValue, UUID(uuidString: id) != ownerID { throw SyncError.invalidRemoteRow("profiles") }
+            return try SyncJSON.object(row).decoded(as: ProfileSyncRow.self)
+        }
+        var extras = remote?.backendFields ?? ProfileBackendFields()
+        if let pending = state.pendingProfileBackendFields, !pending.isEmpty {
+            var object = try Self.backendObject(extras)
+            object.merge(pending) { _, edited in edited }
+            extras = try SyncJSON.object(object).decoded(as: ProfileBackendFields.self)
+        }
+        let defaults = try ProfileSyncRow.coreObject(Profile())
+        var explicit: [String: SyncJSON] = [:]
+        for entry in queue.entries where entry.kind == .upsert && entry.table == "profiles" {
+            guard let at = entry.row["updated_at"]?.stringValue.flatMap(SyncCoding.parseDate), at > (remote?.updated_at ?? .distantPast) else { continue }
+            for key in ProfileSyncRow.coreEditableKeys where entry.row[key] != defaults[key] && entry.row[key] != nil { explicit[key] = entry.row[key] }
+        }
+        explicit.merge(state.pendingProfileCoreFields ?? [:]) { _, latest in latest }
+        var resolved: Profile
+        if let remote, (state.cursors["profiles"] != nil || state.profileKnownOwnerID == ownerID), local.updatedAt > remote.updated_at {
+            // An older build already read this account: retain its ordinary offline LWW edits,
+            // including intentional clears, rather than applying first-login default rules.
+            resolved = try ProfileSyncRow(local, extras: extras).applyingCoreFields(explicit, ownerID: ownerID)
+            if resolved != local { resolved.updatedAt = max(now(), local.updatedAt) }
+            extras = state.profileBackendFields
+        } else {
+            resolved = try remote?.initialCoreProfile(local: local, explicitFields: explicit, at: now()) ?? local
+        }
+        if resolved.username.isEmpty {
+            // Matches the signup trigger if its freshly provisioned row is not yet visible.
+            resolved.username = "user_" + String(ownerID.uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(12))
+        }
+        if state.pendingProfileBackendFields?.isEmpty == false {
+            resolved.updatedAt = max(now(), (remote?.updated_at ?? local.updatedAt).addingTimeInterval(0.001))
+        }
+        try applyProfile(resolved)
+        let previous = state
+        // Keep explicit intent durably recoverable before retiring an older unsafe profile row.
+        // A failure after queue replacement must retry hydration, never lose the staged edit.
+        state.profileBackendFields = extras
+        state.profileKnownOwnerID = ownerID
+        state.pendingProfileCoreFields = explicit
+        state.profileHydratedOwnerID = nil
+        do { try persistState() } catch { state = previous; throw error }
+        try queue.removeUpserts(table: "profiles")
+        let staged = state
+        state.pendingProfileCoreFields = nil
+        state.pendingProfileBackendFields = nil
+        // Keep the bounded field-to-editor ownership map after a receipt. An editor whose local
+        // save failed can still retry/revert while this hydration has adopted its attempted edit.
+        state.profileHydratedOwnerID = ownerID
+        state.outboundSnapshots = state.outboundSnapshots?.filter { !$0.key.hasPrefix("upsert#profiles#") }
+        if let remote, let canonical = try SyncJSON(encoding: remote).objectValue { try acknowledgePulledRow(table: "profiles", row: canonical) }
+        do { try persistState() } catch { state = staged; throw error }
+    }
+    public func stageProfileEdit(_ profile: Profile) throws {
+        guard !hasHydratedProfile else { return }
+        let row = try ProfileSyncRow.coreObject(profile)
+        let defaults = try ProfileSyncRow.coreObject(Profile())
+        var pending: [String: SyncJSON] = [:]
+        for key in ProfileSyncRow.coreEditableKeys {
+            if row[key] != defaults[key], let value = row[key] { pending[key] = value }
+            else if state.pendingProfileCoreFields?[key] != nil || queue.entries.contains(where: {
+                $0.kind == .upsert && $0.table == "profiles" && $0.row[key] != nil && $0.row[key] != defaults[key]
+            }) {
+                // A staged edit reverted/cleared during hydration is still an explicit choice.
+                pending[key] = row[key] ?? .null
+            }
+        }
+        let previous = state.pendingProfileCoreFields
+        state.pendingProfileCoreFields = pending
+        do { try persistState() } catch { state.pendingProfileCoreFields = previous; throw error }
+    }
+    private static func backendObject(_ fields: ProfileBackendFields) throws -> [String: SyncJSON] {
+        var object = try SyncJSON(encoding: fields).objectValue ?? [:]
+        if object["ageBracket"] == nil { object["ageBracket"] = .null }
+        return object
+    }
+    public func stageProfileBackendFields(_ fields: ProfileBackendFields) throws {
+        let previous = state
+        if !hasHydratedProfile {
+            let old = try Self.backendObject(state.profileBackendFields)
+            let new = try Self.backendObject(fields)
+            var pending = state.pendingProfileBackendFields ?? [:]
+            for (key, value) in new where old[key] != value { pending[key] = value }
+            state.pendingProfileBackendFields = pending
+        }
+        state.profileBackendFields = fields
+        do { try persistState() } catch { state = previous; throw error }
+    }
+    /// The editor's core and backend changes share one durable intent write before its local
+    /// commit. A staging failure throws before changing the library; a later local-save failure
+    /// leaves recoverable intent and keeps the editor open for retry.
+    public func saveProfileEdit(_ draft: Profile, extras: ProfileBackendFields,
+                                baselineProfile: Profile, baselineExtras: ProfileBackendFields,
+                                currentProfile: Profile, sourceID: UUID? = nil,
+                                persistProfile: (Profile) throws -> Void) throws {
+        guard let ownerID = state.accountOwnerID, currentProfile.ownerID == ownerID, draft.ownerID == ownerID else {
+            throw SyncError.transport("Sign into this library's account before saving its profile.")
+        }
+        let row = try ProfileSyncRow.coreObject(draft), baseline = try ProfileSyncRow.coreObject(baselineProfile)
+        var coreChanges: [String: SyncJSON] = [:]
+        for key in ProfileSyncRow.coreEditableKeys where row[key] != baseline[key] { coreChanges[key] = row[key] }
+        let fields = try Self.backendObject(extras), oldFields = try Self.backendObject(baselineExtras)
+        var backendChanges = fields.filter { oldFields[$0.key] != $0.value }
+        let source = sourceID?.uuidString ?? "direct"
+        // Retrying this editor after a local-save failure must replace its previous choices,
+        // including a reversion to baseline. Other editors/age setup retain their own intent.
+        for key in ProfileSyncRow.coreEditableKeys where state.pendingProfileIntentSources?["core/" + key] == source {
+            coreChanges[key] = row[key] ?? .null
+        }
+        for (key, value) in fields where state.pendingProfileIntentSources?["backend/" + key] == source { backendChanges[key] = value }
+        var mergedBackend = try Self.backendObject(state.profileBackendFields)
+        mergedBackend.merge(backendChanges) { _, edit in edit }
+        let previous = state
+        if hasHydratedProfile { state.profileKnownOwnerID = ownerID }
+        state.pendingProfileCoreFields = (state.pendingProfileCoreFields ?? [:]).merging(coreChanges) { _, edit in edit }
+        state.pendingProfileBackendFields = (state.pendingProfileBackendFields ?? [:]).merging(backendChanges) { _, edit in edit }
+        var sources = state.pendingProfileIntentSources ?? [:]
+        coreChanges.keys.forEach { sources["core/" + $0] = source }
+        backendChanges.keys.forEach { sources["backend/" + $0] = source }
+        state.pendingProfileIntentSources = sources
+        state.profileBackendFields = try SyncJSON.object(mergedBackend).decoded(as: ProfileBackendFields.self)
+        state.profileHydratedOwnerID = nil
+        do { try persistState() } catch { state = previous; throw error }
+        var committed = try ProfileSyncRow(currentProfile, extras: state.profileBackendFields).applyingCoreFields(coreChanges, ownerID: ownerID)
+        committed.updatedAt = now()
+        try persistProfile(committed)
+    }
     public func reportFailure(_ error: Error) {
         if firstFailureAt == nil { firstFailureAt = now() }
         status = now().timeIntervalSince(firstFailureAt!) >= stuckThreshold
@@ -236,6 +387,37 @@ public final class SyncEngine {
         status = .stuck("This device's library belongs to another account. Sign back into that account to sync it safely.")
     }
     private static let appendTables: Set<String> = ["attempts", "rule_events", "reward_ledger", "badges", "milestone_events", "cold_grades", "break_point_taps"]
+    /// Codable omits nil properties, but sync_upsert preserves absent columns for older clients.
+    /// For every nullable column this client owns, nil therefore needs an explicit JSON null to
+    /// clear a previously saved value. Newly optional piece fields keep their DTO presence flag:
+    /// absent organization/default-tempo keys mean an older payload and must stay absent.
+    private static let nullableColumns: [String: [String]] = [
+        "instruments": ["transposition_semitones", "transposition_label", "deleted_at"],
+        "pieces": ["pdf_file_name", "instrument_id", "difficulty", "custom_cover_ref", "deleted_at"],
+        "passages": ["start_measure", "end_measure", "color", "parent_passage_id", "schedule_due_date", "parked_until", "performance_tempo", "deleted_at"],
+        "ink_strokes": ["fingerprint", "deleted_at"],
+        "rewards_state": ["last_practice_date"],
+        "profiles": ["photo_path", "age_bracket"],
+        "tags": ["deleted_at"],
+        "folders": ["parent_folder_id", "deleted_at"],
+        "setlists": ["deleted_at"],
+        "bookmarks": ["deleted_at"],
+        "page_edits": ["source_page", "crop_rect", "deleted_at"],
+        "score_links": ["source_region", "target_region", "deleted_at"],
+        "annotations": ["text", "stamp_kind", "stamp_label", "deleted_at"],
+        "warmup_exercises": ["mode", "instrument_family", "custom_from_passage_id", "last_used_at", "deleted_at"],
+        "audio_recordings": ["passage_id", "set_id", "deleted_at"],
+        "notebook_entries": ["piece_id", "deleted_at"],
+        "practice_goals": ["piece_id", "due_date", "deleted_at"],
+        "practice_routines": ["deleted_at"],
+        "practice_sessions": ["ended_at", "deleted_at"],
+        "sets": ["passage_id", "passage_snapshot", "ended_at", "last_checkpoint", "deleted_at"]
+    ]
+    private static func explicitNullableColumns(table: String, row: [String: SyncJSON]) -> [String: SyncJSON] {
+        var value = row
+        for column in nullableColumns[table] ?? [] where value[column] == nil { value[column] = .null }
+        return value
+    }
     private static func snapshotKey(_ entry: SyncQueueEntry) -> String {
         switch entry.kind {
         case .upsert, .append: return "\(entry.kind.rawValue)#\(entry.table)#\(entry.row["id"]?.stringValue ?? entry.row["owner_id"]?.stringValue ?? "singleton")"
@@ -299,6 +481,8 @@ public final class SyncEngine {
         for value in library.warmupExercises { try upsert("warmup_exercises", WarmupExerciseSyncRow(value)) }
         for value in library.recordings { try upsert("audio_recordings", AudioRecordingSyncRow(value)) }
         for value in library.notebookEntries { try upsert("notebook_entries", NotebookEntrySyncRow(value)) }
+        for value in library.goals { try upsert("practice_goals", PracticeGoalSyncRow(value)) }
+        for value in library.routines { try upsert("practice_routines", PracticeRoutineSyncRow(value)) }
         for value in library.sessions { try upsert("practice_sessions", PracticeSessionSyncRow(value, pushedAt: now())) }
         let sets = library.history + (library.activeSet.map { [$0] } ?? [])
         for value in sets { try upsert("sets", SetSyncRow(value, pushedAt: now())) }
@@ -311,6 +495,10 @@ public final class SyncEngine {
         let rewardsState = RewardsStateSyncRow(library.rewardsState)
         if try hasSnapshot(table: "rewards_state") || differsFromDefault(rewardsState, RewardsStateSyncRow(RewardsState())) {
             try upsert("rewards_state", rewardsState)
+        }
+        let preferences = AccountPreferencesSyncRow(library.preferences)
+        if try hasSnapshot(table: "account_preferences") || differsFromDefault(preferences, AccountPreferencesSyncRow(Preferences())) {
+            try upsert("account_preferences", preferences)
         }
         if library.profile.ownerID != nil {
             let profile = ProfileSyncRow(library.profile, extras: state.profileBackendFields)
@@ -348,10 +536,29 @@ public final class SyncEngine {
     /// cursor from account A can never suppress rows account B legitimately needs on its first pull,
     /// and a queued write from A can never reach B. Practice library content itself is untouched —
     /// this is sync bookkeeping, not library data (spec: never lose user data).
-    public func resetLocalAccountState() throws {
+    public func resetLocalAccountState(preservingProfileFor ownerID: UUID? = nil) throws {
+        let previous = state
+        var reset = SyncEngineState()
+        if let ownerID, previous.accountOwnerID == ownerID {
+            // Local profile edits belong to the still-owned library. Re-login can recover them;
+            // retaining this binding also rejects replay under a different account.
+            reset.accountOwnerID = ownerID
+            reset.profileKnownOwnerID = previous.profileKnownOwnerID ?? previous.profileHydratedOwnerID
+                ?? (previous.cursors["profiles"] == nil ? nil : ownerID)
+            reset.profileBackendFields = previous.profileBackendFields
+            reset.pendingProfileCoreFields = previous.pendingProfileCoreFields
+            reset.pendingProfileBackendFields = previous.pendingProfileBackendFields
+            reset.pendingProfileIntentSources = previous.pendingProfileIntentSources
+        }
+        var protectedReset = reset
+        // Until queue deletion is durable, retain its old binding even on account deletion.
+        // A failed clear must never make old account A writes appear ownerless for account B.
+        protectedReset.accountOwnerID = protectedReset.accountOwnerID ?? previous.accountOwnerID
+        state = protectedReset
+        do { try persistState() } catch { state = previous; throw error }
         try discardPendingWrites()
-        state = SyncEngineState()
-        try persistState()
+        state = reset
+        do { try persistState() } catch { state = protectedReset; throw error }
     }
 
     // MARK: Draining the outbound queue
@@ -408,7 +615,7 @@ public final class SyncEngine {
 
     private func perform(_ entry: SyncQueueEntry) async throws -> SyncRPCResult {
         switch entry.kind {
-        case .upsert: return try await transport.upsert(table: entry.table, row: entry.row)
+        case .upsert: return try await transport.upsert(table: entry.table, row: Self.explicitNullableColumns(table: entry.table, row: entry.row))
         case .append: return try await transport.append(table: entry.table, row: entry.row)
         case .updateLastPage:
             guard let pieceID = entry.pieceID, let lastPage = entry.lastPage else {

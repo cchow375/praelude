@@ -11,18 +11,18 @@ struct PracticeGoalsView: View {
     @State private var errorMessage: String?
 
     private var openGoals: [PracticeGoal] {
-        store.state.goals.filter { !$0.isComplete }.sorted {
+        store.state.goals.filter { $0.deletedAt == nil && !$0.isComplete }.sorted {
             ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture)
         }
     }
 
-    private var completedGoals: [PracticeGoal] { store.state.goals.filter(\.isComplete) }
+    private var completedGoals: [PracticeGoal] { store.state.goals.filter { $0.deletedAt == nil && $0.isComplete } }
 
     var body: some View {
         NavigationStack {
             List {
                 if let errorMessage { ErrorMessage(message: errorMessage) }
-                if store.state.goals.isEmpty {
+                if !store.state.goals.contains(where: { $0.deletedAt == nil }) {
                     PraeludeEmptyState(title: "No goals yet", symbol: "checklist",
                                       message: "Add an optional goal for a piece or for your practice.",
                                       actionTitle: "Add a goal", action: add)

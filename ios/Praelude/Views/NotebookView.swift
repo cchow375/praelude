@@ -29,8 +29,7 @@ struct NotebookView: View {
         List {
             if entries.isEmpty {
                 PraeludeEmptyState(title: filter?.title ?? "No notes yet", symbol: "note.text",
-                                  message: "Keep a daily note per piece, write down what a lesson covered, or build a passage list to prepare for one.",
-                                  actionTitle: "New note", action: { sheetEntry = NotebookEntry(kind: filter ?? .daily) })
+                                  message: "Tap New note to keep a practice reminder, lesson note or lesson-prep passage list.")
                     .listRowBackground(Color.clear).listRowSeparator(.hidden)
             } else {
                 ForEach(entries) { entry in
@@ -59,11 +58,12 @@ struct NotebookView: View {
                 .accessibilityLabel("Filter notes")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    ForEach([NotebookEntryKind.daily, .lessonNote, .lessonPrep], id: \.self) { kind in
-                        Button(kind.title, systemImage: kind.symbol) { sheetEntry = NotebookEntry(kind: kind) }
-                    }
-                } label: { Image(systemName: "plus").frame(width: 44, height: 44) }
+                Button {
+                    sheetEntry = NotebookEntry(kind: filter ?? .daily)
+                } label: {
+                    Label("New note", systemImage: "square.and.pencil")
+                        .font(.subheadline.weight(.medium)).frame(minHeight: 44)
+                }
                 .accessibilityLabel("New note").accessibilityIdentifier("newNotebookEntry")
             }
         }

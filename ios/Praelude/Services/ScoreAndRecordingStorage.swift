@@ -43,6 +43,13 @@ public final class ScoreAndRecordingStorage {
                 if !(await uploadScorePDF(pieceID: piece.id, fileName: fileName, localURL: url)) { pendingCount += 1 }
             } else if !(await downloadScorePDFIfNeeded(pieceID: piece.id, fileName: fileName, to: url)) { pendingCount += 1 }
         }
+        for piece in library.pieces where piece.deletedAt == nil {
+            guard let fileName = piece.customCoverRef else { continue }
+            let url = directory.appendingPathComponent("Covers").appendingPathComponent(fileName)
+            if FileManager.default.fileExists(atPath: url.path) {
+                if !(await uploadCover(pieceID: piece.id, fileName: fileName, localURL: url)) { pendingCount += 1 }
+            } else if !(await downloadCoverIfNeeded(pieceID: piece.id, fileName: fileName, to: url)) { pendingCount += 1 }
+        }
         for recording in library.recordings where recording.deletedAt == nil {
             let url = directory.appendingPathComponent("Recordings").appendingPathComponent(recording.fileName)
             if FileManager.default.fileExists(atPath: url.path) {
@@ -75,7 +82,7 @@ public final class ScoreAndRecordingStorage {
     }
     private func upload(bucket: String, recordID: UUID, fileName: String, localURL: URL, contentType: String?) async -> Bool {
         guard let ownerID else { return false }
-        guard Self.isSafeFileName(fileName) else { lastError = "A score or recording has an invalid file name."; return false }
+        guard Self.isSafeFileName(fileName) else { lastError = "A library file has an invalid file name."; return false }
         let path = Self.objectPath(ownerID: ownerID, recordID: recordID, fileName: fileName)
         let key = receiptKey(bucket: bucket, path: path)
         guard !inFlight.contains(key) else { return false }
@@ -89,12 +96,12 @@ public final class ScoreAndRecordingStorage {
             guard self.ownerID == ownerID else { return false }
             try saveReceipt(bucket: bucket, path: path, localURL: localURL, fingerprint: digest)
             return true
-        } catch { lastError = "A score or recording transfer will be retried. \(error.localizedDescription)"; return false }
+        } catch { lastError = "A library file transfer will be retried. \(error.localizedDescription)"; return false }
     }
     private func download(bucket: String, recordID: UUID, fileName: String, localURL: URL) async -> Bool {
         if FileManager.default.fileExists(atPath: localURL.path) { return true }
         guard let ownerID else { return false }
-        guard Self.isSafeFileName(fileName) else { lastError = "A score or recording has an invalid file name."; return false }
+        guard Self.isSafeFileName(fileName) else { lastError = "A library file has an invalid file name."; return false }
         let path = Self.objectPath(ownerID: ownerID, recordID: recordID, fileName: fileName)
         do {
             let storage = try await services.storage()
@@ -104,7 +111,7 @@ public final class ScoreAndRecordingStorage {
             try data.write(to: localURL, options: [.atomic, .completeFileProtectionUnlessOpen])
             try saveReceipt(bucket: bucket, path: path, localURL: localURL, fingerprint: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
             return true
-        } catch { lastError = "A score or recording transfer will be retried. \(error.localizedDescription)"; return false }
+        } catch { lastError = "A library file transfer will be retried. \(error.localizedDescription)"; return false }
     }
 
     public init(services: SupabaseServices, auth: AuthManager) { self.services = services; self.auth = auth }
@@ -123,7 +130,7 @@ public final class ScoreAndRecordingStorage {
     }
 
     static func objectPath(ownerID: UUID, recordID: UUID, fileName: String) -> String {
-        "\(ownerID.uuidString)/\(recordID.uuidString)/\(fileName)"
+        "\(ownerID.uuidString.lowercased())/\(recordID.uuidString.lowercased())/\(fileName)"
     }
 
     // MARK: Scores (`scores` bucket)
@@ -141,6 +148,17 @@ public final class ScoreAndRecordingStorage {
     @discardableResult
     public func downloadScorePDFIfNeeded(pieceID: UUID, fileName: String, to localURL: URL) async -> Bool {
         await download(bucket: "scores", recordID: pieceID, fileName: fileName, localURL: localURL)
+    }
+
+    // MARK: Covers (`covers` bucket, owner-private and immutable file names)
+    @discardableResult
+    public func uploadCover(pieceID: UUID, fileName: String, localURL: URL) async -> Bool {
+        let type = localURL.pathExtension.lowercased() == "png" ? "image/png" : "image/jpeg"
+        return await upload(bucket: "covers", recordID: pieceID, fileName: fileName, localURL: localURL, contentType: type)
+    }
+    @discardableResult
+    public func downloadCoverIfNeeded(pieceID: UUID, fileName: String, to localURL: URL) async -> Bool {
+        await download(bucket: "covers", recordID: pieceID, fileName: fileName, localURL: localURL)
     }
 
     // MARK: Recordings (`recordings` bucket)

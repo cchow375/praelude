@@ -32,5 +32,5 @@ extension PracticeStore {
 
     /// Every piece except the internal warmups attachment point — what "Pieces", "Today" and the
     /// sidebar's "On your music stand" list should always browse instead of `pieces` directly.
-    public var realPieces: [Piece] { state.pieces.filter { $0.id != WarmupsPiece.id } }
+    public var realPieces: [Piece] { state.pieces.filter { $0.id != WarmupsPiece.id && $0.deletedAt == nil } }
 }

@@ -18,6 +18,9 @@ struct ProfileEditView: View {
 
     @State private var profile = Profile()
     @State private var extras = ProfileBackendFields()
+    @State private var baselineProfile = Profile()
+    @State private var baselineExtras = ProfileBackendFields()
+    @State private var profileEditID = UUID()
     @State private var hasLoaded = false
     @State private var errorMessage: String?
     /// The performance count as loaded, so `save()` can tell a genuinely new entry (spec §5a
@@ -56,6 +59,7 @@ struct ProfileEditView: View {
             hasLoaded = true
             profile = store.state.profile
             extras = syncCoordinator.profileBackendFields
+            baselineProfile = profile; baselineExtras = extras
             loadedPerformanceCount = extras.upcomingPerformances.count
         }
         .task(id: profile.photoRef) { await loadAvatarPreview() }
@@ -337,9 +341,8 @@ struct ProfileEditView: View {
 
     private func save() {
         do {
-            try store.updateProfile(profile)
-            syncCoordinator.setProfileBackendFields(extras)
-            syncCoordinator.pushProfile()
+            try syncCoordinator.saveProfile(profile, extras: extras, baselineProfile: baselineProfile,
+                                            baselineExtras: baselineExtras, sourceID: profileEditID)
             // Spec §5a activity feed: "performance date set" — only a genuinely new entry, not an
             // edit to an existing date/title/location, matches that event's own name.
             if extras.upcomingPerformances.count > loadedPerformanceCount, let newest = extras.upcomingPerformances.last {

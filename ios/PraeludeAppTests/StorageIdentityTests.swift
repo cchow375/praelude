@@ -1,0 +1,18 @@
+import Foundation
+import XCTest
+@testable import Praelude
+
+@MainActor final class StorageIdentityTests: XCTestCase {
+    func testOwnerFolderMatchesPostgresCanonicalUUID() {
+        let owner = UUID(uuidString: "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF")!
+        let record = UUID(uuidString: "FEDCBAFE-DCBA-4FED-8CBA-FEDCBAFEDCBA")!
+        let path = ScoreAndRecordingStorage.objectPath(ownerID: owner, recordID: record, fileName: "Score.pdf")
+        XCTAssertEqual(path, "abcdefab-cdef-4abc-8def-abcdefabcdef/fedcbafe-dcba-4fed-8cba-fedcbafedcba/Score.pdf")
+    }
+    func testUntrustedRemoteFileNamesCannotEscapeOwnedFolder() {
+        for name in ["../library.json", "/private/file.pdf", "a/b.pdf", "a\\b.pdf", ".", "..", ""] {
+            XCTAssertFalse(ScoreAndRecordingStorage.isSafeFileName(name), name)
+        }
+        XCTAssertTrue(ScoreAndRecordingStorage.isSafeFileName("score.pdf"))
+    }
+}

@@ -277,10 +277,10 @@ struct VariantEditorView: View {
             } header: { Text("Try a technique") } footer: {
                 Text("Choose what fits this passage. A choice adds an editable chain using the clean target below. It does not change tempo, hands or the score automatically.")
             }
-            if !store.state.routines.isEmpty {
+            if store.state.routines.contains(where: { $0.deletedAt == nil }) {
                 Section("Saved routines") {
                     Menu("Apply a routine", systemImage: "list.bullet.rectangle") {
-                        ForEach(store.state.routines) { routine in
+                        ForEach(store.state.routines.filter { $0.deletedAt == nil }) { routine in
                             Button(routine.name) {
                                 stages = routine.stages.map { VariantStage(name: $0.name, targetCount: $0.targetCount) }
                                 savedMessage = nil

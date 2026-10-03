@@ -8,6 +8,10 @@ final class ZoomableScorePDFView: PDFView {
     private var fittedSize: CGSize = .zero
     private var fittedScale: CGFloat = 0
     private var needsScaleRange = true
+    var prefersWidthFit = false {
+        didSet { if prefersWidthFit != oldValue { needsInitialWidthFit = prefersWidthFit; refreshScaleRange() } }
+    }
+    private var needsInitialWidthFit = false
 
     #if DEBUG
     override var accessibilityValue: String? {
@@ -22,7 +26,8 @@ final class ZoomableScorePDFView: PDFView {
             func inkCounts(_ root: UIView) -> [String] {
                 if let overlay = root as? ScorePageOverlay {
                     let canvas = overlay.canvas
-                    return ["inkPage\(overlay.pageNumber)=\(canvas.drawing.strokes.count),canvasBounds=\(canvas.bounds),canvasFrame=\(canvas.frame),contentSize=\(canvas.contentSize),contentOffset=\(canvas.contentOffset),canvasZoom=\(canvas.zoomScale),drawingBounds=\(canvas.drawing.bounds)"]
+                    let stampWidth = overlay.markup.stampDraft?.page == overlay.pageNumber ? overlay.markup.stampDraft?.position.width ?? 0 : 0
+                    return ["stampPreviewWidth=\(stampWidth),stampCountPage\(overlay.pageNumber)=\(overlay.displayedStamps.filter { $0.page == overlay.pageNumber }.count),inkPage\(overlay.pageNumber)=\(canvas.drawing.strokes.count),canvasBounds=\(canvas.bounds),canvasFrame=\(canvas.frame),contentSize=\(canvas.contentSize),contentOffset=\(canvas.contentOffset),canvasZoom=\(canvas.zoomScale),drawingBounds=\(canvas.drawing.bounds)"]
                 }
                 return root.subviews.flatMap(inkCounts)
             }
@@ -50,7 +55,13 @@ final class ZoomableScorePDFView: PDFView {
         autoScales = false
         minScaleFactor = fit
         maxScaleFactor = fit * 6
-        scaleFactor = fit * zoom
+        if needsInitialWidthFit, let currentPage {
+            let pageBounds = currentPage.bounds(for: .cropBox)
+            if pageBounds.width > 0 {
+                scaleFactor = min(maxScaleFactor, max(fit, (bounds.width - 8) / pageBounds.width))
+            } else { scaleFactor = fit * zoom }
+            needsInitialWidthFit = false
+        } else { scaleFactor = fit * zoom }
     }
 }
 
@@ -96,7 +107,7 @@ struct PagedScoreView: UIViewRepresentable {
     var drawingData: (Int) -> Data? = { _ in nil }
     var saveDrawing: (Int, Data, Data?) -> Bool = { _, _, _ in false }
     var onRegionSelected: (UUID) -> Void = { _ in }
-    var onPlaceStamp: (Int, NormalizedRect) -> Void = { _, _ in }
+    var onPlaceStamp: (Int, NormalizedRect) -> Bool = { _, _ in true }
     var onPlaceTextBox: (Int, NormalizedRect) -> Void = { _, _ in }
     var onPlaceBreakPoint: (Int, NormalizedRect) -> Void = { _, _ in }
     var onEditTextBox: (TextBoxAnnotation) -> Void = { _ in }
@@ -146,6 +157,7 @@ struct PagedScoreView: UIViewRepresentable {
         view.displayMode = twoPages ? .twoUp : .singlePage
         view.displaysAsBook = scoreDisplaysAsBook(twoPages: twoPages, page: page)
         view.autoScales = true
+        view.prefersWidthFit = focusPageTurns && !twoPages
         view.isInMarkupMode = true
         view.pageOverlayViewProvider = context.coordinator
         context.coordinator.pdfView = view
@@ -167,6 +179,7 @@ struct PagedScoreView: UIViewRepresentable {
         return view
     }
     func updateUIView(_ view: ZoomableScorePDFView, context: Context) {
+        view.prefersWidthFit = focusPageTurns && !twoPages
         let sourceChanged = context.coordinator.loadedURL != url || context.coordinator.parent.markup !== markup
             || context.coordinator.loadedPageEdits != pageEdits
         guard context.coordinator.adoptParent(self) else { return }
@@ -341,6 +354,7 @@ struct PagedScoreView: UIViewRepresentable {
             if let overlay = overlays[number] { return overlay }
             let overlay = ScorePageOverlay(page: number, markup: parent.markup)
             overlay.inkReadOnly = !parent.allowsInk
+            overlay.pageImageForMagnifier = { size in page.thumbnail(of: size, for: .cropBox) }
             // §7 page tools: this display position's own crop, if any (see "(C) Schema3.md" and
             // `ScorePageOverlay.activeCrop`) — the exact same crop `ScorePageComposer.renderedPage`
             // just used to build this very `page`'s `.cropBox`, so the overlay and the PDF content it
@@ -358,11 +372,11 @@ struct PagedScoreView: UIViewRepresentable {
                     dirtyPages.insert(number)
                 } catch {
                     parent.markup.errorMessage = "Unsaved ink on page \(number) could not be reopened. It remains in memory."
-                    overlay.inkReadOnly = true
+                    overlay.contentReadOnly = true
                 }
             } else if let data = parent.drawingData(number) {
                 do { overlay.canvas.drawing = try decodeDrawing(data); committed[number] = data }
-                catch { parent.markup.errorMessage = "The saved ink on page \(number) could not be read. It has been preserved."; overlay.inkReadOnly = true }
+                catch { parent.markup.errorMessage = "The saved ink on page \(number) could not be read. It has been preserved."; overlay.contentReadOnly = true }
             }
             loading = false
             if !dirtyPages.contains(number) { canvasBaseline[number] = encodedInk(overlay.canvas) }
@@ -379,6 +393,7 @@ struct PagedScoreView: UIViewRepresentable {
                 if let scrollView = view as? UIScrollView {
                     scrollView.panGestureRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
                     scrollView.panGestureRecognizer.require(toFail: overlay.selectionPan)
+                    scrollView.panGestureRecognizer.require(toFail: overlay.stampPan)
                     // Let PencilKit claim ink before a parent PDF scroll cancels the stroke.
                     // Pencil-only policy still rejects ordinary reading fingers; pinch is unchanged.
                     scrollView.panGestureRecognizer.require(toFail: overlay.canvas.drawingGestureRecognizer)
@@ -419,7 +434,7 @@ struct PagedScoreView: UIViewRepresentable {
                     overlay.canvas.drawing = try decodeDrawing(data)
                     committed[number] = data
                     canvasBaseline[number] = encodedInk(overlay.canvas)
-                } catch { parent.markup.errorMessage = "Saved ink could not be reopened. The original is preserved."; overlay.inkReadOnly = true }
+                } catch { parent.markup.errorMessage = "Saved ink could not be reopened. The original is preserved."; overlay.contentReadOnly = true }
                 loading = false
             }
             if parent.markup.tool != overlay.lastAssignedTool, let tool = parent.markup.tool.pkTool {
@@ -433,10 +448,25 @@ struct PagedScoreView: UIViewRepresentable {
             // never hears about. `becomeFirstResponder` is kept for an inking tool regardless, since
             // that alone (not picker visibility) is what keeps Apple Pencil's own double-tap/squeeze
             // shortcuts live on this canvas.
-            toolPicker.setVisible(false, forFirstResponder: overlay.canvas)
-            if parent.markup.mode == .writing, number == parent.page, parent.markup.tool.kind.isInkingTool, !overlay.canvas.isFirstResponder {
-                overlay.canvas.becomeFirstResponder()
+            // Responder transitions can trigger PencilKit layout/observation synchronously. Never
+            // do them inside SwiftUI's updateUIView, particularly when the active practice dock
+            // changes size to the annotation toolbar. Schedule only one transition per overlay.
+            let wantsResponder = parent.markup.mode == .writing && number == sourcePage(forDisplayIndex: parent.page)
+                && parent.markup.tool.kind.isInkingTool && !overlay.inkReadOnly && !overlay.contentReadOnly
+            if wantsResponder && !overlay.canvas.isFirstResponder && !overlay.responderScheduled {
+                overlay.responderScheduled = true
+                Task { @MainActor [weak self, weak overlay] in
+                    await Task.yield()
+                    guard let self, let overlay else { return }
+                    overlay.responderScheduled = false
+                    guard self.overlays[number] === overlay, overlay.window != nil,
+                          self.parent.markup.mode == .writing, self.sourcePage(forDisplayIndex: self.parent.page) == number,
+                          self.parent.markup.tool.kind.isInkingTool, !overlay.inkReadOnly, !overlay.contentReadOnly else { return }
+                    self.toolPicker.setVisible(false, forFirstResponder: overlay.canvas)
+                    if !overlay.canvas.isFirstResponder { overlay.canvas.becomeFirstResponder() }
+                }
             }
+
         }
         /// Regenerates the read-only merged snapshot of every visible-but-inactive ink layer, only
         /// when that page's relevant content actually changed (a cheap content signature, not a full
@@ -604,6 +634,13 @@ struct PagedScoreView: UIViewRepresentable {
             guard let view = recognizer.view as? ZoomableScorePDFView,
                   view.scaleFactor <= view.minScaleFactor * 1.05 else { return }
             parent.onTurnPage(recognizer.direction == .left ? 1 : -1)
+        }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let view = pdfView else { return true }
+            let point = touch.location(in: view)
+            guard let page = view.page(for: point, nearest: false), let document = view.document,
+                  let number = sourcePage(forDisplayIndex: document.index(for: page) + 1), let overlay = overlays[number] else { return true }
+            return !overlay.containsNote(at: overlay.convert(point, from: view))
         }
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool { parent.markup.mode == .reading }
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }

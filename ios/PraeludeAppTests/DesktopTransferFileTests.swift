@@ -67,7 +67,7 @@ final class DesktopTransferFileTests: XCTestCase {
         let source = store(), destination = store(), (transfer, data) = try transfer()
         try DesktopLibraryFiles(store: source).importTransfer(transfer, data: data)
         let backup = try NativeLibraryFiles(store: source).makeBackup().data
-        XCTAssertEqual((try JSONSerialization.jsonObject(with: backup) as? [String: Any])?["version"] as? Int, 2)
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: backup) as? [String: Any])?["version"] as? Int, 4)
         try NativeLibraryFiles(store: destination).restoreBackup(backup)
         let receipt = try XCTUnwrap(destination.state.desktopImports.first)
         XCTAssertEqual(try DesktopLibraryFiles(store: destination).transfer(receipt).database, transfer.database)
@@ -89,7 +89,7 @@ final class DesktopTransferFileTests: XCTestCase {
         try audio.write(to: path.appendingPathComponent(name))
         try source.saveRecording(AudioRecording(fileName: name, duration: 2, byteSize: audio.count))
         let backup = try NativeLibraryFiles(store: source).makeBackup().data
-        XCTAssertEqual((try JSONSerialization.jsonObject(with: backup) as? [String: Any])?["version"] as? Int, 2)
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: backup) as? [String: Any])?["version"] as? Int, 4)
         try NativeLibraryFiles(store: destination).restoreBackup(backup)
         let restored = try XCTUnwrap(destination.state.recordings.first)
         XCTAssertEqual(try Data(contentsOf: destination.directory.appendingPathComponent("Recordings").appendingPathComponent(restored.fileName)), audio)
@@ -106,20 +106,20 @@ final class DesktopTransferFileTests: XCTestCase {
         try source.record(.clean); try source.record(.clean)
         try source.adjustActiveTempo(65)
         let activeBackup = try NativeLibraryFiles(store: source).makeBackup().data
-        XCTAssertEqual((try JSONSerialization.jsonObject(with: activeBackup) as? [String: Any])?["version"] as? Int, 3)
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: activeBackup) as? [String: Any])?["version"] as? Int, 4)
         try NativeLibraryFiles(store: destination).restoreBackup(activeBackup)
         XCTAssertEqual(destination.activeSet?.currentBPM, 65)
         XCTAssertEqual(destination.activeSet?.configuration.startBPM, 60)
         XCTAssertEqual(destination.activeSet?.configuration.tempoChanges, source.activeSet?.configuration.tempoChanges)
         try source.endSet()
         let historyBackup = try NativeLibraryFiles(store: source).makeBackup().data
-        XCTAssertEqual((try JSONSerialization.jsonObject(with: historyBackup) as? [String: Any])?["version"] as? Int, 3)
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: historyBackup) as? [String: Any])?["version"] as? Int, 4)
         let restoredHistory = store()
         try NativeLibraryFiles(store: restoredHistory).restoreBackup(historyBackup)
         XCTAssertEqual(restoredHistory.state.history[0].configuration.tempoChanges,
                        source.state.history[0].configuration.tempoChanges)
-        XCTAssertEqual(restoredHistory.state.schemaVersion, 4)
+        XCTAssertEqual(restoredHistory.state.schemaVersion, LibraryState.currentSchemaVersion)
         let plainBackup = try NativeLibraryFiles(store: store()).makeBackup().data
-        XCTAssertEqual((try JSONSerialization.jsonObject(with: plainBackup) as? [String: Any])?["version"] as? Int, 1)
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: plainBackup) as? [String: Any])?["version"] as? Int, 4)
     }
 }

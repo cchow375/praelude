@@ -106,7 +106,9 @@ final class MobileMarkupUITests: XCTestCase {
         app.terminate(); openScore(app, reset: false)
         settle(app.buttons["passages"], app: app)
         app.buttons["passages"].press(forDuration: 0.15)
-        XCTAssertTrue(app.staticTexts["3 boxes · 2 pages"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Page 1 / Page 2"].waitForExistence(timeout: 8), app.debugDescription)
+        // The saved shortcut still represents both original source pages after relaunch.
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "savedPassage_")).count, 2)
         shot("12-saved-visual-passage")
     }
     @MainActor func testFingerInkUndoAndRelaunch() {
@@ -236,6 +238,54 @@ final class MobileMarkupUITests: XCTestCase {
             shot("19-accessible-ink-" + name)
         }
         app.buttons["finishScoreMarkup"].press(forDuration: 0.15)
+    }
+
+    @MainActor func testStampSliderGrowsAndShrinksPreviewBeforeOneConfirmedPlacement() {
+        let app = XCUIApplication(); openScore(app)
+        app.buttons["annotateScore"].press(forDuration: 0.15)
+        let stampTool = app.buttons["annotationTool_stamp"]
+        let tools = app.scrollViews["annotationTools"]
+        for _ in 0..<5 {
+            if stampTool.exists, stampTool.isHittable { break }
+            tools.swipeLeft()
+        }
+        XCTAssertTrue(stampTool.waitForExistence(timeout: 5), app.debugDescription)
+        stampTool.press(forDuration: 0.15)
+        let fingering = app.buttons["stamp_fingering_1"]
+        XCTAssertTrue(fingering.waitForExistence(timeout: 5), app.debugDescription)
+        fingering.press(forDuration: 0.15)
+        let pdf = app.otherElements["scorePDF"]
+        let page = pdf.textViews.firstMatch
+        page.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.55)).tap()
+        XCTAssertTrue(app.buttons["confirmStamp"].waitForExistence(timeout: 5), app.debugDescription)
+        let slider = app.sliders["stampSize"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 5), app.debugDescription)
+        settle(slider, app: app)
+        func previewWidth() -> Double {
+            let text = pdf.value as? String ?? ""
+            let suffix = text.components(separatedBy: "stampPreviewWidth=").last ?? ""
+            return Double(suffix.components(separatedBy: ",").first ?? "") ?? 0
+        }
+        slider.adjust(toNormalizedSliderPosition: 0.15)
+        let smallReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let width = previewWidth(); return width > 0 && width < 0.05
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [smallReady], timeout: 5), .completed, app.debugDescription)
+        let small = previewWidth()
+        slider.adjust(toNormalizedSliderPosition: 0.85)
+        let grew = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in previewWidth() > small * 1.5 }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [grew], timeout: 5), .completed, "Dragging right must grow the stamp, not scroll the toolbar.\n\(app.debugDescription)")
+        let large = previewWidth()
+        shot("build5-stamp-enlarged-preview")
+        slider.adjust(toNormalizedSliderPosition: 0.10)
+        let shrank = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in previewWidth() > 0 && previewWidth() < large * 0.6 }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [shrank], timeout: 5), .completed, app.debugDescription)
+        XCTAssertTrue((pdf.value as? String ?? "").contains("stampCountPage1=0"), "Sizing a preview must not save it early")
+        app.buttons["confirmStamp"].press(forDuration: 0.15)
+        let placed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "stampCountPage1=1"), object: pdf)
+        XCTAssertEqual(XCTWaiter.wait(for: [placed], timeout: 5), .completed, app.debugDescription)
+        XCTAssertFalse(app.buttons["confirmStamp"].exists, "Confirmation consumes the preview exactly once")
+        shot("build5-stamp-confirmed-size")
     }
 
 }

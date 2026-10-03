@@ -3,6 +3,7 @@ import SwiftUI
 /// Sign up/in, magic link, password reset, sign out, and in-app account deletion (spec §4b). A
 /// guest keeps practicing fully offline either way — nothing here is required to use the app.
 struct AccountView: View {
+    @Environment(PracticeStore.self) private var store
     @Environment(AuthManager.self) private var auth
     @Environment(SyncCoordinator.self) private var syncCoordinator
 
@@ -23,6 +24,8 @@ struct AccountView: View {
     /// copy says so), so the account this needs to write to doesn't exist yet at the point of tap.
     @State private var pendingAgeBracket: AgeBracket?
     @State private var appliedAgeGate = false
+    @State private var profileSaveError: String?
+    @State private var agePreferenceEditID = UUID()
 
     var body: some View {
         Form {
@@ -31,6 +34,12 @@ struct AccountView: View {
                 signedOutSections
             case .signedIn(_, let signedInEmail):
                 signedInSections(email: signedInEmail)
+            }
+            if let profileSaveError {
+                Section {
+                    ErrorMessage(message: profileSaveError)
+                    Button("Retry age preference") { if let bracket = pendingAgeBracket { applyAgeGate(bracket) } }
+                }
             }
         }
         .scrollContentBackground(.hidden)
@@ -58,7 +67,6 @@ struct AccountView: View {
         }
         .onChange(of: auth.state) { _, state in
             guard case .signedIn = state, !appliedAgeGate, let bracket = pendingAgeBracket else { return }
-            appliedAgeGate = true
             applyAgeGate(bracket)
         }
     }
@@ -66,8 +74,11 @@ struct AccountView: View {
     /// See `ProfileBackendFields.applyingAgeGate` (Core) for exactly which fields this changes and
     /// why — kept there, not inline here, so the decision itself is unit-testable without a View.
     private func applyAgeGate(_ bracket: AgeBracket) {
-        syncCoordinator.setProfileBackendFields(syncCoordinator.profileBackendFields.applyingAgeGate(bracket))
-        syncCoordinator.pushProfile()
+        do {
+            try syncCoordinator.saveProfile(store.state.profile, extras: syncCoordinator.profileBackendFields.applyingAgeGate(bracket),
+                                            sourceID: agePreferenceEditID)
+            appliedAgeGate = true; profileSaveError = nil
+        } catch { profileSaveError = error.localizedDescription }
     }
 
     @ViewBuilder private var signedOutSections: some View {

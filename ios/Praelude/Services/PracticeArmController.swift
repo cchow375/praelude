@@ -61,7 +61,8 @@ final class PracticeArmController {
         // right after a set): always stale once anything is armed again, same-target or not.
         lastColdGradeDecision = nil
         guard let passage else {
-            configuration = chosenConfigurations[pieceID] ?? PracticeConfiguration(pieceID: pieceID, focus: "Pulse")
+            let tempo = store.pieces.first { $0.id == pieceID }?.defaultPracticeBPM ?? 60
+            configuration = chosenConfigurations[pieceID] ?? PracticeConfiguration(pieceID: pieceID, focus: "Pulse", startBPM: tempo, targetBPM: tempo)
             awaitingColdGrade = false
             return
         }

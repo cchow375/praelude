@@ -21,10 +21,8 @@ struct PassagePickerView: View {
     // §8: `deletePassage` archives (tombstones) rather than erasing, so every list must filter it out.
     private var passages: [Passage] {
         store.state.passages.filter {
-            $0.pieceID == pieceID && !$0.archived && (search.isEmpty ||
-                ($0.title + " " + $0.locationLabel + " " + $0.focus).localizedCaseInsensitiveContains(search))
-        }.sorted {
-            $0.page == $1.page ? $0.title.localizedStandardCompare($1.title) == .orderedAscending : $0.page < $1.page
+            $0.pieceID == pieceID && !$0.archived && $0.deletedAt == nil && (search.isEmpty ||
+                ($0.title + " " + ScoreOrganization.locationLabel(for: $0, in: piece) + " " + $0.focus).localizedCaseInsensitiveContains(search))
         }
     }
     var body: some View {
@@ -40,12 +38,16 @@ struct PassagePickerView: View {
                 if passages.isEmpty && !search.isEmpty {
                     Text("No matching passages. Try a name, measure or focus.").foregroundStyle(.secondary)
                 }
-                if !currentPagePassages.isEmpty {
-                    Section("On this page") { passageRows(currentPagePassages) }
+                let groups = ScoreOrganization.passageGroups(passages, currentPage: currentPage, in: piece)
+                ForEach(groups, id: \.page) { group in
+                    Section {
+                        passageRows(group.passages)
+                    } header: {
+                        Text((group.page == currentPage ? "On this page · " : "") +
+                             (piece.map { ScoreOrganization.pageLabel(group.page, in: $0) } ?? "Page \(group.page)"))
+                    }
                 }
-                if !otherPassages.isEmpty {
-                    Section(currentPagePassages.isEmpty ? "Saved passages" : "Other pages") { passageRows(otherPassages) }
-                }
+
             }
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Name, measures or focus")
             .navigationTitle("Passages").navigationBarTitleDisplayMode(.inline)
@@ -80,8 +82,6 @@ struct PassagePickerView: View {
             } message: { _ in Text("Recorded practice keeps its original visual target. This removes the saved shortcut.") }
         }
     }
-    private var currentPagePassages: [Passage] { passages.filter { $0.regions.isEmpty ? $0.page == currentPage : $0.regions.contains { $0.page == currentPage } } }
-    private var otherPassages: [Passage] { passages.filter { passage in !currentPagePassages.contains { $0.id == passage.id } } }
     private func passageRows(_ values: [Passage]) -> some View {
         ForEach(values) { passage in
             Button { onSelect(passage); dismiss() } label: {
@@ -90,8 +90,13 @@ struct PassagePickerView: View {
                         PassagePreview(url: url, passage: passage).frame(width: 96, height: 76)
                     }
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(passage.title).font(.headline).foregroundStyle(.primary)
-                        Text(passage.locationLabel).font(.subheadline).foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            if let token = passage.color, let color = AnnotationColor(rawValue: token) {
+                                Circle().fill(color.color).frame(width: 9, height: 9).accessibilityLabel(color.label)
+                            }
+                            Text(passage.title).font(.headline).foregroundStyle(.primary)
+                        }
+                        Text(ScoreOrganization.locationLabel(for: passage, in: piece)).font(.subheadline).foregroundStyle(.secondary)
                         Text(passage.focus).font(.caption).foregroundStyle(.secondary)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     if selectedPassageID == passage.id { Image(systemName: "checkmark").foregroundStyle(.primary) }
@@ -270,6 +275,10 @@ struct PassageEditorView: View {
     var body: some View {
         Form {
             Section("Passage") {
+                Picker("Passage color", selection: Binding(get: { draft.color ?? "" }, set: { draft.color = $0.isEmpty ? nil : $0 })) {
+                    Text("Automatic").tag("")
+                    ForEach(AnnotationColor.allCases) { color in Text(color.label).tag(color.rawValue) }
+                }
                 TextField("Name", text: $draft.title).accessibilityIdentifier("passageName")
                 PracticeFocusField(focus: $draft.focus)
                 if !draft.regions.isEmpty { Text(draft.locationLabel).foregroundStyle(.secondary) }
@@ -318,9 +327,9 @@ struct PassagePreview: View {
         }
         .background(Color.white).clipShape(RoundedRectangle(cornerRadius: PraeludeRadius.tight))
         .accessibilityLabel("Visual target, \(passage.locationLabel)")
-        .task(id: passage) { thumbnail = Self.makeThumbnail(url: url, passage: passage) }
+        .task(id: PassageThumbnailRenderer.identity(url: url, passage: passage)) { thumbnail = await PassageThumbnailRenderer.shared.render(url: url, passage: passage) }
     }
-    @MainActor static func makeThumbnail(url: URL, passage: Passage) -> UIImage? {
+    static func makeThumbnail(url: URL, passage: Passage) -> UIImage? {
         let number = passage.regions.map(\.page).min() ?? passage.page
         guard let page = PDFDocument(url: url)?.page(at: max(0, number-1)) else { return nil }
         let image = page.thumbnail(of: CGSize(width: 480, height: 640), for: .cropBox)

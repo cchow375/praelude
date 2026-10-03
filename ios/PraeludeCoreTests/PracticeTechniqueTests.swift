@@ -6,6 +6,11 @@ final class PracticeTechniqueTests: XCTestCase {
         XCTAssertEqual(PracticeTechnique.rhythmPair.stageNames, ["Long–short", "Short–long", "As written"])
         XCTAssertEqual(PracticeTechnique.hands.stageNames, ["Right hand", "Left hand", "Together"])
     }
+    func testIndividualHandChoicesStayIndependentFromTheHandsChain() {
+        XCTAssertEqual(PracticeTechnique.rightHand.stageNames, ["Right hand"])
+        XCTAssertEqual(PracticeTechnique.leftHand.stageNames, ["Left hand"])
+        XCTAssertEqual(PracticeTechnique.hands.stageNames, ["Right hand", "Left hand", "Together"])
+    }
     func testEveryChoiceProducesAnIndependentEditableChainWithBoundedTargets() {
         for technique in PracticeTechnique.allCases {
             let first = technique.stages(targetCount: 7)

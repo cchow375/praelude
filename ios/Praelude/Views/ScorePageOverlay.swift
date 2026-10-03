@@ -47,19 +47,35 @@ enum ScorePassageBoxStyle {
     /// nothing changed skips the reassignment and the `PKInkingTool`/`PKEraserTool`/`PKLassoTool`
     /// allocation it costs.
     var lastAssignedTool: AnnotationTool?
+    var responderScheduled = false
+    var pageImageForMagnifier: (CGSize) -> UIImage? = { _ in nil }
+    private var magnifierPage: UIImage?
+    private var magnifierSize = CGSize.zero
+    private(set) var selectionDoubleTap: UITapGestureRecognizer!
+    private(set) var stampPan: UIPanGestureRecognizer!
+    private(set) var expandedNoteID: UUID?
+    private let notePanel = UIView()
+    private let noteLabel = UILabel()
+    private let noteScroll = UIScrollView()
+    private let noteEdit = UIButton(type: .system)
+    private let noteClose = UIButton(type: .system)
+    private var glyphCache: [String: CGImage] = [:]
     var emphasizedIDs: Set<UUID> = []
     var practicedIDs: Set<UUID> = []
     var onPencilBegan: () -> Void = {}
     /// (page, normalized position) — `ScoreWorkspace` builds the full `StampAnnotation`/
     /// `TextBoxAnnotation` from `markup.armedStamp`/a blank note, since this view never touches
     /// `PracticeStore`.
-    var onPlaceStamp: (Int, NormalizedRect) -> Void = { _, _ in }
+    var onPlaceStamp: (Int, NormalizedRect) -> Bool = { _, _ in true }
     var onPlaceTextBox: (Int, NormalizedRect) -> Void = { _, _ in }
     /// §11 R8: (page, normalized position) of a tap while `markup.breakPointArmed` — `ScoreWorkspace`
     /// builds the `BreakPointTap` itself, the same division of labor as `onPlaceStamp` above.
     var onPlaceBreakPoint: (Int, NormalizedRect) -> Void = { _, _ in }
     var onEditTextBox: (TextBoxAnnotation) -> Void = { _ in }
     var inkReadOnly = false
+    /// Invalid saved/pending bytes stay protected across ordinary permission/appearance refreshes.
+    /// Recreate this page after explicit recovery before allowing replacement strokes.
+    var contentReadOnly = false
     /// §7 page tools: this page's active non-destructive crop (`PageEdit.cropRect`), or `nil` for the
     /// overwhelmingly common page no page tool has ever cropped. Every stored mark (ink, passage
     /// boxes, stamps, text boxes) is defined against the page's *original, uncropped* bounds — see
@@ -84,6 +100,10 @@ enum ScorePassageBoxStyle {
         accessibilityIdentifier = "passageCanvas_page_\(page)"
         canvas.backgroundColor = .clear; canvas.isOpaque = false; canvas.isScrollEnabled = false
         canvas.drawingPolicy = .pencilOnly
+        // PencilKit automatically adapts dark inks under dark traits. Music stays light, so
+        // the drawing surface must have light traits as well as an explicitly dark tool color.
+        overrideUserInterfaceStyle = .light
+        canvas.overrideUserInterfaceStyle = .light
         canvas.accessibilityIdentifier = "inkCanvas_page_\(page)"
         addSubview(canvas)
         selectionPan = UIPanGestureRecognizer(target: self, action: #selector(pan(_:)))
@@ -93,6 +113,17 @@ enum ScorePassageBoxStyle {
         selectionTap = UITapGestureRecognizer(target: self, action: #selector(tap(_:)))
         selectionTap.delegate = self; selectionTap.require(toFail: selectionPan)
         addGestureRecognizer(selectionTap)
+        selectionDoubleTap = UITapGestureRecognizer(target: self, action: #selector(confirmSelection(_:)))
+        selectionDoubleTap.numberOfTapsRequired = 2; selectionDoubleTap.delegate = self
+        selectionDoubleTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        selectionTap.require(toFail: selectionDoubleTap)
+        addGestureRecognizer(selectionDoubleTap)
+        stampPan = UIPanGestureRecognizer(target: self, action: #selector(moveStamp(_:)))
+        stampPan.maximumNumberOfTouches = 1; stampPan.delegate = self
+        stampPan.allowedTouchTypes = selectionPan.allowedTouchTypes
+        selectionTap.require(toFail: stampPan)
+        addGestureRecognizer(stampPan)
+        configureNotePanel()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func layoutSubviews() {
@@ -109,6 +140,7 @@ enum ScorePassageBoxStyle {
         } else {
             canvas.frame = bounds
         }
+        layoutNotePanel()
         setNeedsDisplay()
     }
     /// A stored mark's on-screen rect, remapped into the current (possibly cropped) display —
@@ -134,26 +166,41 @@ enum ScorePassageBoxStyle {
 
     func refresh() {
         canvas.drawingPolicy = markup.mode == .writing && markup.fingerDrawing ? .anyInput : .pencilOnly
-        canvas.isUserInteractionEnabled = markup.mode != .selecting && !markup.quickBoxArmed && !markup.breakPointArmed && !placementToolArmed && !inkReadOnly
+        canvas.isUserInteractionEnabled = markup.mode != .selecting && !markup.quickBoxArmed && !markup.breakPointArmed && !placementToolArmed && !inkReadOnly && !contentReadOnly
+        if markup.stampDraft?.page == pageNumber {
+            markup.confirmStamp = { [weak self] in self?.commitStampDraft() }
+        }
+        if !visibleTextBoxes.contains(where: { $0.id == expandedNoteID }) { expandedNoteID = nil }
+        layoutNotePanel()
         setNeedsDisplay()
         accessibilityValue = "\(visibleRegions.count) boxes on page \(pageNumber)"
         canvas.accessibilityValue = "\(canvas.drawing.strokes.count) ink strokes"
     }
     private var placementToolArmed: Bool { markup.mode == .writing && (markup.tool.kind == .stamp || markup.tool.kind == .text) }
     private var visibleRegions: [PassageRegion] {
-        (markup.mode == .selecting ? markup.regions : displayedRegions).filter { $0.page == pageNumber }
+        guard markup.mode == .selecting || markup.showPassageBoxes else { return [] }
+        return (markup.mode == .selecting ? markup.regions : displayedRegions).filter { $0.page == pageNumber }
     }
     private var visibleStamps: [StampAnnotation] { displayedStamps.filter { $0.page == pageNumber && markup.visibleLayers.contains($0.layer) } }
     private var visibleTextBoxes: [TextBoxAnnotation] { displayedTextBoxes.filter { $0.page == pageNumber && markup.visibleLayers.contains($0.layer) } }
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard bounds.contains(point) else { return nil }
+        if !notePanel.isHidden, notePanel.frame.contains(point) {
+            return notePanel.hitTest(convert(point, to: notePanel), with: event)
+        }
         if markup.mode == .selecting || markup.quickBoxArmed || markup.breakPointArmed { return self }
         if placementToolArmed { return self }
-        let pencil = event?.allTouches?.contains { $0.type == .pencil } == true
-        if pencil || (markup.mode == .writing && markup.fingerDrawing) {
+        if markup.mode == .reading && note(at: point) != nil { return self }
+        let touches = event?.allTouches
+        let pencil = touches?.contains { $0.type == .pencil } == true
+        // UIKit can hit-test before it populates allTouches. Retain the canvas route on that
+        // first pass; PencilKit's pencilOnly recognizer still rejects finger ink.
+        // The PDF's ancestor finger pan and pinch recognizers continue to navigate the page.
+        let unresolvedWritingTouch = (markup.mode == .writing || markup.mode == .reading) && (touches?.isEmpty ?? true)
+        if pencil || unresolvedWritingTouch || (markup.mode == .writing && markup.fingerDrawing) {
             return canvas.hitTest(convert(point, to: canvas), with: event)
         }
-        return nil // A finger still turns/zooms the PDF while Pencil writes.
+        return nil
     }
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
@@ -187,28 +234,40 @@ enum ScorePassageBoxStyle {
         }
         for textBox in visibleTextBoxes {
             guard let box = displayRect(for: textBox.region), box.width > 4, box.height > 4 else { continue }
-            context.setFillColor(UIColor(PraeludeColor.scorePaper).withAlphaComponent(0.92).cgColor)
+            context.setFillColor(UIColor(red: 1, green: 0.91, blue: 0.43, alpha: 0.95).cgColor)
             context.fill(box)
-            context.setStrokeColor(UIColor(PraeludeColor.scoreInk).withAlphaComponent(0.4).cgColor)
+            context.setStrokeColor(UIColor(red: 0.62, green: 0.47, blue: 0.10, alpha: 0.7).cgColor)
             context.setLineWidth(0.75); context.stroke(box)
-            if !textBox.text.isEmpty {
-                drawSwiftUIContent(Text(textBox.text).font(.system(size: max(9, box.height * 0.32)))
-                    .foregroundStyle(PraeludeColor.scoreInk).lineLimit(3).minimumScaleFactor(0.55).padding(2),
-                    in: box.insetBy(dx: 2, dy: 2), context: context)
-            }
+            let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
+            (textBox.text as NSString).draw(in: box.insetBy(dx: 4, dy: 3), withAttributes: [
+                .font: UIFont.systemFont(ofSize: max(9, min(13, box.height * 0.55))),
+                .foregroundColor: UIColor(PraeludeColor.scoreInk), .paragraphStyle: paragraph
+            ])
         }
         drawStampGlyphs(context: context)
+        drawStampPreview(context: context)
     }
     /// SwiftUI (`PraeludeStamp`, Bravura glyphs; a text box's own note) cannot draw into a raw
     /// `CGContext`, so each is rendered off-screen once per `draw(_:)` pass and composited — the same
     /// approach `ScoreExport` already uses to put PencilKit ink into a `CGContext`. The translate +
     /// y-flip undoes the flip UIKit already applied to this context, which otherwise draws a
     /// `CGImage` upside down (a well-known `CGContext.draw(_:in:)`-inside-`UIView.draw(_:)` gotcha).
-    private func drawSwiftUIContent<V: View>(_ view: V, in rect: CGRect, context: CGContext) {
+    private func drawSwiftUIContent<V: View>(_ view: V, in rect: CGRect, context: CGContext, cacheKey: String? = nil) {
         guard rect.width > 0, rect.height > 0 else { return }
-        let renderer = ImageRenderer(content: view.frame(width: rect.width, height: rect.height))
-        renderer.scale = window?.screen.scale ?? UIScreen.main.scale
-        guard let cgImage = renderer.cgImage else { return }
+        let scale = window?.screen.scale ?? UIScreen.main.scale
+        let key = cacheKey.map { "\($0):\(rect.width):\(rect.height):\(scale)" }
+        let cgImage: CGImage
+        if let key, let cached = glyphCache[key] { cgImage = cached }
+        else {
+            let renderer = ImageRenderer(content: view.frame(width: rect.width, height: rect.height).environment(\.colorScheme, .light))
+            renderer.scale = scale
+            guard let rendered = renderer.cgImage else { return }
+            cgImage = rendered
+            if let key {
+                if glyphCache.count >= 96 { glyphCache.removeAll(keepingCapacity: true) }
+                glyphCache[key] = rendered
+            }
+        }
         context.saveGState()
         context.translateBy(x: rect.minX, y: rect.maxY); context.scaleBy(x: 1, y: -1)
         context.draw(cgImage, in: CGRect(origin: .zero, size: rect.size))
@@ -221,7 +280,7 @@ enum ScorePassageBoxStyle {
                 context.setFillColor(UIColor(PraeludeColor.scoreInk).withAlphaComponent(0.1).cgColor)
                 context.fillEllipse(in: box.insetBy(dx: -4, dy: -4))
             }
-            drawSwiftUIContent(PraeludeStamp(kind: stamp.kind, label: stamp.label, size: box.width), in: box, context: context)
+            drawSwiftUIContent(PraeludeStamp(kind: stamp.kind, label: stamp.label, size: box.width), in: box, context: context, cacheKey: "\(stamp.kind.rawValue):\(stamp.label ?? "")")
         }
     }
     private func corners(_ rect: CGRect) -> [CGPoint] {
@@ -249,6 +308,10 @@ enum ScorePassageBoxStyle {
         if markup.mode == .writing, markup.tool.kind == .stamp {
             handleStampTap(at: point); return
         }
+        if markup.mode == .reading, let note = note(at: point) {
+            expandedNoteID = expandedNoteID == note.id ? nil : note.id
+            layoutNotePanel(); return
+        }
         if markup.mode == .writing, markup.tool.kind == .text {
             handleTextTap(at: point); return
         }
@@ -264,17 +327,120 @@ enum ScorePassageBoxStyle {
             markup.selectedStampID = (existing.layer == markup.activeLayer && markup.selectedStampID != existing.id) ? existing.id : nil
             setNeedsDisplay(); return
         }
-        guard markup.armedStamp != nil, let position = NormalizedRect.centered(at: point, width: 0.045, height: 0.045, in: bounds.size) else { return }
-        markup.selectedStampID = nil
-        onPlaceStamp(pageNumber, storageRect(fromDisplay: position)) // ScoreWorkspace reads `markup.armedStamp` itself to build the new StampAnnotation
+        previewStamp(at: point)
     }
     private func handleTextTap(at point: CGPoint) {
         if let existing = visibleTextBoxes.reversed().first(where: { displayRect(for: $0.region)?.contains(point) ?? false }) {
             onEditTextBox(existing); return
         }
-        guard let region = NormalizedRect.centered(at: point, width: 0.28, height: 0.07, in: bounds.size) else { return }
+        guard let region = NormalizedRect.centered(at: point, width: 0.18, height: 0.035, in: bounds.size) else { return }
         onPlaceTextBox(pageNumber, storageRect(fromDisplay: region))
     }
+    @objc private func confirmSelection(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended, markup.mode == .selecting, !markup.regions.isEmpty else { return }
+        markup.onConfirmSelection()
+    }
+    @objc private func moveStamp(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began, .changed, .ended: previewStamp(at: recognizer.location(in: self))
+        case .cancelled: markup.stampDraft = nil; setNeedsDisplay()
+        default: break
+        }
+    }
+    func previewStamp(at point: CGPoint) {
+        guard markup.armedStamp != nil, bounds.height > 0 else { return }
+        let height = min(0.25, markup.stampSize * bounds.width / bounds.height)
+        guard let position = NormalizedRect.centered(at: point, width: markup.stampSize, height: height, in: bounds.size) else { return }
+        markup.selectedStampID = nil
+        markup.stampDraft = ScoreMarkupState.StampDraft(page: pageNumber, position: storageRect(fromDisplay: position))
+        markup.confirmStamp = { [weak self] in self?.commitStampDraft() }
+        markup.resizeStampPreview = { [weak self] in self?.resizeStampDraft(); self?.setNeedsDisplay() }
+        if magnifierPage == nil || magnifierSize != bounds.size {
+            magnifierSize = bounds.size
+            magnifierPage = pageImageForMagnifier(CGSize(width: min(1600, bounds.width * 2), height: min(2200, bounds.height * 2)))
+        }
+        setNeedsDisplay()
+    }
+    private func resizeStampDraft() {
+        guard let draft = markup.stampDraft, draft.page == pageNumber,
+              let rect = displayRect(for: draft.position), bounds.height > 0 else { return }
+        let height = min(0.25, markup.stampSize * bounds.width / bounds.height)
+        guard let updated = NormalizedRect.centered(at: CGPoint(x: rect.midX, y: rect.midY), width: markup.stampSize, height: height, in: bounds.size) else { return }
+        let stored = storageRect(fromDisplay: updated)
+        if stored != draft.position { markup.stampDraft?.position = stored }
+    }
+    func commitStampDraft() {
+        guard let draft = markup.stampDraft, draft.page == pageNumber,
+              markup.mode == .writing, markup.tool.kind == .stamp, markup.armedStamp != nil else { return }
+        guard onPlaceStamp(pageNumber, draft.position) else { return }
+        markup.stampDraft = nil; magnifierPage = nil; setNeedsDisplay()
+    }
+    private func drawStampPreview(context: CGContext) {
+        guard let draft = markup.stampDraft, draft.page == pageNumber, markup.mode == .writing,
+              markup.tool.kind == .stamp, let armed = markup.armedStamp,
+              let box = displayRect(for: draft.position) else { return }
+        context.setStrokeColor(UIColor.systemBlue.cgColor); context.setLineWidth(1)
+        context.setLineDash(phase: 0, lengths: [3, 3]); context.stroke(box.insetBy(dx: -3, dy: -3))
+        context.setLineDash(phase: 0, lengths: [])
+        drawSwiftUIContent(PraeludeStamp(kind: armed.kind, label: armed.label, size: box.width), in: box, context: context, cacheKey: "\(armed.kind.rawValue):\(armed.label ?? "")")
+        // A floating enlarged view of the original notation keeps the point under a finger or
+        // Pencil visible while dragging. The thumbnail is captured once, never by snapshotting
+        // this overlay recursively during drawing.
+        let side = min(120, bounds.width * 0.3)
+        let lens = CGRect(x: min(max(4, box.midX - side / 2), bounds.width - side - 4),
+                          y: max(4, box.minY - side - 20), width: side, height: side)
+        context.saveGState()
+        let path = UIBezierPath(roundedRect: lens, cornerRadius: 12)
+        path.addClip(); UIColor.white.setFill(); path.fill()
+        if let magnifierPage {
+            magnifierPage.draw(in: CGRect(x: lens.midX - box.midX * 2, y: lens.midY - box.midY * 2,
+                                         width: bounds.width * 2, height: bounds.height * 2))
+        }
+        let enlarged = CGRect(x: lens.midX - box.width, y: lens.midY - box.height, width: box.width * 2, height: box.height * 2)
+        drawSwiftUIContent(PraeludeStamp(kind: armed.kind, label: armed.label, size: enlarged.width), in: enlarged, context: context, cacheKey: "\(armed.kind.rawValue):\(armed.label ?? "")")
+        context.restoreGState()
+        UIColor.systemBlue.setStroke(); path.lineWidth = 1.5; path.stroke()
+    }
+    func containsNote(at point: CGPoint) -> Bool { note(at: point) != nil || (!notePanel.isHidden && notePanel.frame.contains(point)) }
+    private func note(at point: CGPoint) -> TextBoxAnnotation? {
+        visibleTextBoxes.reversed().first { displayRect(for: $0.region)?.insetBy(dx: -4, dy: -4).contains(point) ?? false }
+    }
+    private func configureNotePanel() {
+        notePanel.backgroundColor = UIColor(red: 1, green: 0.93, blue: 0.58, alpha: 1)
+        notePanel.layer.cornerRadius = 8; notePanel.layer.borderWidth = 0.5
+        notePanel.layer.borderColor = UIColor.brown.withAlphaComponent(0.5).cgColor
+        notePanel.isHidden = true; notePanel.accessibilityIdentifier = "expandedScoreNote"
+        noteLabel.font = .systemFont(ofSize: 15); noteLabel.numberOfLines = 0; noteLabel.textColor = UIColor(PraeludeColor.scoreInk)
+        noteEdit.setTitle("Edit", for: .normal); noteEdit.accessibilityIdentifier = "editScoreNote"
+        noteEdit.addTarget(self, action: #selector(editExpandedNote), for: .touchUpInside)
+        noteClose.setTitle("Close", for: .normal)
+        noteClose.addTarget(self, action: #selector(closeExpandedNote), for: .touchUpInside)
+        noteScroll.addSubview(noteLabel)
+        [noteScroll, noteEdit, noteClose].forEach { notePanel.addSubview($0) }
+        addSubview(notePanel)
+    }
+    private func layoutNotePanel() {
+        guard let note = visibleTextBoxes.first(where: { $0.id == expandedNoteID }),
+              let anchor = displayRect(for: note.region), bounds.width > 20, bounds.height > 60 else { notePanel.isHidden = true; return }
+        notePanel.isHidden = false; noteLabel.text = note.text
+        let width = min(280, bounds.width - 16)
+        let textSize = noteLabel.sizeThatFits(CGSize(width: width - 24, height: .greatestFiniteMagnitude))
+        let height = min(max(100, textSize.height + 58), min(bounds.height - 16, 260))
+        let y = anchor.maxY + height + 8 < bounds.height ? anchor.maxY + 8 : max(8, anchor.minY - height - 8)
+        notePanel.frame = CGRect(x: min(max(8, anchor.minX), bounds.width - width - 8), y: y, width: width, height: height)
+        noteScroll.frame = CGRect(x: 12, y: 8, width: width - 24, height: height - 52)
+        noteLabel.frame = CGRect(x: 0, y: 0, width: width - 24, height: textSize.height)
+        noteScroll.contentSize = noteLabel.bounds.size
+        noteEdit.isHidden = note.layer != markup.activeLayer
+        noteEdit.frame = CGRect(x: 8, y: height - 44, width: 64, height: 44)
+        noteClose.frame = CGRect(x: width - 76, y: height - 44, width: 68, height: 44)
+        bringSubviewToFront(notePanel)
+    }
+    @objc private func editExpandedNote() {
+        guard let note = visibleTextBoxes.first(where: { $0.id == expandedNoteID && $0.layer == markup.activeLayer }) else { return }
+        onEditTextBox(note)
+    }
+    @objc private func closeExpandedNote() { expandedNoteID = nil; layoutNotePanel() }
     @objc private func pan(_ recognizer: UIPanGestureRecognizer) {
         if markup.quickBoxArmed { quickBoxPan(recognizer); return }
         let point = recognizer.location(in: self)
@@ -331,7 +497,9 @@ enum ScorePassageBoxStyle {
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         // Placement (stamp/text) only ever needs a tap, never a drag — a finger drag while a
         // placement tool is armed must not fall through to the box-drawing pan below it.
-        if gestureRecognizer === selectionTap { return markup.mode == .selecting || placementToolArmed }
+        if gestureRecognizer === selectionDoubleTap { return markup.mode == .selecting && !markup.regions.isEmpty }
+        if gestureRecognizer === stampPan { return markup.mode == .writing && markup.tool.kind == .stamp && markup.armedStamp != nil }
+        if gestureRecognizer === selectionTap { return markup.mode == .selecting || placementToolArmed || markup.breakPointArmed || !visibleTextBoxes.isEmpty }
         return markup.mode == .selecting || markup.quickBoxArmed
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { other is UIPinchGestureRecognizer }

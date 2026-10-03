@@ -51,6 +51,8 @@ struct HistoryView: View {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(passage.title).font(.headline)
                                     Text(pieceTitle(passage.pieceID) ?? "").font(.subheadline).foregroundStyle(.secondary)
+                                    Text(ScoreOrganization.locationLabel(for: passage, in: store.pieces.first { $0.id == passage.pieceID }))
+                                        .font(.caption).foregroundStyle(.secondary)
                                 }.padding(.vertical, 3)
                             }
                         }
@@ -126,6 +128,10 @@ private struct PassageHistoryDetailView: View {
 
     var body: some View {
         List {
+            Section {
+                Text(ScoreOrganization.locationLabel(for: passage, in: store.pieces.first { $0.id == passage.pieceID }))
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
             if points.isEmpty {
                 PraeludeEmptyState(title: "No history yet", symbol: "chart.xyaxis.line",
                                   message: "Grades and tempos recorded on this passage build a timeline here.")
@@ -197,6 +203,10 @@ private struct HistorySessionDetailView: View {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(set.configuration.passageSnapshot?.title ?? "Whole piece").font(.subheadline.weight(.medium))
+                                    if let passage = set.configuration.passageSnapshot {
+                                        Text(ScoreOrganization.locationLabel(for: passage, in: store.pieces.first { $0.id == set.configuration.pieceID }))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
                                     Text("\(set.effectiveAttempts.count) reps · \(set.configuration.focus)").font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer(minLength: 8)

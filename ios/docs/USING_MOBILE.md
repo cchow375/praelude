@@ -1,8 +1,66 @@
 # Using Praelude Mobile
 
-## October 2 follow-up — build4 practice polish
+**Matches: 2.0.0/build5/schema5 source candidate; physical iPad remains build4.**
 
-Current source is **2.0.0/build4/schema4**, a development candidate. Search saved passages by name;
+## October2 build5 — score workflow and shared data
+
+**Mobile current source (2026-10-02): 2.0.0/build5, schema5, DEVELOPMENT CANDIDATE.** Christian's physical build4 feedback drives this round: Pencil did not draw without finger mode, black marks/stamps were invisible, annotation could freeze during a set, passage navigation was slow and ambiguous, and score chrome took too much space. Build5 implements fixes and new controls; physical build5 installation/Pencil acceptance is not established.
+
+**Score workflow:** a visible Library exit and compact bottom Practice / Select / Draw controls; passage Done at the bottom or score double-tap; distinct editable passage colors and an account-synced hide-boxes setting. Entering annotation retains the active set and its saved progress. PencilKit uses paper-light traits and deferred responder setup; finger navigation and optional finger drawing remain separate. Stamps have movable sized previews and a magnifier before Place. Yellow note chips expand locally with Edit/Close; failed saves retain the note text or stamp preview.
+
+**Organization:** reviewed movement/book page ranges keep source PDFs, marks and history anchored while labels restart at section page1. PDF contents/bookmarks suggest sections; local Vision offers printed-number hints for review. Users confirm a measure or system region and its first/last numbers; newly drawn boxes inherit confirmed ranges, and older unlabeled passage/history displays derive fully covered confirmed ranges without rewriting snapshots. This is assisted mapping, not automatic optical music recognition. Passage lists group by page, sort measure numbers, and use bounded background thumbnail caches; history shows meaningful locations.
+
+**Practice:** per-piece default tempo, visible pre-start metronome On/Off, stable Techniques with explicit Left hand/Right hand, less dock padding, a compact initial practice readout and width-fit Focus. Notebook New note opens directly. Rank progress leads Rewards; Studio stays secondary.
+
+**Sync and preservation:** native profiles/privacy, instruments, practice records, score marks, goals/routines with deletion tombstones, movement/measure metadata, default tempo, account preferences and private score/recording/cover files have shared Supabase contracts. First sign-in reads the account before publishing defaults. Name/photo/privacy edits stage durably before local save and remain recoverable through failed saves, concurrent hydration, reverted retries and same-account sign-out. Local edits request debounced sync; unchanged remote adoption does not rewrite the ledger. Canonical lowercase owner-folder UUIDs fix a file-policy mismatch. Absent SQL columns and unknown preference keys survive older clients; other nested schemas remain versioned. Nullable clears remain explicit. Schema5 preserves the exact old ledger; backups require version4. Hardware permissions/audio state stay device-local.
+
+**Mac boundary:** the additive read-only snapshot transfer still preserves all46 original Mac tables and history/contracts, without replaying them under mobile rules or granting rewards. The original Mac archive stays local and in native backups. Continuous Mac↔native synchronization still needs a desktop adapter; the installed Tauri product is unchanged. Future clients must follow the shared ownership, source-page, LWW and append-only contracts.
+
+**Installed-device boundary:** physical iPad remains2.0.0/build4/schema4, opened by Christian after the October2 guarded install with all seven original library files matched exactly. His new Pencil/freeze feedback is direct physical evidence of defects, not acceptance of build5. Build5 verification is tracked in `docs/qa/ios/2.0.0/score-workflow.md`; real Pencil/piano use and real-account/two-device acceptance remain open.
+
+**Build5 verification:** 385 core tests, 2,211 service assertions and 54 Python tests pass; the final native app-hosted run executes 193 tests with one live-account test skipped and zero failures. Seven distinct iPad and five phone UI cases pass across scoped runs. Final arm64 device Release compiles with fixture flags/test plug-ins absent; no physical update occurred. Exact evidence and remaining acceptance are in `docs/qa/ios/2.0.0/score-workflow.md`.
+
+**Next steps:** guarded same-bundle build5 update when the iPad is connected and no set is open. Verify Pencil, black ink, sustained annotation during practice, reviewed movement/measure mapping and actual second-device continuity. Continuous desktop sync needs its separate adapter; Assistant remains on hold.
+
+## Build5 candidate controls
+
+- **Read or practice:** new devices start with a compact practice readout; tap its up/down chevron to expand/collapse, and your existing device choice is retained. The bottom rail has Practice, Select and Draw. Library at the top returns
+  to your library while preserving a running set; Resume returns to that set. Focus uses a wider
+  score fit. Score options lets you choose compact controls and hide passage boxes.
+- **Make a passage:** tap Select, draw one or more boxes, then tap bottom Done or double-tap the
+  score. Cancel keeps unsaved work open until you choose discard. Edit a passage to choose its
+  color/name/measure range; saved shortcuts group by source page and show confirmed measures.
+- **Write:** tap Draw. Apple Pencil is intended to draw with Draw with finger off; turn that
+  switch on for finger ink. Choose color, line width and layer. Bottom Done returns to practice.
+  Hardware Pencil behavior still needs acceptance on the candidate.
+- **Place a stamp:** choose Stamp and a symbol, tap/drag its preview over the score, adjust Size
+  while the magnifier helps placement, then Place. Cancel saves nothing. A failed save retains
+  the preview. **Sticky note** creates a small yellow reminder; tap its chip to read the full text
+  in a small panel, Edit to change/delete, or Close to return to the score.
+- **Organize a sonata or book:** Score options → Movements & pieces. Add a title and original PDF
+  start/end page, or review suggested PDF bookmark ranges. Open a section directly. The page
+  indicator and passage/history labels use movement-relative numbering; ink stays attached to
+  the original PDF pages. This does not duplicate or physically split your PDF.
+- **Add meaningful measure labels:** Score options → Measure map. Scan printed numbers for
+  optional hints, outline a measure or system, enter/review its first and last measure, and
+  Confirm measure region. New boxes and older unlabeled passage/history displays use a range
+  only when their full geometry is covered by confirmed regions in one movement. Printed-number
+  hints can include fingerings/page numbers, so they require review. Exact automatic OMR remains
+  a separate capability.
+- **Set practice conditions:** the click On/Off choice sits beside tempo before the first attempt.
+  Tap the sliders button, then **Use X BPM as piece default** to save the current tempo for
+  this piece. Techniques opens a stable full sheet with Left hand and Right hand alongside editable stages. Rewards shows rank progress
+  first, with Studio and badges below. Notebook's New note opens an editor immediately.
+- **Use another device:** sign in with the same account. Supported native records and private
+  score/recording/cover files retry after local edits or connectivity changes. Check Sync status
+  for pending work. Each device grants its own microphone permissions. Future platform clients
+  must implement the [shared account contract](../../docs/PLATFORM_DATA_CONTRACT.md); the installed
+  Mac app remains separate. The repository exporter reads Mac data for a reviewed snapshot
+  import into the native app; continuous Mac account sync needs a desktop adapter.
+
+## Historical October2 build4/schema4 — practice polish before installation
+
+At this historical boundary, source was **2.0.0/build4/schema4**, a development candidate. Search saved passages by name;
 passages on the current source page appear first. Switching away from a running set requires an
 explicit Finish and switch; Cancel keeps the current target. Setup and optional Techniques are
 available before the first-attempt grade. Editable choices include rhythm pairs, hands separately
@@ -27,14 +85,15 @@ older ledger before migrating; tempo histories require backup version3. Older ap
 local formats; participating sync clients must be current. See the [follow-up QA](../../docs/qa/ios/2.0.0/practice-polish.md)
 for verification and remaining hardware/backend limits.
 
-**Next steps:** finish current-source native/Release checks, guarded same-bundle update, then the
-musician-controlled Mac import and actual piano-session/two-device acceptance.
+**Next steps at that build4 boundary:** finish native/Release checks and the guarded update, then
+the musician-controlled Mac import and actual piano-session/two-device acceptance. The later
+installation and first-open records below supersede the build4 installation/launch gates.
 
-**Matches: 2.0.0/build4/schema4 DEVELOPMENT CANDIDATE (2026-10-02).** This describes current source,
-not a new physical installation. [Current QA](../../docs/qa/ios/2.0.0/README.md) separates native
-simulator evidence from hardware/two-device acceptance. September14 install evidence is historical.
+**Guide boundary:** the build4 polish above is historical evidence. The controls below describe
+build5 source, with installed-build4 differences called out. The physical iPad remains build4/schema4.
+[Current QA](../../docs/qa/ios/2.0.0/README.md) separates simulator evidence from hardware/two-device acceptance.
 
-## Import your Mac library
+## Import your Mac library — current build5 candidate scope
 
 Finish practice on both devices. Export with `ios/scripts/export_desktop.py` on the Mac, review its
 warnings, and transfer the private JSON through Files/AirDrop. In Settings choose **Import from Mac**,
@@ -42,7 +101,8 @@ then **Choose Mac transfer**, review counts and **Import library**. Mobile score
 are preserved. Compatible scores, passage boxes, matching pencil marks and goals become native data;
 original Mac history and every table remain under **Progress → Mac practice record**. Re-importing the
 same snapshot does not duplicate targets or overwrite edits. This is a snapshot, not continuous Mac sync.
-Original archives stay local and travel with backups; native goals/routines are not cloud-wired.
+Original archives stay local and travel with backups. Build5 source syncs compatible native
+goals/routines and private covers; the installed build4 retains its older sync scope until updated.
 
 ## Navigate and practice
 
@@ -59,18 +119,21 @@ In **Pieces**, choose **Add piece** and import a PDF from Files. The app keeps a
 the source file unchanged. You can start with a title and add the PDF later. Open a piece to read
 its score. Use the page arrows or page picker to move, and pinch to zoom.
 
-**Score options (…) → Focus on score** hides the practice controls; **Exit focus** brings them
-back. On wider iPad layouts, Score options also offers **Two pages** and, where supported,
+**Score options (…) → Focus on score** hides idle setup and enlarges the score fit. During a
+running set, the active practice HUD remains available; collapse it for more score space.
+**Exit focus** restores the ordinary controls. On wider iPad layouts, Score options also offers **Two pages** and, where supported,
 **Open score in new window**. These windows share one practice record and active set.
 
 ## Mark a passage visually
 
-1. Choose **Draw passage** above the score, or **Score options → Draw a passage**.
+1. In build5, tap **Select** on the bottom rail, or **Score options → Draw a passage**.
+   The installed build4 uses its **Draw passage** control.
 2. Drag over the music to add a lightly highlighted box. Add more boxes when the passage continues
    on another system or page; use the visible page controls while selecting.
 3. Drag a box to move it or drag its corners to resize it. Select a box and use the trash control
    to remove it. The selection's Undo and Redo change boxes, not recorded repetitions.
-4. Tap **Done** to save the passage. **Cancel** offers to discard the unsaved passage edits.
+4. In build5, tap bottom **Done** or double-tap the score to save the passage.
+   **Cancel** offers to discard the unsaved passage edits; build4 uses its existing Done control.
 
 Open **Passages** to see saved targets with previews. Tap a passage to select it and, when no set
 is already running/paused, open practice setup. Long-press or swipe a passage for **Edit boxes**,
@@ -81,10 +144,12 @@ Leaving a selection unfinished offers **Discard passage edits** or **Keep select
 before leaving when you want to keep the boxes. Deleting a saved shortcut retains the original
 target in recorded practice; an active set must be finished before its passage can be deleted.
 
-## Write on the score
+## Write on the score — controls and hardware boundary
 
 Tap the pencil control, **Annotate score**, to open **Write on score** and the native drawing tools.
-Apple Pencil can write directly on the score; finger navigation remains available by default.
+PencilKit is intended to let Apple Pencil write while fingers navigate. Christian reported
+that this failed in installed build4; build5 implements a fix, with physical Pencil acceptance
+still required.
 Without a Pencil, enable **Draw with finger** in the writing controls. Use the page arrows when
 finger drawing is enabled. **Undo ink** and **Redo ink** affect the current drawing rather than
 your practice record. Tap **Done** to finish writing.
@@ -160,16 +225,23 @@ armed tempo, reporting the first attempt corrects the click and asks you to repe
 saving a grade. Keep playing when locked preserves an already-running click while practice pauses;
 resume the set when you return. A foreground pause or finished set stops its click.
 
-## October2 physical update at19:14 EDT
+## Historical October2 19:14 EDT — build4 installed, before first open
 
-2.0.0/build4 is installed over the existing iPad app. All seven original library files match complete
-pre/post-install copies exactly. The pre-launch ledger is schema3; current-data migration rehearsal
-preserved all3,447 scalar values and the exact original file. iOS denied automatic launch: unlock and
-tap Praelude, completing Developer App trust only if prompted. Actual launch/schema4 migration and
-physical piano acceptance remain pending. No Mac import. Further phone acceptance is deferred at
-Christian's explicit request to get the app onto the iPad now. Signed Release excludes test fixtures;
+At 19:14 EDT, 2.0.0/build4 was installed over the existing iPad app. All seven original library files matched complete
+pre/post-install copies exactly. The pre-launch ledger was schema3; current-data migration rehearsal
+preserved all3,447 scalar values and the exact original file. iOS denied automatic launch. At that pre-launch boundary, the next step was to unlock and tap
+Praelude, completing Developer App trust only if prompted; launch/schema4 migration and physical
+piano acceptance were unverified. The first-open follow-up below supersedes the launch/migration gate. Mac import had not run. Further phone acceptance was deferred at
+Christian's explicit request to get build4 onto the iPad then. Signed Release excludes test fixtures;
 Core356, service2211, Python53, native runtime12 and largest-text300BPM checks pass.
 
-**Next steps:** open the installed app and practice; import the reviewed Mac transfer afterward.
+**Next steps at that pre-launch boundary:** open build4 and practice, then import the reviewed Mac
+transfer. The first-open follow-up below establishes launch/schema4; Mac import and hardware
+acceptance remain separate.
 
-**First-open follow-up:** Christian opened the installed app without a trust prompt. Read-only verification confirms2.0.0/build4, schema4, three existing mobile pieces and ten historical sets. Mac import remains pending; piano/audio/two-device acceptance remains separate.
+## October2 build4/schema4 — verified first-open follow-up
+
+Christian opened the installed app without a trust prompt. Read-only verification confirmed 2.0.0/build4/schema4 with three existing mobile pieces and ten historical sets. Mac import remains pending; piano/audio/two-device acceptance remains separate.
+
+**Next steps:** complete build5 verification and a guarded update, then physical Pencil/piano and
+real-account/two-device acceptance. Import the reviewed Mac transfer when Christian is ready.

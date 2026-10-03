@@ -122,7 +122,7 @@ extension PracticeStore {
         let names = InstrumentCatalog.defaultVariantNames(for: family)
         guard !names.isEmpty else { return }
         let routineName = "\(family.displayName) defaults"
-        guard !state.routines.contains(where: { $0.name == routineName }) else { return }
+        guard !state.routines.contains(where: { $0.deletedAt == nil && $0.name == routineName }) else { return }
         try saveRoutine(PracticeRoutine(name: routineName, stages: names.map { VariantStage(name: $0) }))
     }
 

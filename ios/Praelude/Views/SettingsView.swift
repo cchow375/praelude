@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(PracticeStore.self) private var store
+    @Environment(SyncCoordinator.self) private var syncCoordinator
     @Environment(RecordingService.self) private var recording
     @AppStorage("ios.feedback") private var feedbackEnabled = true
     @State private var errorMessage: String?
@@ -20,6 +21,13 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var recording = recording
         Form {
+            Section("Score") {
+                Toggle("Show passage boxes", isOn: preference(\.showPassageBoxes))
+                Toggle("Compact score controls", isOn: preference(\.compactScoreControls))
+                Toggle("Turn passage page after each verdict", isOn: preference(\.autoTurnPassageAfterVerdict))
+                Text("These score choices follow your account across devices. Pencil permissions and live audio stay on this device.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Instruments") {
                 NavigationLink {
                     InstrumentsView()
@@ -193,6 +201,7 @@ struct SettingsView: View {
                 var updated = store.state.preferences
                 updated[keyPath: keyPath] = value
                 try store.updatePreferences(updated)
+                syncCoordinator.pushPreferences()
                 errorMessage = nil
             } catch { errorMessage = error.localizedDescription }
         }

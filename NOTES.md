@@ -3641,3 +3641,16 @@ clippy `--all-targets --all-features` clean, tsc clean.
 - After the initial automatic-launch denial, Christian opened build4 without a trust prompt. Read-only
   device copy confirms schema4 and the three existing pieces/ten historical sets; no cause is inferred
   for the earlier launch denial. Mac import and piano/two-device acceptance remain separate.
+
+## Mobile build5 score and sync contracts (2026-10-02)
+
+- UIKit can hit-test before event.allTouches contains the Pencil. Let PencilKit's pencilOnly policy route unresolved hits; known direct fingers retain PDF pan/pinch. Paper-white scores require light canvas/render traits as well as literal ink colors. First-responder changes belong outside UIViewRepresentable refresh; source/display page numbers must be translated before choosing a canvas.
+- Stamp placement is preview/resize/confirm, with no durable write before Place; note editors and preview stamps retain drafts on failed saves. Source PDF identities and normalized source-page geometry survive movement ranges and crop/reorder tools.
+- Vision numeric hints are reviewed data, not measure recognition. Exact bar regions or full-system ranges are confirmed explicitly; partial box coverage cannot acquire invented precise measure labels.
+- Swift UUID.uuidString is uppercase; storage owner policies compare canonical lowercase auth.uid text. Normalize owner/record path components; reuse immutable file names for content changes. Private covers join PDFs/recordings with retries and account-deletion cleanup.
+- New columns require old payload preservation, while known nullable keys require explicit JSON nulls on clears. Normalize sent/acknowledged rows alike to prevent outbound snapshot echoes. Preferences have one authoritative LWW clock; normalize the nested cache to it on decode.
+- Idempotent remote adoption must avoid a ledger write/revision bump. Otherwise a revision-based debounce can trigger endless full sync. Local edits during an in-flight sync request a follow-up pass.
+- Schema5 preserves exact schema1–4 originals; backupv4 protects organization/preferences/deletion metadata from older decoders. This is a native shared backend contract; Tauri/native integration remains a separate adapter, and original Mac archives stay local/backed up.
+
+- Build5 review follow-up: confirmed measure maps label older passage/history geometry only on display, without rewriting snapshots. Thumbnail caches use actual pixel bytes (48MB page/32MB passage budgets). Sliders sit outside horizontal chip scrollers; native size grow/shrink/one-confirmation regression passes. A new-device HUD starts collapsed; an explicitly saved expand/collapse choice remains device-local.
+- Attaching an account is not a profile edit: preserve its clock and hydrate the account before draining guest/default profile writes. Normalize nullable avatar defaults and queued rows alike. Editor baselines isolate deliberate field changes from stale pre-hydration values. Stage core/privacy intent together before local save, surface failure without dismissing, and retain account-bound intent across same-owner sign-out. Retrying a reverted draft must replace abandoned staged values; a different owner must never inherit that intent or queue.

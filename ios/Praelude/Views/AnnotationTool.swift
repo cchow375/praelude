@@ -20,7 +20,7 @@ enum AnnotationToolKind: String, CaseIterable, Identifiable, Sendable {
         case .eraser: return "Eraser"
         case .lasso: return "Lasso"
         case .stamp: return "Stamp"
-        case .text: return "Text"
+        case .text: return "Sticky note"
         }
     }
     /// Stamp and text placement are handled by `ScorePageOverlay`'s own tap gesture, not by handing
@@ -34,7 +34,7 @@ enum AnnotationToolKind: String, CaseIterable, Identifiable, Sendable {
 /// Kept separate from `PraeludeColor` (`Design/DesignColor.swift`), which stays strictly monochrome
 /// for the app's own chrome; these are never used for anything but ink the person actually draws.
 enum AnnotationColor: String, CaseIterable, Identifiable, Codable, Sendable {
-    case graphite, red, blue, green
+    case graphite, red, blue, green, purple, orange
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -42,6 +42,8 @@ enum AnnotationColor: String, CaseIterable, Identifiable, Codable, Sendable {
         case .red: return "Red pencil"
         case .blue: return "Blue pencil"
         case .green: return "Green pencil"
+        case .purple: return "Purple pencil"
+        case .orange: return "Orange pencil"
         }
     }
     /// Pinned, not dynamic — like `PraeludeColor.scoreInk`, this must read the same in light and
@@ -53,6 +55,8 @@ enum AnnotationColor: String, CaseIterable, Identifiable, Codable, Sendable {
         case .red: return UIColor(red: 0.675, green: 0.153, blue: 0.129, alpha: 1)
         case .blue: return UIColor(red: 0.129, green: 0.271, blue: 0.675, alpha: 1)
         case .green: return UIColor(red: 0.169, green: 0.404, blue: 0.216, alpha: 1)
+        case .purple: return UIColor(red: 0.47, green: 0.24, blue: 0.65, alpha: 1)
+        case .orange: return UIColor(red: 0.80, green: 0.36, blue: 0.07, alpha: 1)
         }
     }
     var color: Color { Color(uiColor) }

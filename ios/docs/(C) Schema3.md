@@ -1,5 +1,13 @@
 # (C) Schema3 — the on-device data model
 
+**Build5/schema5 extension (October2,2026):** the model below is the baseline. Pieces additionally
+carry reviewed scoreSections/measureAnchors/defaultPracticeBPM; goals and routines carry durable
+createdAt/updatedAt/deletedAt; Preferences has a backward-compatible clock and score controls.
+Schema5 migrations preserve exact originals and backups use version4. See
+[the shared platform contract](../../docs/PLATFORM_DATA_CONTRACT.md) and current Core models for
+wire/deletion compatibility. Historical schema3 details below remain their original baseline.
+
+
 Schema3 is `ios/Praelude/Core`'s on-disk `library.json` format (`LibraryState.schemaVersion == 3`).
 It replaces schema2 (1.1.0/build2, the version currently installed on the physical iPad) with a
 model every later feature track — instruments, library organization, passages/scheduling, practice

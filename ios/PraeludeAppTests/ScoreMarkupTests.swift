@@ -84,7 +84,8 @@ final class ScoreMarkupTests: XCTestCase {
         overlay.frame = CGRect(x: 0, y: 0, width: 612, height: 792)
         overlay.layoutIfNeeded(); overlay.refresh()
         let point = CGPoint(x: 100, y: 100)
-        XCTAssertNil(overlay.hitTest(point, with: nil), "Reading fingers must reach PDFKit")
+        XCTAssertNotNil(overlay.hitTest(point, with: nil), "Unresolved initial UIKit hits must preserve the Pencil route")
+        XCTAssertEqual(overlay.canvas.drawingPolicy, .pencilOnly, "Finger navigation is handled by ancestor PDF gestures; the canvas must reject finger ink")
         state.begin(Passage(pieceID: UUID(), title: "Select")); overlay.refresh()
         XCTAssertTrue(overlay.hitTest(point, with: nil) === overlay)
         state.finish(); state.mode = .writing; state.fingerDrawing = true; overlay.refresh()
@@ -152,7 +153,8 @@ final class ScoreMarkupTests: XCTestCase {
         XCTAssertTrue(overlay.gestureRecognizerShouldBegin(overlay.selectionPan), "Quick box is drawn by dragging, unlike stamp/text placement")
 
         state.quickBoxArmed = false; overlay.refresh()
-        XCTAssertNil(overlay.hitTest(point, with: nil), "Disarming must return the page to plain reading navigation")
+        XCTAssertNotNil(overlay.hitTest(point, with: nil), "Disarming restores the unresolved Pencil hit route")
+        XCTAssertEqual(overlay.canvas.drawingPolicy, .pencilOnly)
     }
 
     /// Drives the same point-based logic `tap(_:)` calls (see `ScorePageOverlay.handleTap(at:)`) —
@@ -166,10 +168,16 @@ final class ScoreMarkupTests: XCTestCase {
         state.mode = .writing; state.tool.kind = .stamp; state.armedStamp = (.circle, nil); state.activeLayer = .mine
         overlay.refresh()
         var placed: (Int, NormalizedRect)?
-        overlay.onPlaceStamp = { placed = ($0, $1) }
+        overlay.onPlaceStamp = { placed = ($0, $1); return true }
         let point = CGPoint(x: 100, y: 120)
         overlay.handleTap(at: point)
+        XCTAssertNil(placed, "Tapping previews a stamp, without writing it before confirmation")
+        XCTAssertNotNil(state.stampDraft)
+        state.stampSize = 0.09; state.resizeStampPreview(); overlay.refresh()
+        overlay.commitStampDraft()
         let placedResult = try XCTUnwrap(placed)
+        XCTAssertEqual(placedResult.1.width, 0.09, accuracy: 0.000001)
+        XCTAssertNil(state.stampDraft)
         XCTAssertEqual(placedResult.0, 1)
         // The real placement (ScoreWorkspace.placeStamp) would now call store.saveStampAnnotation;
         // simulate that here so the *second* tap has something to hit.
@@ -210,6 +218,80 @@ final class ScoreMarkupTests: XCTestCase {
         overlay.handleTap(at: point)
         XCTAssertNil(placed, "A tap on an existing text box must reopen it, not place another")
         XCTAssertEqual(edited?.id, box.id)
+    }
+
+    @MainActor func testFailedStampPlacementRetainsPreviewAndCropCoordinates() throws {
+        let state = ScoreMarkupState()
+        state.mode = .writing; state.tool.kind = .stamp; state.armedStamp = (.fingering, "3")
+        let overlay = ScorePageOverlay(page: 7, markup: state)
+        overlay.frame = CGRect(x: 0, y: 0, width: 400, height: 500)
+        overlay.activeCrop = NormalizedRect(x: 0.25, y: 0.2, width: 0.5, height: 0.6)
+        overlay.layoutIfNeeded(); overlay.refresh()
+        overlay.handleTap(at: CGPoint(x: 200, y: 250))
+        let original = try XCTUnwrap(state.stampDraft)
+        XCTAssertEqual(original.position.x + original.position.width / 2, 0.5, accuracy: 0.000001)
+        XCTAssertEqual(original.position.y + original.position.height / 2, 0.5, accuracy: 0.000001)
+        overlay.onPlaceStamp = { _, _ in false }
+        overlay.commitStampDraft()
+        XCTAssertEqual(state.stampDraft?.position, original.position, "A failed durable write must leave the placed preview reviewable")
+        var placed = 0
+        overlay.onPlaceStamp = { _, _ in placed += 1; return true }
+        overlay.commitStampDraft(); overlay.commitStampDraft()
+        XCTAssertEqual(placed, 1, "A confirmed preview may write exactly once")
+        XCTAssertNil(state.stampDraft)
+    }
+
+    @MainActor func testReadingStickyNoteExpandsWithoutEditingOrBlockingOtherScorePoints() {
+        let state = ScoreMarkupState()
+        let overlay = ScorePageOverlay(page: 1, markup: state)
+        overlay.frame = CGRect(x: 0, y: 0, width: 600, height: 800)
+        let note = TextBoxAnnotation(pieceID: UUID(), page: 1,
+                                     region: NormalizedRect(x: 0.1, y: 0.1, width: 0.18, height: 0.035),
+                                     text: "Remember the A natural before changing position")
+        overlay.displayedTextBoxes = [note]; overlay.layoutIfNeeded(); overlay.refresh()
+        let point = CGPoint(x: 100, y: 90)
+        XCTAssertTrue(overlay.hitTest(point, with: nil) === overlay, "A note must be tappable while reading without changing tools")
+        var edited = false
+        overlay.onEditTextBox = { _ in edited = true }
+        overlay.handleTap(at: point)
+        XCTAssertEqual(overlay.expandedNoteID, note.id)
+        XCTAssertFalse(edited, "Reading opens the reminder; editing is a separate explicit action")
+        overlay.handleTap(at: point)
+        XCTAssertNil(overlay.expandedNoteID)
+        state.visibleLayers.remove(.mine); overlay.refresh()
+        XCTAssertFalse(overlay.containsNote(at: point), "Hidden note layers must not intercept navigation")
+    }
+
+    @MainActor func testHidingPassageBoxesRemovesHitsButDoesNotHideSelectionDraft() {
+        let state = ScoreMarkupState()
+        let overlay = ScorePageOverlay(page: 1, markup: state)
+        overlay.frame = CGRect(x: 0, y: 0, width: 600, height: 800)
+        let region = PassageRegion(page: 1, x: 0.1, y: 0.1, width: 0.2, height: 0.2)
+        overlay.displayedRegions = [region]
+        state.showPassageBoxes = false; overlay.refresh()
+        XCTAssertNil(overlay.passageRegion(at: CGPoint(x: 100, y: 100)))
+        state.begin(Passage(pieceID: UUID(), title: "Draft", regions: [region])); overlay.refresh()
+        XCTAssertEqual(overlay.passageRegion(at: CGPoint(x: 100, y: 100)), region.id)
+        XCTAssertTrue(overlay.gestureRecognizerShouldBegin(overlay.selectionDoubleTap))
+    }
+
+    @MainActor func testCorruptPendingDrawingStaysReadOnlyAfterOrdinaryRefresh() throws {
+        let markup = ScoreMarkupState()
+        let url = URL(fileURLWithPath: "/fixture.pdf")
+        markup.rememberInk(page: 1, data: Data([0xff, 0]), expected: nil, document: url)
+        markup.mode = .writing
+        let parent = PagedScoreView(url: url, page: .constant(1), twoPages: false, markup: markup,
+                                   drawingData: { _ in nil }, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator()
+        let page = try makePage()
+        let document = PDFDocument(); document.insert(page, at: 0)
+        let pdf = PDFView(); pdf.document = document
+        let overlay = try XCTUnwrap(coordinator.pdfView(pdf, overlayViewFor: page) as? ScorePageOverlay)
+        XCTAssertTrue(overlay.contentReadOnly)
+        coordinator.refreshOverlays()
+        XCTAssertTrue(overlay.contentReadOnly, "A refresh cannot erase the corrupt-byte recovery boundary")
+        XCTAssertFalse(overlay.canvas.isUserInteractionEnabled)
+        XCTAssertEqual(markup.pendingInk[1]?.data, Data([0xff, 0]), "Original unsaved bytes stay available for explicit recovery")
     }
 
     @MainActor private func makePage() throws -> PDFPage {
@@ -412,8 +494,9 @@ final class ScoreMarkupTests: XCTestCase {
         state.mode = .writing; state.tool.kind = .stamp; state.armedStamp = (.circle, nil)
         overlay.refresh()
         var placedAt: NormalizedRect?
-        overlay.onPlaceStamp = { _, position in placedAt = position }
+        overlay.onPlaceStamp = { _, position in placedAt = position; return true }
         overlay.handleTap(at: CGPoint(x: 150, y: 200))
+        overlay.commitStampDraft()
         let placed = try XCTUnwrap(placedAt)
         XCTAssertEqual(placed.x + placed.width / 2, 0.5, accuracy: 0.01, "A stamp placed at the crop's own center must be stored at the page's original center")
         XCTAssertEqual(placed.y + placed.height / 2, 0.5, accuracy: 0.01)

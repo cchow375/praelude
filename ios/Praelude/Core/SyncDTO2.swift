@@ -10,17 +10,8 @@ import Foundation
 // for the remaining tables registered in `public.sync_tables`/`public.append_only_tables` that
 // `supabase/(C) Sync Protocol.md` §5 documents but no DTO existed for yet.
 //
-// Deliberately NOT covered here: `practice_goals`, `practice_routines`. Core's `PracticeGoal`/
-// `PracticeRoutine` (`Models.swift`) carry no `createdAt`/`updatedAt`/`deletedAt` at all, and
-// `deleteGoal`/`deleteRoutine` hard-remove rather than tombstone — the same "would need auditing
-// every View that lists it" situation `Schema3.md` already documents for `deletePassage`, and left
-// open for the same reason: a Core-only DTO/plumbing change here must not silently start hard-deletes
-// reappearing as "removed on this device, immortal in the cloud", nor start listing views a phantom
-// tombstoned goal. Flagged as a known remaining gap, not silently skipped — see the final report for
-// this pass. `practice_sessions` (see `PracticeSessionSyncRow` below) IS covered, despite the same
-// missing-Core-metadata shape as those two — unlike them, it has no delete flow to worry about, and
-// `sets.session_id`'s hard FK makes it a load-bearing dependency of the reps path this pass exists
-// to wire, not an optional extra.
+// Practice goals/routines use explicit clocks and tombstones, like the other editable library
+// records. Legacy local metadata is backfilled during schema migration before its first push.
 
 // MARK: Library organization (`tags`, `folders`, `setlists`, `bookmarks`, `page_edits`,
 // `score_links`, `annotations` — spec §7)
@@ -507,4 +498,41 @@ public struct BreakPointTapSyncRow: Codable, Equatable, Sendable {
     public var location: NormalizedRect?
     public init(_ tap: BreakPointTap) { id = tap.id; passage_id = tap.passageID; date = tap.date; location = tap.location }
     public var coreValue: BreakPointTap { BreakPointTap(id: id, passageID: passage_id, date: date, location: location) }
+}
+
+// MARK: Goals and reusable practice routines
+
+public struct PracticeGoalSyncRow: Codable, Equatable, Sendable {
+    public var id: UUID
+    public var title: String
+    public var piece_id: UUID?
+    public var due_date: Date?
+    public var is_complete: Bool
+    public var created_at: Date
+    public var updated_at: Date
+    public var deleted_at: Date?
+    public init(_ goal: PracticeGoal) {
+        id = goal.id; title = goal.title; piece_id = goal.pieceID; due_date = goal.dueDate
+        is_complete = goal.isComplete; created_at = goal.createdAt; updated_at = goal.updatedAt; deleted_at = goal.deletedAt
+    }
+    public var coreValue: PracticeGoal {
+        PracticeGoal(id: id, title: title, pieceID: piece_id, dueDate: due_date, isComplete: is_complete,
+                     createdAt: created_at, updatedAt: updated_at, deletedAt: deleted_at)
+    }
+}
+
+public struct PracticeRoutineSyncRow: Codable, Equatable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var stages: [VariantStage]
+    public var created_at: Date
+    public var updated_at: Date
+    public var deleted_at: Date?
+    public init(_ routine: PracticeRoutine) {
+        id = routine.id; name = routine.name; stages = routine.stages
+        created_at = routine.createdAt; updated_at = routine.updatedAt; deleted_at = routine.deletedAt
+    }
+    public var coreValue: PracticeRoutine {
+        PracticeRoutine(id: id, name: name, stages: stages, createdAt: created_at, updatedAt: updated_at, deletedAt: deleted_at)
+    }
 }

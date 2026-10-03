@@ -94,8 +94,8 @@ final class FullPDFHitRoutingTests: XCTestCase {
         XCTAssertTrue(loadedPDF.bounds.contains(point), "Choose a point visibly inside the score")
         let readingHit = loadedPDF.hitTest(point, with: nil)
         XCTAssertNotNil(readingHit)
-        XCTAssertFalse(readingHit === pageOverlay || readingHit?.isDescendant(of: pageOverlay) == true,
-                       "Reading fingers must still reach native PDF navigation")
+        XCTAssertTrue(readingHit === pageOverlay.canvas || readingHit?.isDescendant(of: pageOverlay.canvas) == true,
+                      "An unresolved UIKit hit must reach PencilKit; its pencilOnly recognizer rejects finger ink while ancestor PDF navigation remains enabled")
 
         markup.begin(Passage(pieceID: UUID(), title: "Draw target"))
         try await Task.sleep(for: .milliseconds(100))
@@ -128,7 +128,7 @@ final class FullPDFHitRoutingTests: XCTestCase {
         XCTAssertTrue(pinch.isEnabled)
         XCTAssertTrue(pdfScrollViews.allSatisfy { $0.panGestureRecognizer.isEnabled })
         let navigationHit = loadedPDF.hitTest(point, with: nil)
-        XCTAssertFalse(navigationHit === pageOverlay || navigationHit?.isDescendant(of: pageOverlay) == true,
-                       "Pencil-only mode must return finger input to PDF navigation")
+        XCTAssertTrue(navigationHit === pageOverlay.canvas || navigationHit?.isDescendant(of: pageOverlay.canvas) == true,
+                      "A nil-event first hit must keep Apple Pencil eligible without enabling finger drawing")
     }
 }

@@ -544,4 +544,79 @@ final class SyncCoverageTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: receiver.fileURL), previous)
     }
 
+    func testGoalAndRoutineDTOsRoundTripEveryEditableFieldAndTombstone() throws {
+        let created = Date(timeIntervalSince1970: 1_700_000_000)
+        let changed = created.addingTimeInterval(100)
+        let goal = PracticeGoal(title: "Opening from memory", pieceID: UUID(), dueDate: changed,
+            isComplete: true, createdAt: created, updatedAt: changed, deletedAt: changed)
+        let routine = PracticeRoutine(name: "Hands", stages: PracticeTechnique.hands.stages(targetCount: 7),
+            createdAt: created, updatedAt: changed, deletedAt: changed)
+        XCTAssertEqual(try SyncJSON(encoding: PracticeGoalSyncRow(goal)).decoded(as: PracticeGoalSyncRow.self).coreValue, goal)
+        XCTAssertEqual(try SyncJSON(encoding: PracticeRoutineSyncRow(routine)).decoded(as: PracticeRoutineSyncRow.self).coreValue, routine)
+    }
+
+    func testGoalAndRoutineSnapshotSyncConvergesEditsAndDeletionWithoutResurrection() async throws {
+        let directory = directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var clock = Date(timeIntervalSince1970: 1_700_000_000)
+        let source = PracticeStore(directory: directory.appendingPathComponent("A"), now: { clock })
+        let target = PracticeStore(directory: directory.appendingPathComponent("B"))
+        let server = FakeSyncServer()
+        let writer = SyncEngine(transport: FakeSyncTransport(server: server), directory: directory.appendingPathComponent("ASync"))
+        let reader = SyncEngine(transport: FakeSyncTransport(server: server), directory: directory.appendingPathComponent("BSync"))
+        let piece = Piece(title: "Sonata")
+        try source.addPiece(piece)
+        let goal = PracticeGoal(title: "Opening", pieceID: piece.id, dueDate: clock.addingTimeInterval(3600), createdAt: clock, updatedAt: clock)
+        let routine = PracticeRoutine(name: "Hands", stages: PracticeTechnique.hands.stages(), createdAt: clock, updatedAt: clock)
+        try source.saveGoal(goal); try source.saveRoutine(routine)
+        func pull() async throws {
+            try await reader.pull(table: "pieces") { row in
+                try target.applySyncedPiece(try XCTUnwrap(SyncJSON.object(row).decoded(as: PieceSyncRow.self).coreValue))
+            }
+            try await reader.pull(table: "practice_goals") { row in
+                let value = try SyncJSON.object(row).decoded(as: PracticeGoalSyncRow.self).coreValue
+                if LastWriteWins.shouldApplyPulled(pulledUpdatedAt: value.updatedAt,
+                    localUpdatedAt: target.state.goals.first { $0.id == value.id }?.updatedAt ?? .distantPast) {
+                    try target.applySyncedGoal(value)
+                }
+            }
+            try await reader.pull(table: "practice_routines") { row in
+                let value = try SyncJSON.object(row).decoded(as: PracticeRoutineSyncRow.self).coreValue
+                if LastWriteWins.shouldApplyPulled(pulledUpdatedAt: value.updatedAt,
+                    localUpdatedAt: target.state.routines.first { $0.id == value.id }?.updatedAt ?? .distantPast) {
+                    try target.applySyncedRoutine(value)
+                }
+            }
+        }
+        try writer.enqueueLibrarySnapshot(source.state)
+        let firstDrain = await writer.drain(); XCTAssertTrue(firstDrain)
+        try await pull()
+        XCTAssertEqual(target.state.goals, source.state.goals); XCTAssertEqual(target.state.routines, source.state.routines)
+        let staleGoal = try XCTUnwrap(target.state.goals.first)
+        let staleRoutine = try XCTUnwrap(target.state.routines.first)
+        clock = clock.addingTimeInterval(100)
+        var editedGoal = staleGoal; editedGoal.isComplete = true; editedGoal.title = "Opening memorized"
+        var editedRoutine = staleRoutine; editedRoutine.stages = PracticeTechnique.leftHand.stages(targetCount: 9)
+        try source.saveGoal(editedGoal); try source.saveRoutine(editedRoutine)
+        try writer.enqueueLibrarySnapshot(source.state)
+        let editDrain = await writer.drain(); XCTAssertTrue(editDrain)
+        try await pull()
+        XCTAssertEqual(target.state.goals.first?.title, "Opening memorized")
+        XCTAssertEqual(target.state.routines.first?.stages.first?.targetCount, 9)
+        clock = clock.addingTimeInterval(100)
+        try source.deleteGoal(goal.id); try source.deleteRoutine(routine.id)
+        try writer.enqueueLibrarySnapshot(source.state)
+        let deleteDrain = await writer.drain(); XCTAssertTrue(deleteDrain)
+        try await pull()
+        XCTAssertEqual(target.state.goals, source.state.goals); XCTAssertEqual(target.state.routines, source.state.routines)
+        XCTAssertNotNil(target.state.goals.first?.deletedAt); XCTAssertNotNil(target.state.routines.first?.deletedAt)
+        try reader.enqueueUpsert(table: "practice_goals", row: try XCTUnwrap(SyncJSON(encoding: PracticeGoalSyncRow(staleGoal)).objectValue))
+        try reader.enqueueUpsert(table: "practice_routines", row: try XCTUnwrap(SyncJSON(encoding: PracticeRoutineSyncRow(staleRoutine)).objectValue))
+        let staleDrain = await reader.drain(); XCTAssertTrue(staleDrain)
+        try await pull()
+        XCTAssertNotNil(target.state.goals.first?.deletedAt); XCTAssertNotNil(target.state.routines.first?.deletedAt)
+        let reopened = PracticeStore(directory: target.fileURL.deletingLastPathComponent())
+        XCTAssertEqual(reopened.state.goals, source.state.goals); XCTAssertEqual(reopened.state.routines, source.state.routines)
+    }
+
 }

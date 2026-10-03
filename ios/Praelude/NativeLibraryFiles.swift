@@ -147,7 +147,8 @@ struct NativeLibraryFiles {
         // Older readers must refuse before writing rather than discard durable new semantics.
         let hasTempoChanges = snapshot.activeSet?.configuration.tempoChanges.isEmpty == false
             || snapshot.history.contains { !$0.configuration.tempoChanges.isEmpty }
-        let version = hasTempoChanges ? 3 : (recordings.isEmpty && desktopArchives.isEmpty ? 1 : 2)
+        let hasScoreMetadata = snapshot.schemaVersion >= 5
+        let version = hasScoreMetadata ? 4 : hasTempoChanges ? 3 : (recordings.isEmpty && desktopArchives.isEmpty ? 1 : 2)
         let payload = NativeBackup(version: version, library: snapshot, scores: files, covers: covers, desktopArchives: desktopArchives, recordings: recordings)
         let data = try JSONEncoder().encode(payload)
         guard data.count <= 280_000_000 else { throw PracticeError.invalid("This library exceeds the supported 280 MB backup size.") }
@@ -157,7 +158,7 @@ struct NativeLibraryFiles {
         guard data.count <= 280_000_000 else { throw PracticeError.invalid("Choose a Praelude backup smaller than 280 MB.") }
         guard store.activeSet == nil else { throw PracticeError.conflict("Finish your current set before restoring a backup.") }
         var backup = try JSONDecoder().decode(NativeBackup.self, from: data)
-        guard (1...3).contains(backup.version) else { throw PracticeError.invalid("This backup needs a newer version of Praelude.") }
+        guard (1...4).contains(backup.version) else { throw PracticeError.invalid("This backup needs a newer version of Praelude.") }
         try PracticeStore.validate(backup.library)
         for stroke in backup.library.inkStrokes where stroke.deletedAt == nil { try Self.validateDrawing(stroke.data) }
         try FileManager.default.createDirectory(at: scoresDirectory, withIntermediateDirectories: true)

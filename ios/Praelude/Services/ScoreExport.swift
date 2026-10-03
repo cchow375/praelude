@@ -193,7 +193,7 @@ import UIKit
     }
     private static func renderedImage<V: View>(_ view: V, size: CGSize) -> CGImage? {
         guard size.width > 0, size.height > 0, size.width.isFinite, size.height.isFinite else { return nil }
-        let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height))
+        let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height).environment(\.colorScheme, .light))
         renderer.scale = 3
         return renderer.cgImage
     }

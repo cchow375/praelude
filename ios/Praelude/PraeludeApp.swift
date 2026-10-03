@@ -125,6 +125,7 @@ struct PraeludeApp: App {
     }
     private var syncedRoot: some View {
         practiceObservedRoot
+            .onChange(of: store.state.revision) { _, _ in syncCoordinator.scheduleLibrarySync() }
             .onChange(of: store.state.history.count) { _, _ in syncCoordinator.syncMostRecentFinishedSet() }
             .onChange(of: store.state.recordings.count) { _, _ in syncCoordinator.syncNewestRecording() }
             .onChange(of: auth.state) { _, state in

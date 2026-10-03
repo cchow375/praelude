@@ -1,8 +1,28 @@
 # Mobile candidate changes
 
-## October 2 follow-up — build4 practice polish
+## October2 build5 — score workflow and shared data
 
-Current source is **2.0.0/build4/schema4**, a development candidate. Search saved passages by name;
+**Mobile current source (2026-10-02): 2.0.0/build5, schema5, DEVELOPMENT CANDIDATE.** Christian's physical build4 feedback drives this round: Pencil did not draw without finger mode, black marks/stamps were invisible, annotation could freeze during a set, passage navigation was slow and ambiguous, and score chrome took too much space. Build5 implements fixes and new controls; physical build5 installation/Pencil acceptance is not established.
+
+**Score workflow:** a visible Library exit and compact bottom Practice / Select / Draw controls; passage Done at the bottom or score double-tap; distinct editable passage colors and an account-synced hide-boxes setting. Entering annotation retains the active set and its saved progress. PencilKit uses paper-light traits and deferred responder setup; finger navigation and optional finger drawing remain separate. Stamps have movable sized previews and a magnifier before Place. Yellow note chips expand locally with Edit/Close; failed saves retain the note text or stamp preview.
+
+**Organization:** reviewed movement/book page ranges keep source PDFs, marks and history anchored while labels restart at section page1. PDF contents/bookmarks suggest sections; local Vision offers printed-number hints for review. Users confirm a measure or system region and its first/last numbers; newly drawn boxes inherit confirmed ranges, and older unlabeled passage/history displays derive fully covered confirmed ranges without rewriting snapshots. This is assisted mapping, not automatic optical music recognition. Passage lists group by page, sort measure numbers, and use bounded background thumbnail caches; history shows meaningful locations.
+
+**Practice:** per-piece default tempo, visible pre-start metronome On/Off, stable Techniques with explicit Left hand/Right hand, less dock padding, a compact initial practice readout and width-fit Focus. Notebook New note opens directly. Rank progress leads Rewards; Studio stays secondary.
+
+**Sync and preservation:** native profiles/privacy, instruments, practice records, score marks, goals/routines with deletion tombstones, movement/measure metadata, default tempo, account preferences and private score/recording/cover files have shared Supabase contracts. First sign-in reads the account before publishing defaults. Name/photo/privacy edits stage durably before local save and remain recoverable through failed saves, concurrent hydration, reverted retries and same-account sign-out. Local edits request debounced sync; unchanged remote adoption does not rewrite the ledger. Canonical lowercase owner-folder UUIDs fix a file-policy mismatch. Absent SQL columns and unknown preference keys survive older clients; other nested schemas remain versioned. Nullable clears remain explicit. Schema5 preserves the exact old ledger; backups require version4. Hardware permissions/audio state stay device-local.
+
+**Mac boundary:** the additive read-only snapshot transfer still preserves all46 original Mac tables and history/contracts, without replaying them under mobile rules or granting rewards. The original Mac archive stays local and in native backups. Continuous Mac↔native synchronization still needs a desktop adapter; the installed Tauri product is unchanged. Future clients must follow the shared ownership, source-page, LWW and append-only contracts.
+
+**Installed-device boundary:** physical iPad remains2.0.0/build4/schema4, opened by Christian after the October2 guarded install with all seven original library files matched exactly. His new Pencil/freeze feedback is direct physical evidence of defects, not acceptance of build5. Build5 verification is tracked in `docs/qa/ios/2.0.0/score-workflow.md`; real Pencil/piano use and real-account/two-device acceptance remain open.
+
+**Build5 verification:** 385 core tests, 2,211 service assertions and 54 Python tests pass; the final native app-hosted run executes 193 tests with one live-account test skipped and zero failures. Seven distinct iPad and five phone UI cases pass across scoped runs. Final arm64 device Release compiles with fixture flags/test plug-ins absent; no physical update occurred. Exact evidence and remaining acceptance are in `docs/qa/ios/2.0.0/score-workflow.md`.
+
+**Next steps:** guarded same-bundle build5 update when the iPad is connected and no set is open. Verify Pencil, black ink, sustained annotation during practice, reviewed movement/measure mapping and actual second-device continuity. Continuous desktop sync needs its separate adapter; Assistant remains on hold.
+
+## Historical October2 build4/schema4 — practice polish before installation
+
+At this historical boundary, source was **2.0.0/build4/schema4**, a development candidate. Search saved passages by name;
 passages on the current source page appear first. Switching away from a running set requires an
 explicit Finish and switch; Cancel keeps the current target. Setup and optional Techniques are
 available before the first-attempt grade. Editable choices include rhythm pairs, hands separately
@@ -27,22 +47,23 @@ older ledger before migrating; tempo histories require backup version3. Older ap
 local formats; participating sync clients must be current. See the [follow-up QA](../../docs/qa/ios/2.0.0/practice-polish.md)
 for verification and remaining hardware/backend limits.
 
-**Next steps:** finish current-source native/Release checks, guarded same-bundle update, then the
-musician-controlled Mac import and actual piano-session/two-device acceptance.
+**Next steps at that build4 boundary:** finish native/Release checks and the guarded update, then
+the musician-controlled Mac import and actual piano-session/two-device acceptance. The later
+installation and first-open records below supersede the build4 installation/launch gates.
 
-## October 2, 2026 — 2.0 candidate transfer and practicality
+## Historical October2 build4 source / installed build3 — transfer and practicality
 
-**Mobile current source (2026-10-02): 2.0.0/build4, schema4, DEVELOPMENT CANDIDATE.** The current SwiftUI app includes a configured Supabase backend, accounts, mobile sync/private score storage, multi-instrument practice, expanded score tools, warmups, history, notebooks, rewards and social views. These source capabilities supersede the September 14 1.1 description; they do not establish a new physical installation or hardware acceptance.
+**Source at this October2 boundary: 2.0.0/build4, schema4, DEVELOPMENT CANDIDATE.** The SwiftUI source included a configured Supabase backend, accounts, mobile sync/private score storage, multi-instrument practice, expanded score tools, warmups, history, notebooks, rewards and social views. These source capabilities supersede the September 14 1.1 description; they do not establish a new physical installation or hardware acceptance.
 
 **Mac library transfer:** a new read-only SQLite exporter and additive native importer preserve the complete original Mac database plus all 46 table projections. The private October 2 snapshot contains 11 piece rows (one system row), 13 distinct PDFs/14 edition paths, 140 passages, 31 goals, 3,313 repetitions, 370 sets and 67 sessions. One score, “Aolean Harp Contemporary,” is missing from the Mac; its records and missing reference are retained. Available stale-path scores are recovered through the current piece folders, with warnings. The original Mac database is not changed or uploaded.
 
-Imported scores, equivalent passages/goals and matching pencil marks become native content; original Mac history/contracts/corrections remain readable under **Progress → Mac practice record** and travel with native backups. Old sets are not replayed through different mobile rules and do not grant new rewards. This is a reviewed snapshot transfer, not continuous Mac↔iOS sync or complete semantic parity. Supabase sync covers supported native records and private PDFs/recordings; goals/routines, custom cover bytes and the original Mac archive are not cloud-wired.
+Imported scores, equivalent passages/goals and matching pencil marks become native content; original Mac history/contracts/corrections remain readable under **Progress → Mac practice record** and travel with native backups. Old sets are not replayed through different mobile rules and do not grant new rewards. This is a reviewed snapshot transfer, not continuous Mac↔iOS sync or complete semantic parity. Supabase sync covers supported native records and private PDFs/recordings. At that build4 boundary, goals/routines and custom cover bytes were not cloud-wired; the original Mac archive remained local. Build5 adds goals/routines and private-cover sync, while the original archive stays local.
 
 **Practicality fixes:** compact practice controls fit narrow screens; acknowledgements do not resize the score; passage-page turning after verdicts is opt-in; Today launches the first warmup in its plan; phone navigation has four main tabs plus a deliberate More; first voice-check dismissal starts requested hands-free listening; Performance mode explains its exit gesture. Native backup now includes recording files and preserved Mac archives. Sync gains paginated reads, guest-library catch-up, local-save retry, remote Undo, file retries and account isolation. Full source/core checks and scoped native evidence are in `docs/qa/ios/2.0.0/README.md`.
 
-**Device boundary:** October 2 initially found no connected device. After Xcode preparation, the plugged-in iPad is ready and its installed 2.0.0/build3 is confirmed. No physical install, migration, Mac-data upload, real-account/two-device sync, or microphone-over-piano acceptance is claimed. The current installed build3 was observed read-only after Xcode preparation; this does not establish current hardware or account acceptance. The prior September14 installation/preservation record remains historical.
+**Device boundary at that pre-install check:** October2 initially found no connected device; after Xcode preparation, read-only inventory confirmed installed 2.0.0/build3. That observation did not establish migration, Mac import, account sync or piano acceptance. The later October2 install/first-open records establish installed build4/schema4; build5 remains a source candidate.
 
-**Next steps:** connect/unlock the iPad for a guarded same-bundle update, then import the reviewed transfer from Files. Confirm score boxes/ink and history on hardware, sign into the intended account, and verify a real second-device sync before trusting cross-device continuity. Mac integration remains a separate adapter; Assistant remains on hold.
+**Next steps at that pre-install boundary:** connect/unlock the iPad for the guarded build4 update, then import the reviewed transfer from Files. Confirm score boxes/ink and history on hardware, sign into the intended account, and verify a real second-device sync before trusting cross-device continuity. Mac integration remains a separate adapter; Assistant remains on hold.
 
 
 This is the mutable native development history. It does not change shipped Mac version records or
@@ -117,16 +138,23 @@ records remain unchanged at [the 1.0 ledger](../../docs/qa/ios/README.md#histori
 **Next steps:** retain the baseline as history and use the current candidate's QA and safe update
 workflow; historical passes do not become new-version acceptance automatically.
 
-## October2 physical update at19:14 EDT
+## Historical October2 19:14 EDT — build4 installed, before first open
 
-2.0.0/build4 is installed over the existing iPad app. All seven original library files match complete
-pre/post-install copies exactly. The pre-launch ledger is schema3; current-data migration rehearsal
-preserved all3,447 scalar values and the exact original file. iOS denied automatic launch: unlock and
-tap Praelude, completing Developer App trust only if prompted. Actual launch/schema4 migration and
-physical piano acceptance remain pending. No Mac import. Further phone acceptance is deferred at
-Christian's explicit request to get the app onto the iPad now. Signed Release excludes test fixtures;
+At 19:14 EDT, 2.0.0/build4 was installed over the existing iPad app. All seven original library files matched complete
+pre/post-install copies exactly. The pre-launch ledger was schema3; current-data migration rehearsal
+preserved all3,447 scalar values and the exact original file. iOS denied automatic launch. At that pre-launch boundary, the next step was to unlock and tap
+Praelude, completing Developer App trust only if prompted; launch/schema4 migration and physical
+piano acceptance were unverified. The first-open follow-up below supersedes the launch/migration gate. Mac import had not run. Further phone acceptance was deferred at
+Christian's explicit request to get build4 onto the iPad then. Signed Release excludes test fixtures;
 Core356, service2211, Python53, native runtime12 and largest-text300BPM checks pass.
 
-**Next steps:** open the installed app and practice; import the reviewed Mac transfer afterward.
+**Next steps at that pre-launch boundary:** open build4 and practice, then import the reviewed Mac
+transfer. The first-open follow-up below establishes launch/schema4; Mac import and hardware
+acceptance remain separate.
 
-**First-open follow-up:** Christian opened the installed app without a trust prompt. Read-only verification confirms2.0.0/build4, schema4, three existing mobile pieces and ten historical sets. Mac import remains pending; piano/audio/two-device acceptance remains separate.
+## October2 build4/schema4 — verified first-open follow-up
+
+Christian opened the installed app without a trust prompt. Read-only verification confirmed 2.0.0/build4/schema4 with three existing mobile pieces and ten historical sets. Mac import remains pending; piano/audio/two-device acceptance remains separate.
+
+**Next steps:** complete build5 verification and a guarded update, then physical Pencil/piano and
+real-account/two-device acceptance. Import the reviewed Mac transfer when Christian is ready.

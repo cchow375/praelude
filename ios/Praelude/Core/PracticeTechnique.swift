@@ -3,11 +3,13 @@ import Foundation
 /// Optional, musician-chosen ways to work on a passage. These are instructions for the player,
 /// never audio analysis, tempo automation or a prescription. Every applied chain remains editable.
 public enum PracticeTechnique: String, CaseIterable, Identifiable, Sendable {
-    case rhythmPair, hands, overlap, slowConnection, articulation, memory
+    case rhythmPair, rightHand, leftHand, hands, overlap, slowConnection, articulation, memory
     public var id: String { rawValue }
     public var title: String {
         switch self {
         case .rhythmPair: "Rhythm pair"
+        case .rightHand: "Right hand"
+        case .leftHand: "Left hand"
         case .hands: "Hands then together"
         case .overlap: "Work on the join"
         case .slowConnection: "Slow and connected"
@@ -18,6 +20,8 @@ public enum PracticeTechnique: String, CaseIterable, Identifiable, Sendable {
     public var instruction: String {
         switch self {
         case .rhythmPair: "For an even-note run, try long–short, then short–long. Finish with the written rhythm. Keep the grouping you want to hear."
+        case .rightHand: "Work on the right hand alone. Listen to its line and pulse before returning to both hands."
+        case .leftHand: "Work on the left hand alone. Listen to its line and pulse before returning to both hands."
         case .hands: "Try each hand, then bring them together. Listen for the same pulse and phrase when the second hand returns."
         case .overlap: "Mark a short spot across the difficult join, including notes on both sides. Practice the connection, then return to the longer phrase."
         case .slowConnection: "Choose a tempo where you can connect the notes deliberately. Keep listening to the phrase; this choice does not change your tempo."
@@ -28,6 +32,8 @@ public enum PracticeTechnique: String, CaseIterable, Identifiable, Sendable {
     public var stageNames: [String] {
         switch self {
         case .rhythmPair: ["Long–short", "Short–long", "As written"]
+        case .rightHand: ["Right hand"]
+        case .leftHand: ["Left hand"]
         case .hands: ["Right hand", "Left hand", "Together"]
         case .overlap: ["Connect the join", "In the phrase"]
         case .slowConnection: ["Slow and connected", "As written"]
@@ -59,8 +65,8 @@ extension PracticeConfiguration {
             return "\(targetCount) \(basis == .cleanStreak ? "clean" : "plays")"
         }
         if Set(stages.map(\.targetCount)).count == 1, let count = stages.first?.targetCount {
-            return "\(stages.count) stages · \(count) clean each"
+            return "\(stages.count) \(stages.count == 1 ? "stage" : "stages") · \(count) clean each"
         }
-        return "\(stages.count) stages · individual targets"
+        return "\(stages.count) \(stages.count == 1 ? "stage" : "stages") · individual targets"
     }
 }

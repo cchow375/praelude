@@ -1,6 +1,13 @@
-# (C) Sync Protocol — schema3 ↔ Supabase
+# (C) Sync Protocol — native schema5 ↔ Supabase
 
-This is the contract the iOS client integration track needs to talk to this backend. It assumes
+Current build5 additions: owner-keyed `account_preferences`; goals/routines are now wired in the
+native client with durable edit/deletion clocks; piece rows include `score_sections`,
+`measure_anchors` and nullable `default_practice_bpm`. Private `covers` joins score/recording/avatar
+storage. See [the shared platform contract](../docs/PLATFORM_DATA_CONTRACT.md) for current coverage
+and the separate future Mac adapter boundary. Hosted migrations24–27 and rollback-only checks were
+applied October2. Physical two-device acceptance remains open.
+
+This is the contract the native client integration track needs to talk to this backend. It assumes
 familiarity with `ios/docs/(C) Schema3.md` (the on-device model this mirrors) and does not repeat
 that document's rationale, only the parts a client author needs to get the wire format exactly
 right on the first try. Everything here was verified against a live Swift toolchain and a live copy
@@ -13,7 +20,7 @@ Registered in `public.sync_tables` (whole-row last-write-wins) or `public.append
 (insert-only): every schema3 collection in `LibraryState` — `pieces`, `passages`, `ink_strokes`,
 `tags`, `folders`, `setlists`, `bookmarks`, `page_edits`, `score_links`, `annotations`,
 `warmup_exercises`, `audio_recordings`, `notebook_entries`, `practice_goals`, `practice_routines`,
-`rule_settings`, `rewards_state`, `practice_sessions`, `sets`, plus `instruments` (spec §6) and
+`rule_settings`, `rewards_state`, `account_preferences`, `practice_sessions`, `sets`, plus `instruments` (spec §6) and
 `profiles` (spec §4c) — and the append-only logs `attempts`, `rule_events`, `reward_ledger`,
 `badges`, `milestone_events`, `cold_grades`, `break_point_taps`.
 
@@ -31,13 +38,16 @@ All are `SECURITY DEFINER`, callable only by `authenticated`, and force `owner_i
 `profiles`) to the caller's own `auth.uid()` server-side regardless of what the payload says.
 
 - **`sync_upsert(p_table text, p_row jsonb) → jsonb`** — whole-row upsert for anything in
-  `sync_tables`. `p_row` must be the _entire_ record (every column that table has, using the exact
-  names in §3 below), including `updated_at` (and `id`, unless the table is one of the two
-  owner-keyed singletons — `rule_settings`, `rewards_state` — or `profiles`, where the row's key is
+  `sync_tables`. `p_row` must include every field that client understands (using the exact
+  names in §3 below). Absent SQL keys retain existing values/defaults, protecting fields introduced
+  by newer clients. Explicit null clears a nullable value; explicit [] clears an array. The native
+  queue adds null only for its known nullable fields. Unknown future keys must remain absent. Send
+  required insert fields even when updating an existing record, including `updated_at` (and `id`, unless the table is one of the three
+  owner-keyed singletons — `rule_settings`, `rewards_state`, `account_preferences` — or `profiles`, where the row's key is
   always the caller's own id and `id`/`owner_id` may be omitted). Returns
   `{"applied": true, "row": <the stored row now>}` when the write took effect (including a plain
   insert), or `{"applied": false, "row": <the server's current row>}` when a stored `updated_at` was
-  already `>=` the incoming one — **adopt the returned row**, don't retry with the same payload. This
+  already `>` the incoming one — **adopt the returned row**, don't retry with the same payload. This
   decision is made atomically (a conditional `ON CONFLICT ... DO UPDATE ... WHERE`), not by a
   check-then-write race, so two devices pushing the same record at once resolve correctly regardless
   of which HTTP request happens to arrive last.
@@ -143,3 +153,26 @@ there); jsonb columns are opaque per §3.
 | `rule_settings`, `rewards_state`                                                                            | Owner-keyed singleton — no `id` column; `sync_upsert` targets them by the caller's own uid                                                                                                                                                                                                                            |
 | `attempts`, `rule_events`, `cold_grades`, `break_point_taps`, `reward_ledger`, `badges`, `milestone_events` | Append-only: no `updated_at`/`deleted_at` at all — don't send them                                                                                                                                                                                                                                                    |
 | `profiles`                                                                                                  | Superset of Core's `Profile` (spec §4c fields Core doesn't mirror locally — `age_bracket`, `is_private_account`, `leaderboard_opt_out`, `upcoming_performances`, `privacy_presence`, `privacy_notes` — are backend-only; the iOS integration track needs its own DTO for the full shape, not `Core.Profile` directly) |
+
+## Build5 organization and preferences wire additions
+
+`pieces.score_sections` and `pieces.measure_anchors` are non-null JSON arrays (defaults []), with
+source-page coordinates and Codable model field names. `default_practice_bpm` is nullable20–300.
+Presence distinguishes a legacy absent tempo key from a represented null clear. Current DTOs carry
+all three; older payloads preserve their server/local existing values.
+
+`account_preferences` is owner-keyed, with `preferences` JSON object and `created_at`/`updated_at`
+UTC clocks. Owner SELECT/INSERT/UPDATE policies and generic RPC registration apply; no anonymous
+access. Normalize nested `preferences.updatedAt` to the winning row clock on decode. Fresh-device
+defaults do not overwrite a received account preference row. Ordinary local edits trigger a
+debounced library snapshot, while unchanged durable transactions do not advance revision/clock.
+
+Private file paths use lowercase UUIDs to match PostgreSQL `auth.uid()::text` owner policies.
+Custom covers use immutable reference filenames; metadata changes, uploads/downloads and account
+delete cleanup include the fifth `covers` bucket. Original Mac archive bytes remain local/backup.
+
+Migration27 shallow-merges `account_preferences.preferences` on accepted writes. Each client emits
+all choices it knows (including false), while unknown future preference keys remain server-side.
+The original atomic row-clock check still applies. This does not merge arrays of score metadata or
+permit old clients to discard fields in unsupported nested model schemas. Hosted test06 seeds an
+unknown key, then verifies an older-style preference update preserves it and applies known choices.

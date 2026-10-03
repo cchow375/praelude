@@ -38,7 +38,7 @@ struct ScoreHeatmapView: View {
             }
             .background(PraeludeColor.scorePaper)
             .safeAreaInset(edge: .bottom) { legend }
-            .navigationTitle("Score heatmap")
+            .navigationTitle("Practice results")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
@@ -60,12 +60,16 @@ struct ScoreHeatmapView: View {
     }
 
     private var legend: some View {
-        HStack(spacing: 16) {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Your recent Clean, Sloppy and Again reports shade saved passages. Darker means more recent difficulty; this never judges your playing.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 16) {
             legendSwatch(.solid, "Solid")
             legendSwatch(.shaky, "Shaky")
             legendSwatch(.failing, "Failing")
             Spacer(minLength: 8)
             Text("Unmarked passages have no recent result.").font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.horizontal, 16).padding(.vertical, 10).praeludeScoreChrome()
     }

@@ -91,8 +91,8 @@ public final class AuthManager {
         guard store.state.profile.ownerID == nil else { return }
         var profile = store.state.profile
         profile.ownerID = userID
-        profile.updatedAt = Date()
-        try? store.updateProfile(profile)
+        // Attaching an account is not a profile edit; hydrate its identity before publishing.
+        try? store.applySyncedProfile(profile)
     }
 
     // MARK: Sign up / sign in
@@ -176,10 +176,10 @@ public final class AuthManager {
     //
     // supabase/(C) Backend.md correction 4: `delete_my_account()` cannot delete `storage.objects`
     // itself (the platform blocks any direct SQL DELETE against it, even from SECURITY DEFINER); the
-    // client must clear its own objects in all four buckets via the Storage API first, or the RPC
+    // client must clear its own objects in all five buckets via the Storage API first, or the RPC
     // raises a clear, named error instead of silently orphaning files.
 
-    private static let ownedBuckets = ["avatars", "scores", "recordings", "note-media"]
+    private static let ownedBuckets = ["avatars", "scores", "recordings", "note-media", "covers"]
 
     /// Caller confirms twice in the UI (spec §4b) before this is ever invoked — this method itself
     /// performs the deletion unconditionally once called, no further confirmation gate here.
@@ -197,7 +197,7 @@ public final class AuthManager {
         do {
             let storage = try await services.storage()
             for bucket in Self.ownedBuckets {
-                let paths = try await allFilePaths(storage: storage, bucket: bucket, prefix: userID.uuidString)
+                let paths = try await allFilePaths(storage: storage, bucket: bucket, prefix: userID.uuidString.lowercased())
                 if !paths.isEmpty { _ = try await storage.from(bucket).remove(paths: paths) }
             }
             let postgrest = try await services.postgrest()
@@ -267,7 +267,7 @@ public final class AuthManager {
         guard case .signedIn(let userID, _) = state else { return nil }
         do {
             let storage = try await services.storage()
-            let path = "\(userID.uuidString)/\(Self.avatarFileName)"
+            let path = "\(userID.uuidString.lowercased())/\(Self.avatarFileName)"
             _ = try await storage.from("avatars").upload(path, data: jpegData, options: FileOptions(contentType: "image/jpeg", upsert: true))
             return path
         } catch {

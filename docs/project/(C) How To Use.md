@@ -1,16 +1,25 @@
 # Praelude — How To Use
 
-**Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-09-14.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.
+## Mobile build4 physical feedback and build5 candidate (October2)
+
+The physical iPad remains2.0.0/build4/schema4. Christian reports Pencil input failure without finger drawing, invisible black marks/stamps and freezing when opening the pen during practice. Treat those as known installed defects. The Mac tutorial's existing Matches:v11.1.0 line remains its installed-app contract.
+
+Build5/schema5 is a development candidate with repaired input/color/responder paths, bottom Practice/Select/Draw and Done/double-tap, a visible Library exit, stamp preview/magnifier, expanding yellow notes, movement/measure assistance, default tempo/metronome controls and extended sync. Candidate instructions and verification: `/Users/c3/praelude/ios/docs/USING_MOBILE.md` and `docs/qa/ios/2.0.0/score-workflow.md`. These are not installed-control claims.
+
+**Next steps:** verified build5 candidate awaits a connected iPad and guarded same-bundle update with no open set; physical Pencil/freeze and real-account continuity acceptance remain open.
+
+
+**Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-10-02.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.
 
 ## Separate iPhone/iPad development candidate
 
-The installed Mac instructions and Matches line below still describe v11.1.0/schema21. Mobile source is now **2.0.0/build4/schema4 DEVELOPMENT CANDIDATE**, not a verified October 2 physical install. Its current workflow is documented in `ios/docs/USING_MOBILE.md`; historical September 14 device evidence is in `docs/qa/ios/1.1.0/`.
+The installed Mac instructions and Matches line above describe v11.1.0/schema21. Mobile source is **2.0.0/build5/schema5 DEVELOPMENT CANDIDATE**; the physical iPad remains build4/schema4. Its candidate workflow is documented in `ios/docs/USING_MOBILE.md`; historical September14 device evidence is in `docs/qa/ios/1.1.0/`.
 
-Phone tabs are Today, Pieces, Warmups, Progress and More. On iPad, the sidebar exposes every section. Settings → Import from Mac opens a reviewed transfer from Files and adds compatible scores, passage boxes, pencil marks and goals without replacing mobile data. Progress → Mac practice record retains original Mac history and all table records. Supabase sync covers supported native records and private score/recording storage; original Mac archive, goals/routines and continuous desktop sync remain separate.
+Phone tabs are Today, Pieces, Warmups, Progress and More. On iPad, the sidebar exposes every section. Settings → Import from Mac opens a reviewed transfer from Files and adds compatible scores, passage boxes, pencil marks and goals without replacing mobile data. Progress → Mac practice record retains original Mac history and all table records. Build5 extends Supabase sync to goals/routines, preferences, score metadata and private covers alongside supported native records/PDFs/recordings. The original Mac archive stays local and backed up; continuous desktop sync still requires an adapter.
 
 In a score, Clean/Sloppy/Again record the pianist's verdict. Compact controls preserve large targets; acknowledgements no longer resize the music. Automatic passage-page turning is opt-in in Score options. Today → Start session follows warmup-first plans. First hands-free enable runs a voice check before starting requested listening. Performance mode explains that touching and holding exits it. Backup includes PDFs, editable ink, recordings and original Mac archives, within the bounded size limit.
 
-**Next steps:** guarded device update/import, physical score/ink/voice acceptance and real-account/two-device checks. No connected device was available October 2; installed Mac remains unchanged.
+**Next steps:** guarded build5 device update/import, physical score/ink/voice acceptance and real-account/two-device checks. No connected device was available during the build5 verification round; installed Mac remains unchanged.
 
 ## Start a useful practice session
 

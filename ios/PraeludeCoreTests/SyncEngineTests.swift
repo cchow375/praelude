@@ -69,6 +69,322 @@ final class FakeSyncServer: @unchecked Sendable {
     }
 }
 
+private actor ProfileInitializationTransport: SyncTransport {
+    private var profile: [String: SyncJSON]?
+    private var writes = 0
+    private var paused: Bool
+    private var fetchStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var release: CheckedContinuation<Void, Never>?
+    init(profile: [String: SyncJSON]?, paused: Bool = false) { self.profile = profile; self.paused = paused }
+    func upsert(table: String, row: [String: SyncJSON]) async throws -> SyncRPCResult {
+        if table == "profiles" { writes += 1; profile = row }
+        return SyncRPCResult(applied: true, row: row)
+    }
+    func append(table: String, row: [String: SyncJSON]) async throws -> SyncRPCResult { SyncRPCResult(applied: true, row: row) }
+    func updateLastPage(pieceID: UUID, lastPage: Int, at: Date) async throws -> SyncRPCResult { SyncRPCResult(applied: true, row: nil) }
+    func undoAttempt(attemptID: UUID, undoneAt: Date) async throws -> SyncRPCResult { SyncRPCResult(applied: true, row: nil) }
+    func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
+        guard table == "profiles" else { return [] }
+        fetchStarted = true; startWaiters.forEach { $0.resume() }; startWaiters.removeAll()
+        if paused { await withCheckedContinuation { release = $0 } }
+        return profile.map { [$0] } ?? []
+    }
+    func waitForFetch() async { if !fetchStarted { await withCheckedContinuation { startWaiters.append($0) } } }
+    func releaseFetch() { paused = false; release?.resume(); release = nil }
+    func profileWriteCount() -> Int { writes }
+    func savedProfile() -> [String: SyncJSON]? { profile }
+}
+
+@MainActor
+final class ProfileInitializationTests: XCTestCase {
+    private let remoteDate = Date(timeIntervalSince1970: 1_700_000_000)
+    private let editDate = Date(timeIntervalSince1970: 1_700_000_100)
+    private func directory() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("profile-initialize-\(UUID())") }
+    private func cloudProfile(owner: UUID) throws -> ProfileSyncRow {
+        var profile = Profile(); profile.ownerID = owner; profile.displayName = "Cloud pianist"; profile.username = "cloud_pianist"
+        profile.photoRef = owner.uuidString.lowercased() + "/avatar.jpg"; profile.privacy.name = .onlyMe
+        profile.joinDate = remoteDate; profile.updatedAt = remoteDate
+        var extras = ProfileBackendFields(); extras.isPrivateAccount = true; extras.leaderboardOptOut = true
+        extras.ageBracket = "18_plus"; extras.privacyNotes = .onlyMe
+        extras.upcomingPerformances = [BackendPerformance(title: "Recital", date: remoteDate)]
+        return ProfileSyncRow(profile, extras: extras, createdAt: remoteDate)
+    }
+    private func row(_ dto: ProfileSyncRow, owner: UUID) throws -> [String: SyncJSON] {
+        var value = try XCTUnwrap(SyncJSON(encoding: dto).objectValue); value["id"] = .string(owner.uuidString); return value
+    }
+    func testColdLoginAdoptsAccountProfileAndDropsOldDefaultQueueWithoutChangingGuestPractice() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID(), remote = try cloudProfile(owner: owner)
+        let transport = ProfileInitializationTransport(profile: try row(remote, owner: owner))
+        let engine = SyncEngine(transport: transport, directory: path.appendingPathComponent("Sync"), now: { self.editDate })
+        let store = PracticeStore(directory: path, now: { self.editDate })
+        let piece = Piece(title: "Guest score"); try store.addPiece(piece)
+        try store.startSet(PracticeConfiguration(pieceID: piece.id)); try store.record(.clean)
+        let practiceBefore = store.state.activeSet, piecesBefore = store.state.pieces
+        var local = store.state.profile; local.ownerID = owner
+        try store.applySyncedProfile(local) // Ownership attachment retains the original edit clock.
+        try engine.bindAccount(owner)
+        try engine.enqueueUpsert(table: "profiles", row: try XCTUnwrap(SyncJSON(encoding: ProfileSyncRow(local, extras: ProfileBackendFields())).objectValue))
+        try engine.enqueueUpsert(table: "pieces", row: try XCTUnwrap(SyncJSON(encoding: PieceSyncRow(piece)).objectValue))
+        try await engine.initializeProfileIfNeeded(currentProfile: { store.state.profile }, applyProfile: store.applySyncedProfile)
+        XCTAssertEqual(store.state.profile, remote.coreProfile(ownerID: owner))
+        XCTAssertEqual(engine.state.profileBackendFields, remote.backendFields)
+        XCTAssertEqual(store.state.pieces, piecesBefore); XCTAssertEqual(store.state.activeSet, practiceBefore)
+        XCTAssertEqual(engine.pendingCount, 1, "Only the unhydrated profile payload is replaced; queued scores remain.")
+        try engine.enqueueLibrarySnapshot(store.state)
+        XCTAssertFalse(try SyncQueue(directory: path.appendingPathComponent("Sync")).entries.contains { $0.table == "profiles" })
+        let drained = await engine.drain(); XCTAssertTrue(drained)
+        let profileWrites = await transport.profileWriteCount(); XCTAssertEqual(profileWrites, 0)
+        let relaunched = SyncEngine(transport: transport, directory: path.appendingPathComponent("Sync"))
+        XCTAssertTrue(relaunched.hasHydratedProfile)
+    }
+    func testProfileAndPrivacyEditsStagedDuringFirstReadRetainUneditedCloudFields() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID(), remote = try cloudProfile(owner: owner)
+        let transport = ProfileInitializationTransport(profile: try row(remote, owner: owner), paused: true)
+        let engine = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        var local = Profile(); local.ownerID = owner; local.updatedAt = editDate
+        try engine.bindAccount(owner)
+        let hydration = Task { try await engine.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 }) }
+        await transport.waitForFetch()
+        local.displayName = "Deliberate edit"
+        try engine.stageProfileEdit(local)
+        var extras = engine.state.profileBackendFields; extras.privacyPresence = .onlyMe
+        try engine.stageProfileBackendFields(extras)
+        XCTAssertEqual(engine.pendingCount, 0, "Staged first-read edits are not outbound default-filled profile rows.")
+        await transport.releaseFetch(); try await hydration.value
+        XCTAssertEqual(local.displayName, "Deliberate edit"); XCTAssertEqual(local.username, "cloud_pianist")
+        XCTAssertEqual(local.photoRef, remote.photo_path); XCTAssertEqual(local.privacy.name, .onlyMe)
+        XCTAssertTrue(engine.state.profileBackendFields.isPrivateAccount); XCTAssertTrue(engine.state.profileBackendFields.leaderboardOptOut)
+        XCTAssertEqual(engine.state.profileBackendFields.ageBracket, remote.age_bracket)
+        XCTAssertEqual(engine.state.profileBackendFields.upcomingPerformances, remote.upcoming_performances)
+        XCTAssertEqual(engine.state.profileBackendFields.privacyPresence, .onlyMe)
+        var library = LibraryState(); library.profile = local
+        try engine.enqueueLibrarySnapshot(library)
+        let drained = await engine.drain(); XCTAssertTrue(drained)
+        let saved = await transport.savedProfile()
+        let savedDTO = try SyncJSON.object(XCTUnwrap(saved)).decoded(as: ProfileSyncRow.self)
+        XCTAssertEqual(savedDTO.display_name, "Deliberate edit"); XCTAssertTrue(savedDTO.is_private_account)
+        XCTAssertEqual(savedDTO.upcoming_performances, remote.upcoming_performances)
+    }
+    func testNewAccountPlaceholderRetainsGuestIdentityAndHydrationFailureKeepsQueue() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID()
+        var server = Profile(); server.ownerID = owner
+        server.username = "user_" + String(owner.uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(12))
+        server.joinDate = remoteDate; server.updatedAt = remoteDate
+        let dto = ProfileSyncRow(server, extras: ProfileBackendFields(), createdAt: remoteDate)
+        let transport = ProfileInitializationTransport(profile: try row(dto, owner: owner))
+        let engine = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        var local = Profile(); local.ownerID = owner; local.displayName = "Guest pianist"; local.username = "guest_pianist"
+        try engine.bindAccount(owner)
+        try engine.enqueueUpsert(table: "profiles", row: try XCTUnwrap(SyncJSON(encoding: ProfileSyncRow(local, extras: ProfileBackendFields())).objectValue))
+        do {
+            try await engine.initializeProfileIfNeeded(currentProfile: { local }) { _ in throw SyncError.transport("local save failed") }
+            XCTFail("Expected failed local adoption")
+        } catch {}
+        XCTAssertFalse(engine.hasHydratedProfile); XCTAssertEqual(engine.pendingCount, 1)
+        try await engine.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+        XCTAssertEqual(local.displayName, "Guest pianist"); XCTAssertEqual(local.username, "guest_pianist")
+        XCTAssertEqual(local.joinDate, remoteDate); XCTAssertTrue(engine.hasHydratedProfile)
+    }
+    func testSignOutDuringHydrationCannotAdoptOrMarkAnotherAccountReady() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID(), remote = try cloudProfile(owner: owner)
+        let transport = ProfileInitializationTransport(profile: try row(remote, owner: owner), paused: true)
+        let engine = SyncEngine(transport: transport, directory: path)
+        var local = Profile(); local.ownerID = owner
+        try engine.bindAccount(owner)
+        let hydration = Task { try await engine.initializeProfileIfNeeded(currentProfile: { local }) { _ in XCTFail("A signed-out account cannot adopt a profile.") } }
+        await transport.waitForFetch(); try engine.resetLocalAccountState(); await transport.releaseFetch()
+        do { try await hydration.value; XCTFail("Expected account-generation rejection") } catch {}
+        XCTAssertFalse(engine.hasHydratedProfile); XCTAssertNil(engine.state.accountOwnerID)
+    }
+    func testHydrationReceiptSaveFailureRecoversQueuedExplicitEditAfterRelaunch() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID(), remote = try cloudProfile(owner: owner)
+        let transport = ProfileInitializationTransport(profile: try row(remote, owner: owner))
+        var failFinalReceipt = false
+        let engine = SyncEngine(transport: transport, directory: path, now: { self.editDate }, writeData: { data, url in
+            if url.lastPathComponent == "sync-state.json", failFinalReceipt,
+               (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["profileHydratedOwnerID"] != nil {
+                failFinalReceipt = false; throw SyncError.transport("receipt save failed once")
+            }
+            try data.write(to: url, options: .atomic)
+        })
+        try engine.bindAccount(owner)
+        var local = remote.coreProfile(ownerID: owner)
+        local.displayName = "Queued deliberate edit"; local.updatedAt = editDate
+        try engine.enqueueUpsert(table: "profiles", row: try XCTUnwrap(SyncJSON(encoding: ProfileSyncRow(local, extras: ProfileBackendFields())).objectValue))
+        failFinalReceipt = true
+        do {
+            try await engine.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+            XCTFail("Expected failed hydration receipt")
+        } catch {}
+        XCTAssertFalse(engine.hasHydratedProfile)
+        XCTAssertEqual(engine.pendingCount, 0, "The replaced queue row's intent must survive separately.")
+        let relaunched = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        XCTAssertFalse(relaunched.hasHydratedProfile)
+        XCTAssertEqual(relaunched.state.pendingProfileCoreFields?["display_name"], .string("Queued deliberate edit"))
+        try await relaunched.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+        XCTAssertEqual(local.displayName, "Queued deliberate edit")
+        XCTAssertTrue(relaunched.state.profileBackendFields.isPrivateAccount)
+        var library = LibraryState(); library.profile = local
+        try relaunched.enqueueLibrarySnapshot(library)
+        let drained = await relaunched.drain(); XCTAssertTrue(drained)
+        let saved = await transport.savedProfile()
+        XCTAssertEqual(saved?["display_name"], .string("Queued deliberate edit"))
+        XCTAssertEqual(saved?["is_private_account"], .bool(true))
+    }
+    func testAtomicProfileStagingFailureDoesNotCommitAndRetryKeepsNamePhotoAndPrivacy() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID(), remote = try cloudProfile(owner: owner)
+        let transport = ProfileInitializationTransport(profile: try row(remote, owner: owner))
+        var failStage = false
+        let engine = SyncEngine(transport: transport, directory: path, now: { self.editDate }, writeData: { data, url in
+            if failStage, url.lastPathComponent == "sync-state.json" { failStage = false; throw SyncError.transport("staging failed once") }
+            try data.write(to: url, options: .atomic)
+        })
+        try engine.bindAccount(owner)
+        var local = Profile(); local.ownerID = owner
+        let baseline = local, baselineExtras = ProfileBackendFields()
+        var draft = local; draft.displayName = "Saved choice"; draft.photoRef = "new-avatar.jpg"; draft.privacy.bio = .onlyMe
+        var extras = baselineExtras; extras.privacyPresence = .onlyMe
+        failStage = true
+        XCTAssertThrowsError(try engine.saveProfileEdit(draft, extras: extras, baselineProfile: baseline,
+                                                       baselineExtras: baselineExtras, currentProfile: local, persistProfile: { local = $0 }))
+        XCTAssertEqual(local, baseline, "A failed staging write must occur before the editor's local commit.")
+        XCTAssertNil(engine.state.pendingProfileCoreFields); XCTAssertNil(engine.state.pendingProfileBackendFields)
+        try engine.saveProfileEdit(draft, extras: extras, baselineProfile: baseline, baselineExtras: baselineExtras,
+                                   currentProfile: local, persistProfile: { local = $0 })
+        let relaunched = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        try await relaunched.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+        XCTAssertEqual(local.displayName, "Saved choice"); XCTAssertEqual(local.photoRef, "new-avatar.jpg")
+        XCTAssertEqual(local.privacy.bio, .onlyMe); XCTAssertEqual(local.username, remote.username)
+        XCTAssertTrue(relaunched.state.profileBackendFields.isPrivateAccount)
+        XCTAssertEqual(relaunched.state.profileBackendFields.privacyPresence, .onlyMe)
+    }
+    func testSameOwnerSignOutRetainsStagedEditsAndRejectsOtherAccount() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID(), remote = try cloudProfile(owner: owner)
+        let transport = ProfileInitializationTransport(profile: try row(remote, owner: owner))
+        let engine = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        try engine.bindAccount(owner)
+        var local = Profile(); local.ownerID = owner
+        let baseline = local, baselineExtras = ProfileBackendFields()
+        var draft = local; draft.displayName = "Offline name"; draft.photoRef = "offline-avatar.jpg"; draft.privacy.bio = .onlyMe
+        var extras = baselineExtras; extras.privacyPresence = .onlyMe
+        try engine.saveProfileEdit(draft, extras: extras, baselineProfile: baseline, baselineExtras: baselineExtras,
+                                   currentProfile: local, persistProfile: { local = $0 })
+        try engine.resetLocalAccountState(preservingProfileFor: owner)
+        let relaunched = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        XCTAssertEqual(relaunched.pendingCount, 0); XCTAssertTrue(relaunched.state.cursors.isEmpty)
+        XCTAssertThrowsError(try relaunched.bindAccount(UUID()), "Account A's preserved intent cannot be sent as B.")
+        try relaunched.bindAccount(owner)
+        try await relaunched.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+        XCTAssertEqual(local.displayName, "Offline name"); XCTAssertEqual(local.photoRef, "offline-avatar.jpg")
+        XCTAssertEqual(local.privacy.bio, .onlyMe); XCTAssertEqual(local.username, remote.username)
+        XCTAssertEqual(relaunched.state.profileBackendFields.privacyPresence, .onlyMe)
+    }
+    func testHydratedLocalClearSurvivesSignOutBeforeUploadAndQueueClearFailureKeepsOwnerBinding() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID(), remote = try cloudProfile(owner: owner)
+        let transport = ProfileInitializationTransport(profile: try row(remote, owner: owner))
+        var failQueueClear = false
+        let engine = SyncEngine(transport: transport, directory: path, now: { self.editDate }, writeData: { data, url in
+            if failQueueClear, url.lastPathComponent == "sync-queue.json" { failQueueClear = false; throw SyncError.transport("queue clear failed once") }
+            try data.write(to: url, options: .atomic)
+        })
+        try engine.bindAccount(owner)
+        var local = Profile(); local.ownerID = owner
+        try await engine.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+        let baseline = local, baselineExtras = engine.state.profileBackendFields
+        var draft = local; draft.displayName = ""; draft.photoRef = nil; draft.privacy.name = .friends
+        var extras = baselineExtras; extras.leaderboardOptOut = false
+        try engine.saveProfileEdit(draft, extras: extras, baselineProfile: baseline, baselineExtras: baselineExtras,
+                                   currentProfile: local, persistProfile: { local = $0 })
+        // Hydration finishes, but sign-out interrupts before the changed profile reaches Storage/RPC.
+        try await engine.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+        var library = LibraryState(); library.profile = local; try engine.enqueueLibrarySnapshot(library)
+        try engine.resetLocalAccountState(preservingProfileFor: owner)
+        let relaunched = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        try await relaunched.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+        XCTAssertEqual(local.displayName, ""); XCTAssertNil(local.photoRef); XCTAssertEqual(local.privacy.name, .friends)
+        XCTAssertFalse(relaunched.state.profileBackendFields.leaderboardOptOut)
+        // Even a full reset (account deletion) cannot release A's binding while its queue remains.
+        try engine.enqueueUpsert(table: "pieces", row: ["id": .string(UUID().uuidString)])
+        failQueueClear = true
+        XCTAssertThrowsError(try engine.resetLocalAccountState())
+        let failedReset = SyncEngine(transport: transport, directory: path)
+        XCTAssertThrowsError(try failedReset.bindAccount(UUID()))
+        XCTAssertEqual(failedReset.state.accountOwnerID, owner)
+    }
+    func testFailedLocalSaveThenReversionRetryReplacesOnlyThisEditorsStagedChoices() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID(), remote = try cloudProfile(owner: owner)
+        let transport = ProfileInitializationTransport(profile: try row(remote, owner: owner))
+        let engine = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        try engine.bindAccount(owner)
+        var local = Profile(); local.ownerID = owner
+        try await engine.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+        let baseline = local, baselineExtras = engine.state.profileBackendFields, editorID = UUID()
+        var draft = baseline; draft.displayName = "Abandoned name"; draft.photoRef = "abandoned-avatar.jpg"; draft.privacy.name = .publicVisibility
+        var extras = baselineExtras; extras.isPrivateAccount = false
+        XCTAssertThrowsError(try engine.saveProfileEdit(draft, extras: extras, baselineProfile: baseline, baselineExtras: baselineExtras,
+                                                       currentProfile: local, sourceID: editorID, persistProfile: { _ in throw SyncError.transport("local write failed once") }))
+        XCTAssertEqual(local, baseline)
+        // An independent age/privacy action stages a different field while the editor is open.
+        var otherExtras = engine.state.profileBackendFields; otherExtras.privacyPresence = .onlyMe
+        try engine.saveProfileEdit(local, extras: otherExtras, baselineProfile: local, baselineExtras: engine.state.profileBackendFields,
+                                   currentProfile: local, sourceID: UUID(), persistProfile: { local = $0 })
+        draft = baseline; extras = baselineExtras
+        try engine.saveProfileEdit(draft, extras: extras, baselineProfile: baseline, baselineExtras: baselineExtras,
+                                   currentProfile: local, sourceID: editorID, persistProfile: { local = $0 })
+        XCTAssertEqual(local.displayName, baseline.displayName); XCTAssertEqual(local.photoRef, baseline.photoRef)
+        XCTAssertEqual(local.privacy.name, baseline.privacy.name)
+        let relaunched = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        try await relaunched.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+        XCTAssertEqual(local.displayName, baseline.displayName); XCTAssertEqual(local.photoRef, baseline.photoRef)
+        XCTAssertEqual(local.privacy.name, baseline.privacy.name); XCTAssertTrue(relaunched.state.profileBackendFields.isPrivateAccount)
+        XCTAssertEqual(relaunched.state.profileBackendFields.privacyPresence, .onlyMe, "Retrying one editor must retain another action's choice.")
+    }
+    func testHydrationBetweenFailedSaveAndReversionRetryKeepsEditorOwnership() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID(), remote = try cloudProfile(owner: owner)
+        let transport = ProfileInitializationTransport(profile: try row(remote, owner: owner), paused: true)
+        let engine = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        try engine.bindAccount(owner)
+        var local = Profile(); local.ownerID = owner
+        let baseline = local, baselineExtras = ProfileBackendFields(), editorID = UUID()
+        let hydration = Task { try await engine.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 }) }
+        await transport.waitForFetch()
+        var draft = baseline; draft.displayName = "Abandoned name"; draft.photoRef = "abandoned-avatar.jpg"; draft.privacy.bio = .onlyMe
+        var extras = baselineExtras; extras.leaderboardOptOut = true
+        XCTAssertThrowsError(try engine.saveProfileEdit(draft, extras: extras, baselineProfile: baseline, baselineExtras: baselineExtras,
+                                                       currentProfile: local, sourceID: editorID, persistProfile: { _ in throw SyncError.transport("local save failed once") }))
+        XCTAssertEqual(local, baseline)
+        await transport.releaseFetch(); try await hydration.value
+        XCTAssertEqual(local.displayName, "Abandoned name", "The concurrent hydration has adopted the attempted edit.")
+        XCTAssertNil(engine.state.pendingProfileCoreFields); XCTAssertNil(engine.state.pendingProfileBackendFields)
+        XCTAssertEqual(engine.state.pendingProfileIntentSources?["core/display_name"], editorID.uuidString)
+        var independent = engine.state.profileBackendFields; independent.privacyPresence = .onlyMe
+        try engine.saveProfileEdit(local, extras: independent, baselineProfile: local, baselineExtras: engine.state.profileBackendFields,
+                                   currentProfile: local, sourceID: UUID(), persistProfile: { local = $0 })
+        draft = baseline; extras = baselineExtras
+        try engine.saveProfileEdit(draft, extras: extras, baselineProfile: baseline, baselineExtras: baselineExtras,
+                                   currentProfile: local, sourceID: editorID, persistProfile: { local = $0 })
+        XCTAssertEqual(local.displayName, baseline.displayName); XCTAssertNil(local.photoRef); XCTAssertEqual(local.privacy.bio, .friends)
+        let relaunched = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        try await relaunched.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+        XCTAssertEqual(local.displayName, baseline.displayName); XCTAssertNil(local.photoRef); XCTAssertEqual(local.privacy.bio, .friends)
+        XCTAssertEqual(local.username, remote.username, "Unedited hydrated identity remains intact.")
+        XCTAssertTrue(relaunched.state.profileBackendFields.isPrivateAccount)
+        XCTAssertFalse(relaunched.state.profileBackendFields.leaderboardOptOut)
+        XCTAssertEqual(relaunched.state.profileBackendFields.privacyPresence, .onlyMe)
+    }
+}
+
 struct FakeSyncTransport: SyncTransport {
     let server: FakeSyncServer
     func upsert(table: String, row: [String: SyncJSON]) async throws -> SyncRPCResult {

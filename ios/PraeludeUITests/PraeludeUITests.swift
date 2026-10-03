@@ -207,7 +207,7 @@ final class PraeludeUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Rewards"].waitForExistence(timeout: 10), app.debugDescription)
         RunLoop.current.run(until: Date().addingTimeInterval(0.3)) // let the List finish laying out before capturing it
         screenshot("13-rewards")
-        XCTAssertTrue(app.staticTexts["Studio"].exists, app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Your rank grows with recorded practice."].exists, app.debugDescription)
     }
 
 }

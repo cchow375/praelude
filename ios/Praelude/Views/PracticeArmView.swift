@@ -22,7 +22,7 @@ struct PracticeArmView: View {
     @State private var setupExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 8) {
             if arm.configuration != nil {
                 let headerLayout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
                 headerLayout {
@@ -30,6 +30,18 @@ struct PracticeArmView: View {
                     HStack(spacing: 8) {
                         TempoDial(bpm: startBPMBinding(configBinding), numeralSize: 22, compact: true)
                         Text("BPM").font(.caption).foregroundStyle(.secondary)
+                        Button {
+                            configBinding.wrappedValue.useMetronome.toggle()
+                        } label: {
+                            VStack(spacing: 2) {
+                                Image(systemName: "metronome")
+                                Text(configBinding.wrappedValue.useMetronome ? "On" : "Off").font(.caption2)
+                            }.frame(width: 44, height: 44).contentShape(Rectangle())
+                                .background(configBinding.wrappedValue.useMetronome ? PraeludeColor.inkFillQuiet : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+                        }.buttonStyle(.plain)
+                            .accessibilityLabel("Metronome")
+                            .accessibilityValue(configBinding.wrappedValue.useMetronome ? "On" : "Off")
+                            .accessibilityIdentifier("armMetronome")
                         Button { setupExpanded.toggle() } label: {
                             Image(systemName: setupExpanded ? "chevron.down" : "slider.horizontal.3")
                                 .frame(width: 44, height: 44).contentShape(Rectangle())
@@ -37,7 +49,13 @@ struct PracticeArmView: View {
                             .accessibilityIdentifier("armToggleOptions")
                     }
                 }
-                if setupExpanded { quickConditions; tempoRow }
+                if setupExpanded {
+                    quickConditions
+                    Button("Use \(Int(configBinding.wrappedValue.startBPM)) BPM as piece default") {
+                        savePieceTempo()
+                    }.font(.caption).buttonStyle(.praeludeQuiet)
+                        .accessibilityIdentifier("savePiecePracticeTempo")
+                }
                 if arm.awaitingColdGrade { coldGradeSection }
                 let actionLayout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
                 actionLayout {
@@ -71,14 +89,14 @@ struct PracticeArmView: View {
                             showVariants = false
                         }
                     } }
-            }.presentationDetents([.medium, .large])
+            }.presentationDetents([.large]).presentationDragIndicator(.visible)
         }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(passage?.title ?? "Whole piece").font(.headline)
-            Text(passage?.locationLabel ?? pieceSubtitle).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
+            Text(passage?.title ?? "Whole piece").font(.headline).lineLimit(1)
+            Text(passage.map { target in ScoreOrganization.locationLabel(for: target, in: store.pieces.first { $0.id == target.pieceID }) } ?? pieceSubtitle).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
             if let value = arm.configuration {
                 Text("\(Self.goalLabel(value.goal)) · \(value.hands) · \(value.targetSummary)" + (value.useMetronome && metronome.groupedCompoundPulse ? " · dotted-quarter pulse" : ""))
                     .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("armedConditions")
@@ -98,7 +116,6 @@ struct PracticeArmView: View {
                     ForEach(SetGoal.allCases, id: \.self) { goal in
                         Button(Self.goalLabel(goal)) {
                             configuration.wrappedValue.goal = goal
-                            configuration.wrappedValue.useMetronome = goal == .tempo
                         }
                     }
                 } label: { quickChip(Self.goalLabel(configuration.wrappedValue.goal)) }
@@ -128,20 +145,6 @@ struct PracticeArmView: View {
                 } label: { quickChip(configuration.wrappedValue.hands) }
                     .accessibilityIdentifier("armHands")
             }
-        }
-    }
-
-    private var tempoRow: some View {
-        HStack {
-            Spacer(minLength: 0)
-            TempoDial(bpm: startBPMBinding(configBinding), numeralSize: 44, onTapTempo: {
-                metronome.tap()
-                configBinding.wrappedValue.startBPM = metronome.bpm
-            })
-            .onChange(of: configBinding.wrappedValue.startBPM) { _, newValue in
-                if configBinding.wrappedValue.targetBPM < newValue { configBinding.wrappedValue.targetBPM = newValue }
-            }
-            Spacer(minLength: 0)
         }
     }
 
@@ -213,6 +216,14 @@ struct PracticeArmView: View {
         case .partsCoordination: "Parts/Coordination"
         case .other: "Other"
         }
+    }
+
+    private func savePieceTempo() {
+        guard let pieceID = arm.pieceID else { return }
+        do {
+            try store.setDefaultPracticeTempo(configBinding.wrappedValue.startBPM, for: pieceID)
+            error = nil
+        } catch { self.error = error.localizedDescription }
     }
 
     private func start(grade: ColdGrade? = nil, skippingColdGrade: Bool = false) {

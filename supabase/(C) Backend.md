@@ -1,5 +1,13 @@
 # (C) Backend — Supabase project `zotswpjyvmhnxdyibnnz`
 
+October2 build5 additions: migrations24(score organization and represented-key LWW),25(owner
+preferences),26(private covers and account cleanup),27(future preference-key preservation) are applied to the configured project. Native
+goals/routines now use the existing registered tables. Rollback-only test06 verifies actual hosted
+isolation, backward-compatible missing fields, explicit clears and cover policies without retaining
+fixture users. See [shared platform data](../docs/PLATFORM_DATA_CONTRACT.md); Mac schema21 still
+requires a separate adapter. Current physical two-device acceptance is open.
+
+
 What this track built (spec §4a/§4b server side, §5 data model, §5c moderation), how to operate it,
 and what's still open. The client-facing half of this (RPC contracts, field-by-field wire format) is
 `supabase/(C) Sync Protocol.md`; read that alongside this one.
@@ -328,3 +336,19 @@ steps (creating the throwaway users, the `email_sent` rate limit gotcha) and usa
 | `05_presence_and_note_privacy.sql`           | `20260926220019`/`20260926220021`: `privacy_notes` honored by note replies (and, via the same shared function, reactions/comments/note-media); `can_receive_presence`/`_presence_topic_owner`/`friend_presence_piece_title` — self, friend, tightened-privacy, blocked, stranger, and real-ownership-checked cases; the two `realtime.messages` policies' text | No (rolled back)  |
 
 Re-run the whole suite after any migration that touches RLS, a grant, or one of these RPCs.
+
+## October2 native build5 contract additions
+
+| Migration | Change |
+| --- | --- |
+| `20261003000024_score_organization` | Piece sections/measure anchors/default tempo; atomic LWW updates only represented SQL keys; losing-write fallback owner filtered |
+| `20261003000025_account_preferences` | Owner-keyed private JSON preferences, clocks, authenticated grants and generic registration |
+| `20261003000026_private_covers` | Private15MB PNG/JPEG covers, four owner object policies and five-bucket account-deletion guard |
+| `20261003000027_preference_forward_compatibility` | Atomic shallow preference merge preserves future unknown keys with the existing LWW clock |
+
+`supabase/tests/06_account_preferences_and_metadata.sql` is one transaction ending in rollback. It
+uses two synthetic owner identities, tests preference isolation and metadata old-client/clear
+behavior, and inspects cover policy/cleanup configuration. It does not sign up a musician, upload
+a score, or establish real two-device acceptance. Existing privacy/moderation authority remains
+server-side; OS permissions/tokens and original Mac archives do not become public or synchronized
+profile fields.

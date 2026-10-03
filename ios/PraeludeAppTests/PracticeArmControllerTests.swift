@@ -79,6 +79,42 @@ final class PracticeArmControllerTests: XCTestCase {
         XCTAssertFalse(fixture.arm.awaitingColdGrade)
     }
 
+    @MainActor
+    func testPieceDefaultSeedsWholePieceAndNewPassageAfterRelaunch() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        try fixture.store.setDefaultPracticeTempo(76, for: piece.id)
+        let reopened = PracticeStore(directory: fixture.store.fileURL.deletingLastPathComponent())
+        let arm = PracticeArmController()
+        arm.arm(pieceID: piece.id, passage: nil, store: reopened)
+        XCTAssertEqual(arm.configuration?.startBPM, 76)
+        XCTAssertEqual(arm.configuration?.targetBPM, 76)
+        arm.arm(pieceID: piece.id, passage: passage, store: reopened)
+        XCTAssertEqual(arm.configuration?.startBPM, 76)
+        XCTAssertEqual(arm.configuration?.targetBPM, 76)
+    }
+
+    @MainActor
+    func testPieceDefaultDoesNotReplaceChosenOrPreviouslyPracticedConditions() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        try fixture.store.setDefaultPracticeTempo(76, for: piece.id)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        var chosen = try XCTUnwrap(fixture.arm.configuration)
+        chosen.startBPM = 64; chosen.targetBPM = 64; chosen.useMetronome = false
+        fixture.arm.applyConfigurationOverride(chosen)
+        try fixture.store.setDefaultPracticeTempo(90, for: piece.id)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 64)
+        XCTAssertEqual(fixture.arm.configuration?.useMetronome, false)
+        XCTAssertTrue(try fixture.arm.start(skippingColdGrade: true, store: fixture.store, runtime: fixture.runtime))
+        try fixture.store.endSet()
+        let freshArm = PracticeArmController()
+        freshArm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(freshArm.configuration?.startBPM, 64)
+        XCTAssertEqual(freshArm.configuration?.useMetronome, false)
+    }
+
     // MARK: - start(grade:...)
 
     @MainActor

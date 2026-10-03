@@ -1,6 +1,9 @@
 # Mobile 2.0 overview and October 2 verification
 
-**Current follow-up:** [build4/schema4 pianist workflow polish](practice-polish.md). The build3 evidence below is the earlier snapshot review and remains historical.
+**Current follow-up:** [build5/schema5 score workflow and shared-data candidate](score-workflow.md).
+Earlier [build4/schema4 pianist workflow polish](practice-polish.md) remains its own installed/evidence boundary. The build3 evidence below is the earlier snapshot review and remains historical.
+
+Everything below records the earlier build3 review. Its then-current/pending statements do not override the build5 follow-up above or the subsequently confirmed physical build4 installation.
 
 **Development candidate: 2.0.0/build3/schema3.** Base before this session: `8c87409`. Implementation: `635a5ae`.
 The [verification manifest](verification.json) records exact Release input/binary fingerprints and scoped check results.

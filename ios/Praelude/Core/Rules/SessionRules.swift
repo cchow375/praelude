@@ -65,8 +65,9 @@ extension PracticeRulesEngine {
         let targetCount = r5StreakTarget(for: passage.learningState, settings: context.settings)
         let tempoStep = lastSet?.configuration.tempoStep ?? .fixed(4)
         let hands = lastSet?.configuration.hands ?? "Both hands"
-        let startBPM = lastSet?.currentBPM ?? passage.performanceTempo ?? 60
-        let targetBPM = lastSet?.configuration.targetBPM ?? passage.performanceTempo ?? startBPM
+        let pieceDefault = context.pieces.first { $0.id == passage.pieceID }?.defaultPracticeBPM
+        let startBPM = pieceDefault ?? passage.performanceTempo ?? 60
+        let targetBPM = max(passage.performanceTempo ?? startBPM, startBPM)
         return PracticeConfiguration(pieceID: passage.pieceID, passageID: passageID, focus: passage.focus, goal: goal,
                                       basis: basis, targetCount: targetCount, startBPM: startBPM, targetBPM: targetBPM,
                                       tempoStep: tempoStep, hands: hands, useMetronome: goal == .tempo)
