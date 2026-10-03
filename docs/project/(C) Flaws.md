@@ -10,7 +10,7 @@ This is the no-faking register. Never delete a flaw silently; resolved defects r
 
 ## Mobile build6 installation blocker
 
-- **B128 — Signing recovery (resolved October3; renewal evidence commit pending).** Stale local profiles excluded trusted signing keys. A precisely matching cached profile was archived reversibly; reopening native Xcode issued a fresh same-app/team/device profile valid untilOctober10 at17:55:53UTC with2 trusted/unexpired certificates. Local Keychain authorization completed; actual Release signing/profile checks, guarded build6 installation and complete11-file preservation now pass. Christian confirms launch; direct schema5/revision883 read passes. Earlier revoked-certificate and failed-build evidence remains in `docs/qa/ios/2.0.0/build6/device-update-attempt.json`; renewal/install proof is `docs/qa/ios/2.0.0/build6/personal-ipad-install.json`. No trust override/revocation/device reset.
+- **B128 — Signing recovery (resolved October3; renewal/install evidence commit `a969c92`).** Stale local profiles excluded trusted signing keys. A precisely matching cached profile was archived reversibly; reopening native Xcode issued a fresh same-app/team/device profile valid untilOctober10 at17:55:53UTC with2 trusted/unexpired certificates. Local Keychain authorization completed; actual Release signing/profile checks, guarded build6 installation and complete11-file preservation now pass. Christian confirms launch; direct schema5/revision883 read passes. Earlier revoked-certificate and failed-build evidence remains in `docs/qa/ios/2.0.0/build6/device-update-attempt.json`; renewal/install proof is `docs/qa/ios/2.0.0/build6/personal-ipad-install.json`. No trust override/revocation/device reset.
 
 ## Mobile build6 practice dock correction
 

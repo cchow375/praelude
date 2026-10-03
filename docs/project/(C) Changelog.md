@@ -12,7 +12,7 @@
 
 ### 2026-10-03 · Build6 installed and opened after provisioning renewal
 
-- **Installed:**2.0.0/build6 from `00375fa` over the same app identifier. Actual signature/profile/team/device checks pass; fresh profile expiresOctober10 at17:55:53UTC /1:55PM EDT.
+- **Installed:**2.0.0/build6 from `00375fa` over the same app identifier; renewal/install evidence commit `a969c92`. Actual signature/profile/team/device checks pass; fresh profile expiresOctober10 at17:55:53UTC /1:55PM EDT.
 - **Preserved:** complete pre/post11-file tree matches by name/size/SHA256;6,212,619bytes, no symlinks. Independent ledger/history/account/privacy review passes: schema5/revision883,5pieces/30passages/24historical sets/15sessions/114attempts/no active set.
 - **Opened:** automatic launch declined; Christian confirms manual open. Direct ledger read confirms schema5/revision883. Physical Pencil/freeze/piano and actual two-device acceptance remain separate.
 - **Touched:** sanitized install manifest/attempt/QA, renewal guide, NOTES and living manuals/tutorial/Flaws. Private backups/signing material remain outside Git.
