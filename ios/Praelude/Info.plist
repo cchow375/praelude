@@ -11,6 +11,7 @@
 <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
 <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
 <key>LSRequiresIPhoneOS</key><true/>
+<key>CADisableMinimumFrameDurationOnPhone</key><true/>
 <key>NSCameraUsageDescription</key><string>Scan pages of a paper score into a PDF, or a friend's invite QR code. Praelude keeps the scan on this device until you add it to your library or act on the invite.</string>
 <key>NSMicrophoneUsageDescription</key><string>Use spoken practice commands when you turn on hands-free mode. Praelude never grades your playing.</string>
 <key>NSSpeechRecognitionUsageDescription</key><string>Recognize your practice commands on this device. Your voice supplies the verdict; Praelude counts the repetitions.</string>

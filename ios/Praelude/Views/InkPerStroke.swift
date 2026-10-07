@@ -1,5 +1,6 @@
 import Foundation
 import PencilKit
+import CryptoKit
 
 /// Deterministic `PKDrawing` <-> per-stroke `InkStroke` row conversion (§7 annotate track).
 ///
@@ -33,11 +34,15 @@ enum InkPerStroke {
     /// instead of re-serializing (which would still be valid but pointlessly volatile) — purely a
     /// tidiness/stability nicety, since `fingerprint`, not `data`, is what identity is keyed on.
     static func split(_ drawing: PKDrawing, reusing existing: [InkStroke] = []) -> [PracticeStore.InkStrokeInput] {
-        var reusable = existing
+        // Preserve duplicate order without repeated linear searches and shifting whole arrays.
+        let reusable = Dictionary(grouping: existing.filter { $0.fingerprint != nil }, by: { $0.fingerprint! })
+        var consumed: [Data: Int] = [:]
         return drawing.strokes.map { stroke in
             let key = fingerprint(stroke)
-            if let index = reusable.firstIndex(where: { $0.fingerprint == key }) {
-                let row = reusable.remove(at: index)
+            let index = consumed[key, default: 0]
+            if let rows = reusable[key], index < rows.count {
+                let row = rows[index]
+                consumed[key] = index + 1
                 return PracticeStore.InkStrokeInput(data: row.data, fingerprint: key)
             }
             return PracticeStore.InkStrokeInput(data: PKDrawing(strokes: [stroke]).dataRepresentation(), fingerprint: key)
@@ -62,9 +67,9 @@ enum InkPerStroke {
     /// case names (`String(describing:)`, which is just the case name — stable, unlike `hashValue`,
     /// which Swift deliberately randomizes per process), never from PencilKit's own archiver. Two
     /// calls with equal stroke content always produce byte-identical output, on one device or two.
-    /// `stroke.mask` (a clipping path, rarely set by pen/highlighter/eraser drawing) is not included:
-    /// two strokes differing only in mask would fingerprint as equal — an accepted, documented gap
-    /// rather than hand-rolling a canonical `UIBezierPath` encoding for a path this app never sets.
+    /// Clipping masks are included: PencilKit's partial eraser can change only the mask. Reusing
+    /// the original unmasked bytes in that case would bring erased ink back on the next save.
+    /// Unmasked fingerprints retain their original encoding for existing stored identities.
     static func fingerprint(_ stroke: PKStroke) -> Data {
         var bytes = Data()
         // CGFloat is 64-bit (Double-backed) on every platform this app ships to, but is normalized
@@ -88,6 +93,31 @@ enum InkPerStroke {
             append(point.opacity); append(point.force)
             append(point.azimuth); append(point.altitude)
             append(point.timeOffset)
+        }
+        if let mask = stroke.mask {
+            appendText("mask-v1")
+            bytes.append(mask.usesEvenOddFillRule ? 1 : 0)
+            mask.cgPath.applyWithBlock { pointer in
+                let element = pointer.pointee
+                withUnsafeBytes(of: Int64(element.type.rawValue).littleEndian) { bytes.append(contentsOf: $0) }
+                let count: Int
+                switch element.type {
+                case .moveToPoint, .addLineToPoint: count = 1
+                case .addQuadCurveToPoint: count = 2
+                case .addCurveToPoint: count = 3
+                case .closeSubpath: count = 0
+                @unknown default: count = 0
+                }
+                for index in 0..<count {
+                    append(element.points[index].x); append(element.points[index].y)
+                }
+            }
+        }
+        // The durable validator permits at most 8 KiB for a content key. A normal long Pencil
+        // stroke can exceed that with raw path points, causing every autosave to fail. Keep old
+        // short identities compatible; hash long paths/masks into a bounded versioned key.
+        if bytes.count > 8192 {
+            return Data("sha256-ink-v1:".utf8) + Data(SHA256.hash(data: bytes))
         }
         return bytes
     }

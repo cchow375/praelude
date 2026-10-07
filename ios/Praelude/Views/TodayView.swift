@@ -26,8 +26,11 @@ struct TodayView: View {
         // Resting is the one opt-out state; any other status belongs here (see LibraryView.visiblePieces).
         // realPieces (not pieces): the internal warmups attachment point never browses as a piece.
         let active = store.realPieces.filter { $0.status != .resting }
+        let practiced = store.sessions.reduce(into: [UUID: Date]()) { dates, session in
+            dates[session.pieceID] = max(dates[session.pieceID] ?? .distantPast, session.startedAt)
+        }
         return Array(active.sorted { left, right in
-            (lastPractice(left.id) ?? left.createdAt) > (lastPractice(right.id) ?? right.createdAt)
+            (practiced[left.id] ?? left.createdAt) > (practiced[right.id] ?? right.createdAt)
         }.prefix(5))
     }
 
@@ -338,13 +341,14 @@ private struct SessionItemRow: View {
                 .padding(.horizontal, 10).frame(minHeight: 44)
                 .background(PraeludeColor.inkFillQuiet, in: Capsule())
                 .accessibilityIdentifier("startSessionItem_\(item.kind.rawValue)_\(item.id)")
-            VStack(spacing: 2) {
-                Button { onMoveUp?() } label: { Image(systemName: "chevron.up") }
-                    .disabled(onMoveUp == nil).accessibilityLabel("Move earlier")
-                Button { onMoveDown?() } label: { Image(systemName: "chevron.down") }
-                    .disabled(onMoveDown == nil).accessibilityLabel("Move later")
-            }
-            .font(.caption).buttonStyle(.plain).foregroundStyle(PraeludeColor.inkTertiary)
+            Menu {
+                Button("Move earlier", systemImage: "arrow.up") { onMoveUp?() }.disabled(onMoveUp == nil)
+                Button("Move later", systemImage: "arrow.down") { onMoveDown?() }.disabled(onMoveDown == nil)
+                Button("Skip", systemImage: "forward", action: onSkip)
+            } label: {
+                Image(systemName: "ellipsis").frame(width: 44, height: 44)
+            }.accessibilityLabel("Session item options")
+                .foregroundStyle(PraeludeColor.inkSecondary)
         }
         .padding(.vertical, 4)
         .swipeActions(edge: .trailing) {

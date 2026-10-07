@@ -239,18 +239,23 @@ import Observation
             // Ordinal = position in the caller's own array, before any filtering below, so splitting
             // the same drawing the same way on two devices assigns the same ordinal — and therefore
             // the same stable id (see `InkStroke.stableID`) — to the same stroke on both.
-            var remainingNew: [(ordinal: Int, input: InkStrokeInput)] = strokes.enumerated().map { (ordinal: $0.offset, input: $0.element) }
+            let ordinalsByKey = Dictionary(grouping: strokes.indices, by: { strokes[$0].fingerprint ?? strokes[$0].data })
+            var consumedByKey: [Data: Int] = [:]
+            var matchedOrdinals: Set<Int> = []
+            var storedIndexByID = Dictionary(next.inkStrokes.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
             for index in next.inkStrokes.indices
             where next.inkStrokes[index].pieceID == pieceID && next.inkStrokes[index].page == page
                 && next.inkStrokes[index].layer == layer && next.inkStrokes[index].deletedAt == nil {
                 let existingKey = next.inkStrokes[index].fingerprint ?? next.inkStrokes[index].data
-                if let match = remainingNew.firstIndex(where: { ($0.input.fingerprint ?? $0.input.data) == existingKey }) {
-                    remainingNew.remove(at: match)
+                let consumed = consumedByKey[existingKey, default: 0]
+                if let ordinals = ordinalsByKey[existingKey], consumed < ordinals.count {
+                    matchedOrdinals.insert(ordinals[consumed])
+                    consumedByKey[existingKey] = consumed + 1
                 } else {
                     next.inkStrokes[index].deletedAt = date; next.inkStrokes[index].updatedAt = date
                 }
             }
-            for (ordinal, input) in remainingNew {
+            for (ordinal, input) in strokes.enumerated() where !matchedOrdinals.contains(ordinal) {
                 let key = input.fingerprint ?? input.data
                 let id = InkStroke.stableID(pieceID: pieceID, page: page, layer: layer, data: key, ordinal: ordinal)
                 // The exact same (page, layer, content, ordinal) combination can recur after its row
@@ -262,7 +267,7 @@ import Observation
                 // id — is what keeps this a no-op for real content that never left, and what stops
                 // `validate`'s uniqueness check from rejecting the whole page the moment restored
                 // content collides with its own tombstone.
-                if let resurrect = next.inkStrokes.firstIndex(where: { $0.id == id }) {
+                if let resurrect = storedIndexByID[id] {
                     next.inkStrokes[resurrect].data = input.data
                     next.inkStrokes[resurrect].fingerprint = input.fingerprint
                     next.inkStrokes[resurrect].deletedAt = nil
@@ -280,6 +285,7 @@ import Observation
                 // performs the same split. Real previously-kept rows are never touched here, so this
                 // never perturbs an already-stable `createdAt`.
                 let stamp = date.addingTimeInterval(Double(ordinal) * 0.000_001)
+                storedIndexByID[id] = next.inkStrokes.count
                 next.inkStrokes.append(InkStroke(id: id, pieceID: pieceID, page: page, layer: layer, data: input.data,
                                                  fingerprint: input.fingerprint, createdAt: stamp, updatedAt: stamp))
             }
@@ -1140,7 +1146,12 @@ import Observation
     }
 
     // MARK: - §14 Rewards (append-only ledger/badges/milestones; `validate` rejects a negative ledger delta)
-    public func appendRewardLedgerEntry(_ entry: RewardLedgerEntry) throws { try transaction { $0.rewardLedger.append(entry) } }
+    public func appendRewardLedgerEntry(_ entry: RewardLedgerEntry) throws { try appendRewardLedgerEntries([entry]) }
+    /// Catch-up retains each append-only award while validating/writing the library once.
+    public func appendRewardLedgerEntries(_ entries: [RewardLedgerEntry]) throws {
+        guard !entries.isEmpty else { return }
+        try transaction { $0.rewardLedger.append(contentsOf: entries) }
+    }
     public func awardBadge(_ badge: Badge) throws { try transaction { $0.badges.append(badge) } }
     public func recordMilestone(_ event: MilestoneEvent) throws { try transaction { $0.milestoneEvents.append(event) } }
     public func updateRewardsState(_ rewardsState: RewardsState) throws {
@@ -1267,8 +1278,9 @@ import Observation
     }
     private static func projectSessions(_ state: inout LibraryState) {
         let sets = state.history + [state.activeSet].compactMap { $0 }
+        let setsBySession = Dictionary(grouping: sets, by: \.sessionID)
         for index in state.sessions.indices {
-            let own = sets.filter { $0.sessionID == state.sessions[index].id }
+            let own = setsBySession[state.sessions[index].id] ?? []
             state.sessions[index].activeSeconds = own.reduce(0) { $0 + $1.activeSeconds }
             state.sessions[index].attempts = own.flatMap(\.attempts).filter(\.isEffective).sorted { $0.date < $1.date }
             state.sessions[index].completedSets = own.filter { $0.status == .completed }.count
@@ -1298,7 +1310,9 @@ import Observation
             $0.id.count == 64 && $0.id.allSatisfy { $0.isHexDigit } && DesktopTransfer.localName($0.archiveFileName)
                 && date($0.importedAt) && $0.scoreCount >= 0 && $0.tableCounts.values.allSatisfy { $0 >= 0 }
         }, "The Mac import records are invalid.")
-        let pieceIDs = Set(state.pieces.map(\.id)); let sessionIDs = Set(state.sessions.map(\.id))
+        let piecesByID = Dictionary(uniqueKeysWithValues: state.pieces.map { ($0.id, $0) })
+        let passagesByID = Dictionary(uniqueKeysWithValues: state.passages.map { ($0.id, $0) })
+        let pieceIDs = Set(piecesByID.keys); let sessionIDs = Set(state.sessions.map(\.id))
         // §7 page tools: once a piece has its own page-edit rows (reorder/insert/delete), its
         // effective reading order can be longer or shorter than its source `pageCount`. `lastPage`/
         // bookmarks/score-link pages are display positions, so their bound is whichever of the two
@@ -1329,7 +1343,7 @@ import Observation
             }
         }
         func validatePassage(_ passage: Passage) throws {
-            let piece = state.pieces.first { $0.id == passage.pieceID }
+            let piece = piecesByID[passage.pieceID]
             try require(piece != nil && text(passage.title) && text(passage.focus) && (1...max(1, piece?.pageCount ?? 0)).contains(passage.page), "A passage has an invalid piece, title, or page.")
             switch (passage.startMeasure, passage.endMeasure) {
             case (nil, nil): break
@@ -1353,7 +1367,7 @@ import Observation
         try require(state.inkStrokes.count <= 50000 && unique(state.inkStrokes.map(\.id)), "The library contains too many strokes or duplicate stroke identifiers.")
         var inkBytes = 0
         for stroke in state.inkStrokes {
-            let piece = state.pieces.first { $0.id == stroke.pieceID }
+            let piece = piecesByID[stroke.pieceID]
             try require(piece?.pdfFileName != nil && stroke.page >= 1 && stroke.page <= (piece?.pageCount ?? 0), "A stroke references a missing score page.")
             try require(!stroke.data.isEmpty && stroke.data.count <= maximumDrawingBytes && (stroke.fingerprint?.count ?? 0) <= 8192
                         && date(stroke.createdAt) && date(stroke.updatedAt) && stroke.deletedAt.map(date) != false,
@@ -1362,6 +1376,7 @@ import Observation
             try require(inkBytes <= maximumTotalDrawingBytes, "The library has reached its supported 32 MB of ink. Export a backup before continuing.")
         }
         let sets = state.history + [state.activeSet].compactMap { $0 }
+        let setsBySession = Dictionary(grouping: sets, by: \.sessionID)
         if state.schemaVersion == 1 {
             try require(state.inkStrokes.isEmpty && state.passages.allSatisfy { $0.regions.isEmpty && $0.startMeasure != nil && $0.endMeasure != nil }
                         && sets.allSatisfy { $0.configuration.passageSnapshot == nil }, "A legacy library contains unsupported markup fields.")
@@ -1384,7 +1399,7 @@ import Observation
             try PracticeEngine.validate(set.configuration)
             try require(pieceIDs.contains(set.configuration.pieceID) && sessionIDs.contains(set.sessionID), "A practice set references a missing piece or session.")
             if let passageID = set.configuration.passageID {
-                try require(state.passages.contains { $0.id == passageID && $0.pieceID == set.configuration.pieceID }, "A practice set references a missing passage.")
+                try require(passagesByID[passageID]?.pieceID == set.configuration.pieceID, "A practice set references a missing passage.")
             }
             if let snapshot = set.configuration.passageSnapshot {
                 try require(snapshot.pieceID == set.configuration.pieceID && (set.configuration.passageID == nil || snapshot.id == set.configuration.passageID), "A practice set contains an unrelated passage snapshot.")
@@ -1404,7 +1419,7 @@ import Observation
         try require(state.sessions.filter { $0.endedAt == nil }.count <= 1, "The library contains multiple open sessions.")
         for session in state.sessions {
             try require(pieceIDs.contains(session.pieceID) && text(session.focus) && date(session.startedAt) && session.endedAt.map(date) != false && session.activeSeconds.isFinite && (0...maximumFocusedSeconds).contains(session.activeSeconds) && session.completedSets >= 0, "A session has invalid references or timing.")
-            try require(sets.filter { $0.sessionID == session.id }.allSatisfy { $0.configuration.pieceID == session.pieceID }, "A session mixes practice attributed to different pieces.")
+            try require((setsBySession[session.id] ?? []).allSatisfy { $0.configuration.pieceID == session.pieceID }, "A session mixes practice attributed to different pieces.")
         }
         if let active = state.activeSet {
             try require(state.sessions.contains { $0.id == active.sessionID && $0.endedAt == nil }, "An active set belongs to a closed session.")
@@ -1463,19 +1478,19 @@ import Observation
         }
         try require(unique(state.bookmarks.map(\.id)) && state.bookmarks.count <= 10000, "The library contains duplicate or too many bookmarks.")
         for bookmark in state.bookmarks {
-            let piece = state.pieces.first { $0.id == bookmark.pieceID }
+            let piece = piecesByID[bookmark.pieceID]
             try require(piece != nil && bookmark.page >= 1 && bookmark.page <= (piece.map(effectivePageBound) ?? 0) && text(bookmark.label, maximum: 200), "A bookmark references a missing piece/page or has invalid text.")
         }
         try require(unique(state.pageEdits.map(\.id)) && state.pageEdits.count <= 20000, "The library contains duplicate or too many page edits.")
         for edit in state.pageEdits {
-            let piece = state.pieces.first { $0.id == edit.pieceID }
+            let piece = piecesByID[edit.pieceID]
             try require(piece != nil, "A page edit references a missing piece.")
             try require(edit.sourcePage == nil || (edit.sourcePage! >= 1 && edit.sourcePage! <= max(1, piece?.pageCount ?? 0)), "A page edit references a missing source page.")
             try require(edit.displayOrder >= 1 && [0, 90, 180, 270].contains(edit.rotationDegrees) && (edit.cropRect?.isValid ?? true), "A page edit has an invalid order, rotation, or crop.")
         }
         try require(unique(state.scoreLinks.map(\.id)) && state.scoreLinks.count <= 20000, "The library contains duplicate or too many score links.")
         for link in state.scoreLinks {
-            let piece = state.pieces.first { $0.id == link.pieceID }
+            let piece = piecesByID[link.pieceID]
             let bound = piece.map(effectivePageBound) ?? 0
             try require(piece != nil && link.sourcePage >= 1 && link.sourcePage <= bound
                         && link.targetPage >= 1 && link.targetPage <= bound, "A score link references a missing piece or page.")
@@ -1483,12 +1498,12 @@ import Observation
         }
         try require(unique(state.textAnnotations.map(\.id)) && state.textAnnotations.count <= 20000, "The library contains duplicate or too many text annotations.")
         for annotation in state.textAnnotations {
-            let piece = state.pieces.first { $0.id == annotation.pieceID }
+            let piece = piecesByID[annotation.pieceID]
             try require(piece != nil && annotation.page >= 1 && annotation.page <= max(1, piece?.pageCount ?? 0) && annotation.region.isValid && text(annotation.text, maximum: 2000, blank: true), "A text annotation references a missing piece/page or has invalid text/region.")
         }
         try require(unique(state.stampAnnotations.map(\.id)) && state.stampAnnotations.count <= 50000, "The library contains duplicate or too many stamps.")
         for stamp in state.stampAnnotations {
-            let piece = state.pieces.first { $0.id == stamp.pieceID }
+            let piece = piecesByID[stamp.pieceID]
             try require(piece != nil && stamp.page >= 1 && stamp.page <= max(1, piece?.pageCount ?? 0) && stamp.position.isValid
                         && text(stamp.label ?? "", maximum: 20, blank: true), "A stamp references a missing piece/page or has an invalid position or label.")
         }
@@ -1516,7 +1531,7 @@ import Observation
         try require(date(state.ruleSettings.updatedAt), "The rule settings have an invalid sync date.")
         try require(unique(state.warmupExercises.map(\.id)) && state.warmupExercises.count <= 2000, "The library contains duplicate or too many warmup exercises.")
         for exercise in state.warmupExercises {
-            try require(text(exercise.key, maximum: 20) && text(exercise.name, maximum: 200) && exercise.useCount >= 0
+            try require(text(exercise.key, maximum: 20) && text(exercise.name, maximum: 200) && exercise.useCount >= 0 && exercise.useCount < Int.max
                         && (exercise.customFromPassageID == nil || passageIDs.contains(exercise.customFromPassageID!))
                         && exercise.lastUsedAt.map(date) != false && date(exercise.createdAt) && date(exercise.updatedAt) && exercise.deletedAt.map(date) != false,
                         "A warmup exercise has invalid text, references, or dates.")
@@ -1528,19 +1543,25 @@ import Observation
                         && !recording.fileName.contains("/") && !recording.fileName.contains("..")
                         && recording.duration.isFinite && recording.duration >= 0 && recording.duration <= 24 * 60 * 60
                         && recording.byteSize >= 0 && date(recording.date), "A recording references a missing passage or has an invalid file, duration, or date.")
-            recordingBytes += max(0, recording.byteSize)
-            try require(recordingBytes <= 2_000_000_000, "The library's recordings exceed the supported 2 GB total size.")
+            try require(recording.byteSize <= 2_000_000_000 - recordingBytes, "The library's recordings exceed the supported 2 GB total size.")
+            recordingBytes += recording.byteSize
         }
         try require(unique(state.rewardLedger.map(\.id)) && state.rewardLedger.count <= 500000, "The library contains duplicate or too many reward entries.")
+        var totalCoins = 0, totalXP = 0
         for entry in state.rewardLedger {
             // Honesty: coins/xp only ever move forward. Sloppy (or anything else) can never post a penalty here.
             try require(entry.coinsDelta >= 0 && entry.xpDelta >= 0 && date(entry.date) && text(entry.reason, maximum: 200), "A reward entry is negative or has invalid text/timing.")
+            let coins = totalCoins.addingReportingOverflow(entry.coinsDelta)
+            let xp = totalXP.addingReportingOverflow(entry.xpDelta)
+            try require(!coins.overflow && !xp.overflow, "The reward ledger exceeds the supported totals.")
+            totalCoins = coins.partialValue; totalXP = xp.partialValue
         }
         try require(unique(state.badges.map(\.id)) && state.badges.count <= 1000, "The library contains duplicate or too many badges.")
         for badge in state.badges { try require(text(badge.key, maximum: 100) && date(badge.earnedAt), "A badge has an invalid key or date.") }
         try require(unique(state.milestoneEvents.map(\.id)) && state.milestoneEvents.count <= 20000, "The library contains duplicate or too many milestone events.")
         for milestone in state.milestoneEvents { try require(text(milestone.kind, maximum: 100) && date(milestone.date) && text(milestone.detail, maximum: 500, blank: true), "A milestone event has invalid text or a date.") }
-        try require(state.rewardsState.division >= 1 && state.rewardsState.streakDays >= 0 && state.rewardsState.streakFreezesAvailable >= 0
+        try require(state.rewardsState.division >= 1 && state.rewardsState.streakDays >= 0 && state.rewardsState.streakDays < Int.max
+                    && state.rewardsState.streakFreezesAvailable >= 0 && state.rewardsState.streakFreezesAvailable < Int.max
                     && state.rewardsState.lastPracticeDate.map(date) != false && date(state.rewardsState.updatedAt) && text(state.rewardsState.rank, maximum: 100),
                     "The rewards state has an invalid value.")
         try require(unique(state.notebookEntries.map(\.id)) && state.notebookEntries.count <= 20000, "The library contains duplicate or too many notebook entries.")

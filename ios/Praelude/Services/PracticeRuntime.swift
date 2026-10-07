@@ -12,6 +12,9 @@ final class PracticeRuntime {
     @ObservationIgnored private let notifications = AudioNotificationBag()
     @ObservationIgnored private var scoreOwners: Set<UUID> = []
     @ObservationIgnored private var checkpointTimer: Timer?
+    /// SwiftUI can deliver the background pause's status change only after the app is active
+    /// again. Remember that specific retained click so a late observer cannot silence it.
+    @ObservationIgnored private var retainedBackgroundClickSetID: UUID?
     /// R14 pulse check (§11): the decision currently in effect, or `nil` when the click plays every
     /// bar as usual. The HUD shows `.reason` verbatim, the same "one dry human-readable line" every
     /// other rule already surfaces (`NextStepAndSuggestionsView`); the verdict for whatever attempt
@@ -34,6 +37,8 @@ final class PracticeRuntime {
             // The metronome owns its own backgrounding decision (§13 "keep running when locked");
             // stopping it here unconditionally would silence that preference. Speech recognition
             // and reward feedback have no such preference, so they always stop.
+            self.retainedBackgroundClickSetID = self.metronome.keepRunningWhenLocked && self.metronome.isPlaying
+                ? self.store.activeSet?.id : nil
             if !self.metronome.keepRunningWhenLocked { self.metronome.stop() }
             self.speech.stop()
             self.feedback.stop()
@@ -118,18 +123,26 @@ final class PracticeRuntime {
     }
 
     /// A background pause checkpoints the ledger without silencing an explicitly requested
-    /// locked-screen click. Manual foreground pauses, finished sets and absent sets still stop it.
+    /// locked-screen click, including an observer delivered after returning to the foreground.
+    /// Manual foreground pauses, finished sets and absent sets still stop it.
     /// The optional foreground value lets lifecycle tests exercise the real view/runtime boundary.
     func refreshMetronome(for set: ActiveSet?, applicationIsActive: Bool? = nil) {
-        guard let set else { metronome.stop(); return }
+        guard let set else { retainedBackgroundClickSetID = nil; metronome.stop(); return }
+        if let retained = retainedBackgroundClickSetID, retained != set.id {
+            retainedBackgroundClickSetID = nil
+            metronome.stop()
+        }
         if set.status == .running {
+            retainedBackgroundClickSetID = nil
             metronome.setTempo(set.currentBPM)
             if set.configuration.useMetronome && !metronome.isPlaying { metronome.start() }
         } else if set.status == .paused && metronome.keepRunningWhenLocked &&
-                    !(applicationIsActive ?? (UIApplication.shared.applicationState == .active)) {
+                    (retainedBackgroundClickSetID == set.id ||
+                     !(applicationIsActive ?? (UIApplication.shared.applicationState == .active))) {
             // Keep the existing click only; a background refresh never starts or resumes audio.
+            if !metronome.isPlaying { retainedBackgroundClickSetID = nil }
             return
-        } else { metronome.stop() }
+        } else { retainedBackgroundClickSetID = nil; metronome.stop() }
     }
 
     func undo() throws {

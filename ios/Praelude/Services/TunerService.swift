@@ -15,6 +15,7 @@ final class TunerService {
     var concertReading: Tuning.NamedPitch? { frequencyHz.flatMap { Tuning.nearestPitch(forFrequency: $0) } }
 
     @ObservationIgnored private let engine = AVAudioEngine()
+    @ObservationIgnored private let detectionGate = InFlightWorkGate()
     @ObservationIgnored private let notifications = AudioNotificationBag()
     @ObservationIgnored private var smoother = TunerSmoother()
     @ObservationIgnored private var generation = 0
@@ -55,11 +56,15 @@ final class TunerService {
             // every actual read/write of `self`'s state still happens back on the main actor via
             // `MainActor.run`, same as before.
             nonisolated(unsafe) let weakSelf = self
+            // A slower device must not queue one CPU-heavy detector per microphone buffer. Keep
+            // at most one window in flight; dropped windows are replaced by fresh live input.
+            let detectionGate = self.detectionGate
             input.installTap(onBus: 0, bufferSize: 4_096, format: format) { @Sendable [weak weakSelf] buffer, _ in
-                guard let channel = buffer.floatChannelData?[0] else { return }
+                guard let channel = buffer.floatChannelData?[0], detectionGate.tryBegin() else { return }
                 let samples = Array(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
                 let sampleRate = format.sampleRate
                 Task.detached(priority: .userInitiated) {
+                    defer { detectionGate.finish() }
                     let pitch = PitchDetector.detectPitch(samples: samples, sampleRate: sampleRate)
                     await MainActor.run { weakSelf?.ingest(pitch: pitch, generation: thisGeneration) }
                 }

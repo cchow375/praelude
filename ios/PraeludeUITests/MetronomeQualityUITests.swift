@@ -12,15 +12,61 @@ final class MetronomeQualityUITests: XCTestCase {
         XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    @MainActor private func reveal(_ element: XCUIElement, app: XCUIApplication) {
-        for _ in 0..<10 {
-            if element.exists && element.isHittable && element.frame.minY >= app.frame.minY + 60 && element.frame.maxY <= app.frame.maxY - 35 { return }
-            // The covered Today/Pieces list remains in the AX tree under this sheet.
-            let form = app.collectionViews.allElementsBoundByIndex.first { $0.frame.minY > 120 }!
-            if element.exists && element.frame.minY < app.frame.minY + 60 { form.swipeDown() }
-            else { form.swipeUp() }
+    private func finiteFrame(_ frame: CGRect) -> Bool {
+        !frame.isNull && !frame.isInfinite && frame.width > 0 && frame.height > 0 &&
+            [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy { $0.isFinite }
+    }
+
+    @discardableResult
+    @MainActor private func reveal(_ element: XCUIElement, app: XCUIApplication, centerInForm: Bool = false) -> CGRect? {
+        // iPad presents this sheet inside the screen. Its clipped Form viewport, rather than
+        // the app's full-height window, determines both visibility and scroll direction.
+        var searchDown = true
+        for attempt in 0..<14 {
+            let form = app.collectionViews["metronomeSettingsForm"]
+            guard form.exists else {
+                XCTFail("The presented metronome form is missing. " + app.debugDescription); return nil
+            }
+            let formFrame = form.frame
+            guard finiteFrame(formFrame), finiteFrame(app.frame) else {
+                capture("metronome-form-invalid-geometry", app: app)
+                XCTFail("The presented form has invalid geometry. " + app.debugDescription); return nil
+            }
+            let viewport = formFrame.intersection(app.frame).insetBy(dx: 4, dy: 10)
+            if element.exists {
+                // Read a concrete rectangle once. XCTest can disagree about Menu's automation
+                // type on a later coordinate refetch even when this snapshot is valid.
+                let frame = element.frame
+                if finiteFrame(frame) {
+                    // Keep the acceptable band wider than one 34% scroll step, avoiding an
+                    // oscillation across its edges when the row starts near the bottom.
+                    let centered = !centerInForm || (frame.midY >= viewport.minY + viewport.height * 0.30 &&
+                                                    frame.midY <= viewport.minY + viewport.height * 0.70)
+                    if viewport.contains(frame) && centered && element.isHittable { return frame }
+                    if centerInForm { searchDown = frame.midY > viewport.midY }
+                    else if frame.minY < viewport.minY { searchDown = false }
+                    else if frame.maxY > viewport.maxY { searchDown = true }
+                }
+            } else if attempt == 7 {
+                searchDown.toggle()
+            }
+            let start = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: searchDown ? 0.72 : 0.28))
+            let end = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: searchDown ? 0.38 : 0.62))
+            start.press(forDuration: 0.05, thenDragTo: end)
         }
-        XCTAssertTrue(element.exists && element.isHittable, app.debugDescription)
+        capture("metronome-control-unreachable", app: app)
+        XCTFail("The metronome control is outside its form or has no finite hittable frame. " + app.debugDescription)
+        return nil
+    }
+
+    @MainActor private func tapSavedFrame(_ frame: CGRect, app: XCUIApplication) {
+        let window = app.frame
+        guard finiteFrame(frame), finiteFrame(window), window.contains(frame) else {
+            XCTFail("The saved control rectangle is not a finite visible target")
+            return
+        }
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.midX - window.minX, dy: frame.midY - window.minY)).tap()
     }
 
     @MainActor private func openMetronome(_ app: XCUIApplication) {
@@ -49,6 +95,7 @@ final class MetronomeQualityUITests: XCTestCase {
 
     @MainActor func testActiveTempoEditsAndMetronomeCustomizationAreReachable() {
         continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting", "--reset", "--seed"]
         app.launch()
@@ -77,21 +124,63 @@ final class MetronomeQualityUITests: XCTestCase {
         XCTAssertEqual(toggle.label, "Stop")
         increase.press(forDuration: 0.15)
         XCTAssertEqual(toggle.label, "Stop", "A live tempo edit keeps playback running")
-        let presets = app.buttons["meterPresets"]
-        reveal(presets, app: app); presets.press(forDuration: 0.15)
-        app.buttons["6/8 · dotted-quarter pulse"].press(forDuration: 0.15)
+        let presets = app.descendants(matching: .any).matching(identifier: "meterPresets").firstMatch
+        // Give the native popup space around its anchor instead of opening it from the
+        // Form's final visible row, where its menu may be clipped during presentation.
+        guard let presetFrame = reveal(presets, app: app, centerInForm: true) else { return }
+        // Anchor to the application coordinate space using the verified rectangle above. A
+        // coordinate attached to the Menu node itself triggers XCTest's inconsistent type/frame
+        // resolution during event synthesis and can turn a valid rectangle into an infinite point.
+        capture("metronome-meter-control-before-tap", app: app)
+        tapSavedFrame(presetFrame, app: app)
+        let compoundPreset = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "6/8 · dotted-quarter pulse")).firstMatch
+        if !compoundPreset.waitForExistence(timeout: 5) {
+            capture("metronome-meter-menu-missing", app: app)
+            XCTFail("Common meters did not expose the 6/8 preset. " + app.debugDescription)
+            return
+        }
+        let presetReady = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: compoundPreset)
+        XCTAssertEqual(XCTWaiter.wait(for: [presetReady], timeout: 5), .completed,
+                       "The visible native meter menu must expose a tappable 6/8 option.\n" + app.debugDescription)
+        compoundPreset.tap()
         let compound = app.switches["compoundPulse"]
         reveal(compound, app: app)
         XCTAssertTrue(compound.exists, app.debugDescription)
         if compound.value as? String != "1" { compound.press(forDuration: 0.15) }
         capture("metronome-compound-meter-native-phone", app: app)
         let countIn = app.buttons["countInBars"]
-        reveal(countIn, app: app); countIn.press(forDuration: 0.15)
-        app.buttons["1 bar"].press(forDuration: 0.15)
+        reveal(countIn, app: app); countIn.tap()
+        let oneBar = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "1 bar")).firstMatch
+        XCTAssertTrue(oneBar.waitForExistence(timeout: 5) && oneBar.isHittable, app.debugDescription)
+        oneBar.tap()
         let locked = app.switches["keepMetronomeRunning"]
         reveal(locked, app: app)
         XCTAssertTrue(locked.isEnabled && locked.isHittable, app.debugDescription)
-        if locked.value as? String != "1" { locked.press(forDuration: 0.15) }
+        if locked.value as? String != "1" {
+            // SwiftUI exposes the whole label row as a Switch. Its center can fall outside
+            // UIKit's trailing toggle, so use the nested native switch's verified bounds.
+            let nativeSwitch = locked.switches.firstMatch
+            XCTAssertTrue(nativeSwitch.waitForExistence(timeout: 5), app.debugDescription)
+            var previousFrame = CGRect.zero
+            var lastMovement = Date.now
+            let stable = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard nativeSwitch.exists else { return false }
+                let frame = nativeSwitch.frame
+                guard self.finiteFrame(frame), locked.frame.contains(frame),
+                      app.frame.contains(frame), nativeSwitch.isHittable else { return false }
+                if frame != previousFrame { previousFrame = frame; lastMovement = .now; return false }
+                return Date.now.timeIntervalSince(lastMovement) >= 0.4
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [stable], timeout: 8), .completed,
+                           "The native toggle must settle after the count-in menu relayout.\n" + app.debugDescription)
+            nativeSwitch.tap()
+        }
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1"), object: locked)
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed,
+                       "Keep click when locked must actually be enabled before testing background playback.\n" + app.debugDescription)
+        reveal(toggle, app: app)
+        XCTAssertEqual(toggle.label, "Stop", "Playback must still be running before leaving the metronome")
         capture("metronome-count-in-lock-native-phone", app: app)
         app.buttons["Done"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 10), app.debugDescription)
@@ -101,6 +190,7 @@ final class MetronomeQualityUITests: XCTestCase {
         XCTAssertTrue(app.buttons["openMetronome"].waitForExistence(timeout: 10), app.debugDescription)
         openMetronome(app)
         XCTAssertTrue(toggle.waitForExistence(timeout: 10), app.debugDescription)
+        reveal(toggle, app: app)
         XCTAssertEqual(toggle.label, "Stop", "Keeping the click when locked also survives the practice set's background pause")
         capture("metronome-background-continuation-native-phone", app: app)
         toggle.press(forDuration: 0.15)
@@ -108,6 +198,7 @@ final class MetronomeQualityUITests: XCTestCase {
     }
     @MainActor func testLargestTextKeepsMaximumTempoAndEveryNudgeReadable() {
         continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting", "--reset", "--seed", "--audit-max-tempo", "--audit-dark", "--audit-accessibility",
                                "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]

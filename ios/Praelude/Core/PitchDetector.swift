@@ -12,10 +12,15 @@ public enum PitchDetector {
                                     threshold: Double = 0.15) -> Double? {
         guard sampleRate.isFinite, sampleRate > 0, minFrequencyHz.isFinite, maxFrequencyHz.isFinite,
               minFrequencyHz > 0, maxFrequencyHz > minFrequencyHz, samples.count > 8,
-              samples.allSatisfy({ $0.isFinite }) else { return nil }
+              samples.allSatisfy({ $0.isFinite }), threshold.isFinite, (0..<1).contains(threshold) else { return nil }
 
-        let maxTau = min(samples.count - 2, Int((sampleRate / minFrequencyHz).rounded(.up)))
-        let minTau = max(1, Int((sampleRate / maxFrequencyHz).rounded(.down)))
+        // Clamp in floating point before converting: finite inputs can still produce infinity
+        // or values outside Int's range. An unrepresentable period is not usable in this window.
+        let availableTau = samples.count - 2
+        let lowerPeriod = (sampleRate / maxFrequencyHz).rounded(.down)
+        guard lowerPeriod.isFinite, lowerPeriod < Double(availableTau) else { return nil }
+        let maxTau = Int(min(Double(availableTau), (sampleRate / minFrequencyHz).rounded(.up)))
+        let minTau = Int(max(1, lowerPeriod))
         guard maxTau > minTau + 1 else { return nil }
         let windowCount = min(samples.count - maxTau, maxTau)
         guard windowCount > 0 else { return nil }

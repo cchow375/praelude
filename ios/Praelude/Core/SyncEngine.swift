@@ -643,16 +643,36 @@ public final class SyncEngine {
     /// row ever appended on every sync, or (worse) never establishing one and silently pulling
     /// nothing past the first page.
     public func pull(table: String, cursorField: String = "updated_at", applyRow: (_ row: [String: SyncJSON]) throws -> Void) async throws {
-        try await pullRows(table: table, cursorField: cursorField) { rows in
-            for row in rows { try applyRow(row) }
+        let generation = accountGeneration
+        let rows = try await transport.fetch(table: table, field: cursorField, updatedSince: nil)
+        for (index, row) in rows.enumerated() {
+            // Importing hundreds of annotations otherwise monopolizes the main actor until the
+            // entire table has been decoded, validated and saved. Let drawing and taps run.
+            if index.isMultiple(of: 16) { await Task.yield() }
+            try requireCurrentPull(generation)
+            try applyRow(row)
         }
+        try requireCurrentPull(generation)
+        try acknowledgeRows(rows, table: table, cursorField: cursorField)
     }
     /// Applies a whole fetched table before acknowledging its cursor, allowing the rep log to
     /// merge in one atomic library transaction instead of rewriting the library once per rep.
     public func pullRows(table: String, cursorField: String = "updated_at", applyRows: ([[String: SyncJSON]]) throws -> Void) async throws {
-        let cursorKey = cursorField == "updated_at" ? table : "\(table)#\(cursorField)"
+        let generation = accountGeneration
         let rows = try await transport.fetch(table: table, field: cursorField, updatedSince: nil)
+        try requireCurrentPull(generation)
         try applyRows(rows)
+        try requireCurrentPull(generation)
+        try acknowledgeRows(rows, table: table, cursorField: cursorField)
+    }
+
+    private func requireCurrentPull(_ generation: Int) throws {
+        try Task.checkCancellation()
+        guard generation == accountGeneration else { throw SyncError.transport("Account changed during sync.") }
+    }
+
+    private func acknowledgeRows(_ rows: [[String: SyncJSON]], table: String, cursorField: String) throws {
+        let cursorKey = cursorField == "updated_at" ? table : "\(table)#\(cursorField)"
         var latest = state.cursors[cursorKey]
         for row in rows {
             if let value = row[cursorField]?.stringValue.flatMap(SyncCoding.parseDate), latest == nil || value > latest! { latest = value }
@@ -664,10 +684,15 @@ public final class SyncEngine {
     /// Fetch parent sessions, set metadata, and their rep log before acknowledging any of them.
     /// The callback commits one validated practice snapshot; failure leaves every cursor unchanged.
     public func pullPracticeSnapshot(applyRows: ([String: [[String: SyncJSON]]]) throws -> Void) async throws {
+        let generation = accountGeneration
         let tables = [("practice_sessions", "updated_at"), ("sets", "updated_at"), ("attempts", "date")]
         var rows: [String: [[String: SyncJSON]]] = [:]
-        for (table, field) in tables { rows[table] = try await transport.fetch(table: table, field: field, updatedSince: nil) }
+        for (table, field) in tables {
+            rows[table] = try await transport.fetch(table: table, field: field, updatedSince: nil)
+            try requireCurrentPull(generation)
+        }
         try applyRows(rows)
+        try requireCurrentPull(generation)
         for (table, field) in tables {
             let key = field == "updated_at" ? table : "\(table)#\(field)"
             let dates = (rows[table] ?? []).compactMap { $0[field]?.stringValue.flatMap(SyncCoding.parseDate) }

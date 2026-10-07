@@ -11,6 +11,7 @@ struct ScoreMeasureMapView: View {
     @State private var firstMeasure = ""
     @State private var lastMeasure = ""
     @State private var scanning = false
+    @State private var scanRequestID = UUID()
     @State private var errorMessage: String?
     private var piece: Piece? { store.pieces.first { $0.id == pieceID } }
     private var anchors: [ScoreMeasureAnchor] { piece?.measureAnchors.filter { $0.page == page } ?? [] }
@@ -76,6 +77,7 @@ struct ScoreMeasureMapView: View {
                         if let selectedRegion { regionBox(selectedRegion, color: .blue, size: proxy.size, rotation: scan.rotation) }
                     }.contentShape(Rectangle())
                         .gesture(DragGesture(minimumDistance: 3).onChanged { value in
+                            guard proxy.size.width > 0, proxy.size.height > 0 else { return }
                             let x = min(max(0, min(value.startLocation.x, value.location.x) / proxy.size.width), 0.999)
                             let y = min(max(0, min(value.startLocation.y, value.location.y) / proxy.size.height), 0.999)
                             let width = min(1 - x, max(0.001, abs(value.location.x - value.startLocation.x) / proxy.size.width))
@@ -99,13 +101,18 @@ struct ScoreMeasureMapView: View {
     private func load(recognize: Bool) async {
         guard let piece, let url = NativeLibraryFiles(store: store).scoreURL(for: piece) else { return }
         let requestedPage = page
-        scanning = true; defer { scanning = false }
+        let requestID = UUID(); scanRequestID = requestID
+        scanning = true
+        defer { if scanRequestID == requestID { scanning = false } }
         do {
             let result = try await ScoreOrganizationScanner.page(url: url, number: requestedPage, recognizeNumbers: recognize)
-            guard page == requestedPage else { return }
+            guard !Task.isCancelled, page == requestedPage, scanRequestID == requestID else { return }
             scan = result
             errorMessage = recognize && result.hints.isEmpty ? "No readable printed numbers found. Outline a region and enter the numbers yourself." : nil
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            guard !Task.isCancelled, page == requestedPage, scanRequestID == requestID else { return }
+            errorMessage = error.localizedDescription
+        }
     }
     private func save() {
         guard let piece, let region = selectedRegion, let first = Int(firstMeasure), let last = Int(lastMeasure) else { return }

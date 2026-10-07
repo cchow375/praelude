@@ -61,18 +61,26 @@ final class RewardsRuntime {
         try store.appendRewardLedgerEntry(RewardsEngine.ledgerEntry(for: event))
     }
 
+    private func award(_ event: RewardEvent, count: Int) throws {
+        guard count > 0 else { return }
+        guard count <= 500_000 - store.state.rewardLedger.count else {
+            throw PracticeError.invalid("The reward ledger has reached its supported size. Export a backup before continuing.")
+        }
+        try store.appendRewardLedgerEntries((0..<count).map { _ in RewardsEngine.ledgerEntry(for: event) })
+    }
+
     private func awardCompletedReps() throws {
         let effective = allSets.flatMap(\.attempts).filter(\.isEffective).count
         let already = store.state.rewardLedger.filter { $0.reason == "Completed repetition" }.count
         guard effective > already else { return }
-        for _ in already..<effective { try award(.completedRep) }
+        try award(.completedRep, count: effective - already)
     }
 
     private func awardCompletedSets() throws {
         let completed = store.state.history.filter { $0.status == .completed }.count
         let already = store.state.rewardLedger.filter { $0.reason == "Completed set" }.count
         guard completed > already else { return }
-        for _ in already..<completed { try award(.completedSet) }
+        try award(.completedSet, count: completed - already)
         // Small (§14: "small for set completion"): the existing `.set`/`.chain` tone already marks
         // this moment (`FeedbackService`, wired through the untouched practice-event pipeline), so
         // this runtime adds no second sound for it — only the honest coin/xp entry above is new.
@@ -83,14 +91,15 @@ final class RewardsRuntime {
     /// rules track — see "(C) Schema3.md"), so this genuinely awards nothing today; it activates on
     /// its own the day a rules track starts scheduling reviews, with no further change needed here.
     private func awardOnTimeReviews() throws {
+        let passagesByID = Dictionary(uniqueKeysWithValues: store.state.passages.map { ($0.id, $0) })
         let onTime = store.state.coldGrades.filter { grade in
-            guard let passage = store.state.passages.first(where: { $0.id == grade.passageID }),
+            guard let passage = passagesByID[grade.passageID],
                   let due = passage.schedule.dueDate else { return false }
             return grade.date <= due
         }.count
         let already = store.state.rewardLedger.filter { $0.reason == "Reviewed on time" }.count
         guard onTime > already else { return }
-        for _ in already..<onTime { try award(.onTimeReview) }
+        try award(.onTimeReview, count: onTime - already)
     }
 
     /// Passage/piece performance-readiness (§11 R10 sets `Passage.learningState`; unreached today for

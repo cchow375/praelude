@@ -1,0 +1,74 @@
+{
+  "sourceCandidate": "2.0.0/build7/schema5",
+  "installedIPad": "2.0.0/build6/schema5",
+  "runs": [
+    {
+      "scope": "phone-final-gates",
+      "result": "Passed",
+      "total": 223,
+      "passed": 222,
+      "skipped": 1,
+      "failed": 0,
+      "failures": [],
+      "runDurationSeconds": 392.898
+    },
+    {
+      "scope": "phone-rotation-strict",
+      "result": "Failed",
+      "total": 1,
+      "passed": 0,
+      "skipped": 0,
+      "failed": 1,
+      "failures": [
+        {
+          "test": "ScoreWorkflowUITests/testAnnotationControlsPreserveScoreAndReturnAfterRotation()",
+          "reason": "Final Done press did not exit writing; geometry/width/zoom checks passed. Subsequent source hit-target correction passes actual exit."
+        }
+      ],
+      "runDurationSeconds": 96.711
+    },
+    {
+      "scope": "phone-rotation-hits",
+      "result": "Passed",
+      "total": 1,
+      "passed": 1,
+      "skipped": 0,
+      "failed": 0,
+      "failures": [],
+      "runDurationSeconds": 95.115,
+      "testCaseDurationSeconds": 41.408
+    },
+    {
+      "scope": "ipad-final-gates",
+      "result": "Failed",
+      "total": 220,
+      "passed": 218,
+      "skipped": 1,
+      "failed": 1,
+      "failures": [
+        {
+          "test": "MetronomeQualityUITests/testActiveTempoEditsAndMetronomeCustomizationAreReachable()",
+          "reason": "Query of virtualized offscreen playback button after settings scroll. Retained as failure; explicit reveal is required before state assertion."
+        }
+      ],
+      "runDurationSeconds": 310.413
+    },
+    {
+      "scope": "ipad-metronome-reveal",
+      "result": "Passed",
+      "total": 1,
+      "passed": 1,
+      "skipped": 0,
+      "failed": 0,
+      "failures": [],
+      "runDurationSeconds": 140.499,
+      "testCaseDurationSeconds": 95.031
+    }
+  ],
+  "otherChecks": {
+    "coreTestsPassed": 394,
+    "deterministicServiceAssertionsPassed": 2211,
+    "pythonTestsPassed": 54
+  },
+  "sourceTag": "ios-v2.0.0-build7-candidate"
+}

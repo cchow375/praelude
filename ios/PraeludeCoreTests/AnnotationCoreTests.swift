@@ -17,6 +17,25 @@ final class AnnotationCoreTests: XCTestCase {
 
     // MARK: - Per-stroke identity and ordering
 
+    @MainActor func testIndexedInkDiffPreservesOrderedDuplicatesAndResurrectsTombstones() throws {
+        let (store, directory, piece) = try store(now: { Date(timeIntervalSince1970: 1_700_000_000) })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let duplicate = PracticeStore.InkStrokeInput(data: Data([1]), fingerprint: Data([10]))
+        let middle = PracticeStore.InkStrokeInput(data: Data([2]), fingerprint: Data([20]))
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [duplicate, middle, duplicate])
+        let original = store.inkStrokes(pieceID: piece.id, page: 1)
+        XCTAssertEqual(original.count, 3)
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [duplicate, duplicate])
+        XCTAssertEqual(store.inkStrokes(pieceID: piece.id, page: 1).map(\.id), [original[0].id, original[2].id])
+        XCTAssertNotNil(store.state.inkStrokes.first { $0.id == original[1].id }?.deletedAt)
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [duplicate, middle, duplicate])
+        XCTAssertEqual(store.inkStrokes(pieceID: piece.id, page: 1).map(\.id), original.map(\.id))
+        XCTAssertEqual(store.state.inkStrokes.count, 3)
+        let revision = store.state.revision
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: [duplicate, middle, duplicate])
+        XCTAssertEqual(store.state.revision, revision)
+    }
+
     func testInkStrokeStableIDIsDeterministicAndContentSensitive() {
         let pieceID = UUID()
         let data = Data([1, 2, 3])

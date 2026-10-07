@@ -81,12 +81,14 @@ final class PendingInkLifecycleTests: XCTestCase {
         let overlay = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: XCTUnwrap(view.document?.page(at: 0))) as? ScorePageOverlay)
         coordinator.loading = true; overlay.canvas.drawing = drawing(at: 100); coordinator.loading = false
         coordinator.canvasViewDrawingDidChange(overlay.canvas)
-        XCTAssertNotNil(markup.pendingInk[1])
+        XCTAssertTrue(markup.pendingInk.isEmpty, "Movement callbacks retain the live canvas without repeatedly serializing it")
+        XCTAssertTrue(coordinator.dirtyPages.contains(1))
         coordinator.loading = true; overlay.canvas.drawing = PKDrawing(); coordinator.loading = false
         coordinator.canvasViewDrawingDidChange(overlay.canvas)
         XCTAssertTrue(markup.pendingInk.isEmpty)
-        XCTAssertTrue(coordinator.dirtyPages.isEmpty)
+        XCTAssertTrue(coordinator.dirtyPages.contains(1), "Returning to baseline is compared once at the save boundary")
         XCTAssertTrue(markup.flushInk())
+        XCTAssertTrue(coordinator.dirtyPages.isEmpty)
         XCTAssertEqual(writes, 0, "Undoing unsaved strokes back to their baseline needs no disk mutation")
     }
 

@@ -79,4 +79,13 @@ final class ScoreHeatmapRendererTests: XCTestCase {
         XCTAssertNotEqual(withInsideTap, withNoTap, "a tap inside the passage's own region must be drawn")
         XCTAssertEqual(withOutsideTap, withNoTap, "a tap outside every region on this page must not be drawn")
     }
+    func testHeatmapRasterHasOnePixelScaleAndBoundedLongEdge() throws {
+        let url = makePDF(); addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let image = try XCTUnwrap(ScoreHeatmapRenderer.render(url: url, page: 1, passages: [], taps: [], now: Date(), levelForPassage: { _ in nil }))
+        let bitmap = try XCTUnwrap(image.cgImage)
+        XCTAssertEqual(image.scale, 1)
+        XCTAssertLessThanOrEqual(max(bitmap.width, bitmap.height), 1600)
+        XCTAssertNil(ScoreHeatmapRenderer.render(url: url, page: 0, passages: [], taps: [], now: Date(), levelForPassage: { _ in nil }))
+    }
+
 }

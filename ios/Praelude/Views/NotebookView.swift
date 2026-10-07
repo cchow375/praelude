@@ -77,8 +77,11 @@ struct NotebookView: View {
     }
 
     private func delete(at offsets: IndexSet) {
-        for index in offsets {
-            do { try store.deleteNotebookEntry(entries[index].id) } catch { errorMessage = error.localizedDescription }
+        // A successful tombstone changes `entries`; resolve every selected ID before mutating it.
+        let visible = entries
+        let selected = offsets.compactMap { visible.indices.contains($0) ? visible[$0].id : nil }
+        for id in selected {
+            do { try store.deleteNotebookEntry(id) } catch { errorMessage = error.localizedDescription }
         }
     }
 

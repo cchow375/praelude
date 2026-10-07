@@ -66,11 +66,14 @@ public final class ScoreAndRecordingStorage {
         guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
         return try JSONDecoder().decode([String: String].self, from: Data(contentsOf: url))
     }
-    private func fingerprint(_ url: URL) throws -> String {
+    nonisolated static func fingerprint(_ url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hash = SHA256()
-        while let data = try handle.read(upToCount: 65_536), !data.isEmpty { hash.update(data: data) }
+        while let data = try handle.read(upToCount: 65_536), !data.isEmpty {
+            try Task.checkCancellation()
+            hash.update(data: data)
+        }
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
     private func saveReceipt(bucket: String, path: String, localURL: URL, fingerprint: String) throws {
@@ -88,15 +91,22 @@ public final class ScoreAndRecordingStorage {
         guard !inFlight.contains(key) else { return false }
         inFlight.insert(key); defer { inFlight.remove(key) }
         do {
-            let digest = try fingerprint(localURL)
+            let work = Task.detached(priority: .utility) { try Self.fingerprint(localURL) }
+            let digest = try await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })
+            guard !Task.isCancelled, self.ownerID == ownerID else { return false }
             if try receipts(at: receiptURL(localURL))[key] == digest { return true }
             let storage = try await services.storage()
-            guard self.ownerID == ownerID else { return false }
+            guard !Task.isCancelled, self.ownerID == ownerID else { return false }
             try await storage.from(bucket).upload(path, fileURL: localURL, options: FileOptions(contentType: contentType, upsert: true))
-            guard self.ownerID == ownerID else { return false }
+            guard !Task.isCancelled, self.ownerID == ownerID else { return false }
             try saveReceipt(bucket: bucket, path: path, localURL: localURL, fingerprint: digest)
             return true
-        } catch { lastError = "A library file transfer will be retried. \(error.localizedDescription)"; return false }
+        } catch {
+            if !Task.isCancelled, self.ownerID == ownerID {
+                lastError = "A library file transfer will be retried. \(error.localizedDescription)"
+            }
+            return false
+        }
     }
     private func download(bucket: String, recordID: UUID, fileName: String, localURL: URL) async -> Bool {
         if FileManager.default.fileExists(atPath: localURL.path) { return true }
@@ -106,7 +116,7 @@ public final class ScoreAndRecordingStorage {
         do {
             let storage = try await services.storage()
             let data = try await storage.from(bucket).download(path: path)
-            guard self.ownerID == ownerID else { return false }
+            guard !Task.isCancelled, self.ownerID == ownerID else { return false }
             try FileManager.default.createDirectory(at: localURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: localURL, options: [.atomic, .completeFileProtectionUnlessOpen])
             try saveReceipt(bucket: bucket, path: path, localURL: localURL, fingerprint: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())

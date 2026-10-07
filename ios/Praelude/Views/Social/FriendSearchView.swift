@@ -72,8 +72,19 @@ struct FriendSearchView: View {
         .background(PraeludeColor.paper)
         .navigationTitle("Find friends")
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: query) { _, value in Task { results = await social.searchProfiles(query: value) } }
-        .onChange(of: contactsEnabled) { _, enabled in Task { if enabled { await enableContacts() } else { contactSuggestions = [] } } }
+        .task(id: query) {
+            let requested = query
+            results = []
+            guard !requested.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            let found = await social.searchProfiles(query: requested)
+            guard !Task.isCancelled, query == requested else { return }
+            results = found
+        }
+        .task(id: contactsEnabled) {
+            if contactsEnabled { await enableContacts() }
+            else { contactSuggestions = []; loadingContacts = false }
+        }
         .sheet(isPresented: $showScanner) {
             InviteScannerView(onCode: { text in Task { await redeem(text) } })
         }
@@ -123,6 +134,7 @@ struct FriendSearchView: View {
         guard granted else { contactsEnabled = false; error = "Contacts access was declined."; return }
         // The address book can be large; enumerate off the main actor so this doesn't hitch the UI
         // the moment the toggle flips.
+        guard !Task.isCancelled, contactsEnabled else { return }
         let hashes: [(String, ContactHashKind)] = await Task.detached(priority: .userInitiated) {
             var collected: [(String, ContactHashKind)] = []
             let keys = [CNContactPhoneNumbersKey, CNContactEmailAddressesKey] as [CNKeyDescriptor]
@@ -133,9 +145,12 @@ struct FriendSearchView: View {
             }
             return collected
         }.value
+        guard !Task.isCancelled, contactsEnabled else { return }
         guard await social.uploadContactHashes(hashes.map { (hash: $0.0, kind: $0.1) }) else {
             error = social.lastError; return
         }
-        contactSuggestions = await social.contactSuggestions()
+        let suggestions = await social.contactSuggestions()
+        guard !Task.isCancelled, contactsEnabled else { return }
+        contactSuggestions = suggestions
     }
 }

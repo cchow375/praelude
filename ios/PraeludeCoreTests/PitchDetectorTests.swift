@@ -91,4 +91,14 @@ final class PitchDetectorTests: XCTestCase {
         let second = PitchDetector.detectPitch(samples: samples, sampleRate: sampleRate)
         XCTAssertEqual(first, second)
     }
+
+    func testExtremeFinitePeriodsAndInvalidThresholdsDoNotTrap() {
+        let samples = [Float](repeating: 0, count: 64)
+        XCTAssertNil(PitchDetector.detectPitch(samples: samples, sampleRate: .greatestFiniteMagnitude))
+        XCTAssertNil(PitchDetector.detectPitch(samples: samples, sampleRate: 48_000,
+                                              minFrequencyHz: .leastNonzeroMagnitude))
+        for threshold in [Double.nan, .infinity, -0.1, 1.1] {
+            XCTAssertNil(PitchDetector.detectPitch(samples: samples, sampleRate: 48_000, threshold: threshold))
+        }
+    }
 }

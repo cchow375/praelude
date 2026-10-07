@@ -126,10 +126,12 @@ struct ProfileEditView: View {
         profile.photoRef = path
     }
     private func loadAvatarPreview() async {
-        guard let path = profile.photoRef else { avatarImage = nil; return }
+        avatarImage = nil
+        guard let path = profile.photoRef else { return }
         guard let url = await auth.avatarSignedURL(path: path),
               let (data, _) = try? await URLSession.shared.data(from: url),
               let uiImage = UIImage(data: data) else { return }
+        guard !Task.isCancelled, profile.photoRef == path else { return }
         avatarImage = Image(uiImage: uiImage)
     }
 

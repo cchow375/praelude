@@ -261,7 +261,7 @@ final class RuntimeFeedbackTests: XCTestCase {
         XCTAssertFalse(recording.isRecording)
         XCTAssertNil(recording.recordingSetID)
     }
-    @MainActor func testBackgroundCheckpointAndScoreRefreshPreserveRequestedLockedClickButForegroundPauseStops() async throws {
+    @MainActor func testBackgroundCheckpointPreservesRequestedClickAcrossDelayedForegroundRefresh() async throws {
         let fixture = try fixture(useMetronome: true)
         fixture.metronome.keepRunningWhenLocked = true
         fixture.metronome.start()
@@ -272,7 +272,12 @@ final class RuntimeFeedbackTests: XCTestCase {
         fixture.runtime.refreshMetronome(for: fixture.store.activeSet, applicationIsActive: false)
         XCTAssertTrue(fixture.metronome.isPlaying, "The score observer must retain the explicitly requested click after the runtime checkpoints practice.")
         fixture.runtime.refreshMetronome(for: fixture.store.activeSet, applicationIsActive: true)
-        XCTAssertFalse(fixture.metronome.isPlaying, "A foreground paused set stops normally.")
+        XCTAssertTrue(fixture.metronome.isPlaying, "The background pause observer can arrive after foregrounding; the requested click must survive.")
+        try fixture.store.resume()
+        fixture.runtime.refreshMetronome(for: fixture.store.activeSet, applicationIsActive: true)
+        try fixture.store.pause()
+        fixture.runtime.refreshMetronome(for: fixture.store.activeSet, applicationIsActive: true)
+        XCTAssertFalse(fixture.metronome.isPlaying, "A later manual foreground pause still stops normally.")
     }
 
     @MainActor func testBackgroundRefreshNeverStartsAudioAndFinishedPracticeAlwaysStops() throws {
@@ -286,6 +291,33 @@ final class RuntimeFeedbackTests: XCTestCase {
         try fixture.store.endSet()
         fixture.runtime.refreshMetronome(for: fixture.store.activeSet, applicationIsActive: false)
         XCTAssertFalse(fixture.metronome.isPlaying, "End always stops, even while inactive and with keep-playing enabled.")
+    }
+
+    @MainActor func testRetainedBackgroundClickDoesNotRestartAfterStopOrSurviveEndedPractice() async throws {
+        let fixture = try fixture(useMetronome: true)
+        fixture.metronome.keepRunningWhenLocked = true
+        fixture.metronome.start()
+        XCTAssertTrue(fixture.metronome.isPlaying, fixture.metronome.errorMessage ?? "Metronome start")
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        await Task.yield()
+        fixture.metronome.stop()
+        fixture.runtime.refreshMetronome(for: fixture.store.activeSet, applicationIsActive: true)
+        XCTAssertFalse(fixture.metronome.isPlaying, "Retaining an existing click never restarts an explicitly stopped one.")
+
+        fixture.metronome.start()
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        await Task.yield()
+        var switched = try XCTUnwrap(fixture.store.activeSet)
+        switched.id = UUID()
+        fixture.runtime.refreshMetronome(for: switched, applicationIsActive: false)
+        XCTAssertFalse(fixture.metronome.isPlaying, "A different paused set cannot inherit the old set's background click.")
+
+        fixture.metronome.start()
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        await Task.yield()
+        try fixture.store.endSet()
+        fixture.runtime.refreshMetronome(for: fixture.store.activeSet, applicationIsActive: true)
+        XCTAssertFalse(fixture.metronome.isPlaying, "Ending the set clears its retained background click.")
     }
 
 }

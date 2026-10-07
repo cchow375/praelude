@@ -3,6 +3,28 @@ import XCTest
 @testable import PraeludeCore
 
 final class RewardsWarmupsInstrumentsTests: XCTestCase {
+    @MainActor func testRewardCatchUpBatchIsOneDurableWriteAndRollsBackTogetherOnFailure() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("reward-batch-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var writes = 0, failWrites = false
+        let store = PracticeStore(directory: directory, writeData: { data, url in
+            if failWrites { throw CocoaError(.fileWriteOutOfSpace) }
+            writes += 1
+            try data.write(to: url, options: .atomic)
+        })
+        let batch = (0..<1_000).map { _ in RewardsEngine.ledgerEntry(for: .completedRep) }
+        try store.appendRewardLedgerEntries(batch)
+        XCTAssertEqual(writes, 1)
+        XCTAssertEqual(store.state.rewardLedger, batch)
+        XCTAssertEqual(Set(store.state.rewardLedger.map(\.id)).count, 1_000)
+        let saved = store.state
+        failWrites = true
+        XCTAssertThrowsError(try store.appendRewardLedgerEntries([RewardsEngine.ledgerEntry(for: .completedRep)]))
+        XCTAssertEqual(store.state, saved)
+        let reopened = PracticeStore(directory: directory)
+        XCTAssertEqual(reopened.state, saved)
+    }
+
     @MainActor private func makeStore(now: @escaping () -> Date = Date.init) -> (PracticeStore, URL) {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-ios-tests-\(UUID())")
         return (PracticeStore(directory: directory, now: now), directory)

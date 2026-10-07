@@ -259,8 +259,13 @@ struct AppRootView: View {
                 TabView(selection: $destination) {
                     ForEach(Destination.compactTabs) { item in
                         NavigationStack {
-                            content(item).toolbar { ToolbarItem(placement: .topBarTrailing) { settingsButton } }
-                        }.tabItem { Label(item.rawValue, systemImage: item.symbol) }.tag(item)
+                            content(item)
+                                // Inset the scrollable screen itself so its final rows can move
+                                // above both the resume strip and UIKit's native tab bar.
+                                .safeAreaInset(edge: .bottom, spacing: 0) { resumePracticeBanner }
+                                .toolbar { ToolbarItem(placement: .topBarTrailing) { settingsButton } }
+                        }
+                        .tabItem { Label(item.rawValue, systemImage: item.symbol) }.tag(item)
                     }
                 }
                 .fullScreenCover(item: $phoneScore) { route in
@@ -278,26 +283,7 @@ struct AppRootView: View {
             if !sidebar, !Destination.compactTabs.contains(destination) { destination = .more }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selectedPiece == nil, phoneScore == nil, !practicingWarmup, let active = store.activeSet, active.status != .ended {
-                let isWarmup = active.configuration.pieceID == WarmupsPiece.id
-                HStack(spacing: 12) {
-                    Button { isWarmup ? (practicingWarmup = true) : openPiece(active.configuration.pieceID) } label: {
-                        HStack {
-                            if active.status == .running {
-                                Circle().fill(PraeludeColor.live).frame(width: 7, height: 7)
-                            } else {
-                                PraeludeIcon(glyph: active.isComplete ? .verdictClean : (isWarmup ? .warmup : .metronome), size: 18).foregroundStyle(PraeludeColor.ink)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(isWarmup ? active.configuration.focus : (store.state.pieces.first { $0.id == active.configuration.pieceID }?.title ?? "Practice")).font(.subheadline.weight(.semibold)).lineLimit(1)
-                                Text(active.isComplete ? "Set complete" : active.status == .paused ? "Paused · tap to resume" : "\(active.progressCount) of \(active.requiredCount) · \(Int(active.currentBPM)) BPM").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.up").foregroundStyle(PraeludeColor.inkTertiary)
-                        }.frame(minHeight: 52).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityIdentifier("resumePractice")
-                }.padding(.horizontal, 20).praeludeSurfacePanel().praeludeHairline(.top)
-            }
+            if usesSidebar { resumePracticeBanner }
         }
         .modifier(RewardsWiring(activeCelebration: $activeCelebration, showOnboarding: $showOnboarding, practicingWarmup: $practicingWarmup,
                                 selectedPiece: selectedPiece, phoneScoreID: phoneScore?.id, hasNoLiveInstruments: hasNoLiveInstruments,
@@ -397,6 +383,28 @@ struct AppRootView: View {
         .accessibilityLabel("Settings")
         .accessibilityIdentifier("appSettings")
     }
+    @ViewBuilder private var resumePracticeBanner: some View {
+        if selectedPiece == nil, phoneScore == nil, !practicingWarmup, let active = store.activeSet, active.status != .ended {
+            let isWarmup = active.configuration.pieceID == WarmupsPiece.id
+            HStack(spacing: 12) {
+                Button { isWarmup ? (practicingWarmup = true) : openPiece(active.configuration.pieceID) } label: {
+                    HStack {
+                        if active.status == .running {
+                            Circle().fill(PraeludeColor.live).frame(width: 7, height: 7)
+                        } else {
+                            PraeludeIcon(glyph: active.isComplete ? .verdictClean : (isWarmup ? .warmup : .metronome), size: 18).foregroundStyle(PraeludeColor.ink)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(isWarmup ? active.configuration.focus : (store.state.pieces.first { $0.id == active.configuration.pieceID }?.title ?? "Practice")).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(active.isComplete ? "Set complete" : active.status == .paused ? "Paused · tap to resume" : "\(active.progressCount) of \(active.requiredCount) · \(Int(active.currentBPM)) BPM").font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.up").foregroundStyle(PraeludeColor.inkTertiary)
+                    }.frame(minHeight: 52).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityIdentifier("resumePractice")
+            }.padding(.horizontal, 20).praeludeSurfacePanel().praeludeHairline(.top)
+        }
+    }
     @ViewBuilder private func content(_ destination: Destination) -> some View {
         switch destination {
         case .today: TodayView(onOpenPiece: { openPiece($0) }, onAddPiece: { sheet = .add }, onContinueWarmup: { practicingWarmup = true },
@@ -419,6 +427,11 @@ struct AppRootView: View {
             ForEach(Destination.moreDestinations) { item in
                 NavigationLink {
                     secondaryContent(item)
+                        // Pushed screens replace the More root. Give that active screen its
+                        // own inset; the sidebar's root already supplies the shared strip.
+                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                            if !usesSidebar { resumePracticeBanner }
+                        }
                 } label: {
                     Label(item.rawValue, systemImage: item.symbol).frame(minHeight: 44)
                 }

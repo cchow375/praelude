@@ -1,10 +1,19 @@
 # Using Praelude Mobile
 
-**Matches: 2.0.0/build5/schema5 personally installed on iPad; physical feature acceptance remains open.**
+## Build7 candidate controls (not installed)
+
+Pen, highlighter, eraser, lasso, stamps and notes use a shallow icon strip with accessible names. Fingers navigate unless Draw with finger is on. Long tool trays scroll inside a bounded footer. Changing layers saves the original layer first; a failed save keeps that layer open. Ordinary drawing saves after a brief idle interval; leaving the score, turning pages or backgrounding also checkpoints ink. Keep my drawing retains the newest canvas after a conflict. Today reorder actions are in each item’s options menu. Sharing an annotated score prepares pages asynchronously before opening the share sheet.
+
+In short landscape drawing windows, notation initially fits the score width. Pinch to adjust; an automatic fit restores your earlier portrait zoom. Scroll the tool tray to reveal Done when space is short. The phone resume strip stays above the tabs, and lists scroll above it. Warmup Close, transport and verdicts stay anchored; the center readout and error messages scroll.
+
+The installed build6 instructions below remain the device boundary. Physical sustained drawing and higher-refresh-rate acceptance remain open.
+
+
+**Matches: installed 2.0.0/build6/schema5; build7 candidate changes above are not yet installed.**
 
 ## October2 build5 — score workflow and shared data
 
-**Mobile current source (2026-10-03): 2.0.0/build6, schema5, DEVELOPMENT CANDIDATE.** Christian's physical build4 feedback drives this round: Pencil did not draw without finger mode, black marks/stamps were invisible, annotation could freeze during a set, passage navigation was slow and ambiguous, and score chrome took too much space. Build5 implements fixes and new controls and is personally installed on the iPad. Complete pre-launch file preservation and actual schema5 upgrade pass; physical Pencil/freeze acceptance remains open.
+**Historical October3 mobile source: 2.0.0/build6, schema5, DEVELOPMENT CANDIDATE.** Christian's physical build4 feedback drives this round: Pencil did not draw without finger mode, black marks/stamps were invisible, annotation could freeze during a set, passage navigation was slow and ambiguous, and score chrome took too much space. Build5 implements fixes and new controls and is personally installed on the iPad. Complete pre-launch file preservation and actual schema5 upgrade pass; physical Pencil/freeze acceptance remains open.
 
 **Build6 compact practice correction:** Christian found build5’s dock still too tall, especially Start without grading, Techniques and More options. The fixed width cap is removed. Wide setup uses two columns; those secondary actions share a shallow44-point row. Grading/verdict buttons use horizontal icon/text and52-point targets; running status, direct tempo, transport and verdicts share a row when the available width fits. Narrow windows reflow and accessibility text retains wrapping/scrolling. Six scoped iPad cases pass, including actual grading/Undo, portrait/landscape geometry and largest-text reachability. Setup is143pt and running100pt; secondary controls44pt, verdicts52pt. Two scoped phone cases also pass portrait/landscape geometry and actual grading/Undo. Independent final visual review passes. Build6 is now installed on the physical iPad after the October3 guarded update. Renewed provisioning is valid until October10 at17:55:53UTC (1:55PM EDT); actual Release signature/profile/team/device checks pass. Independent review confirms all11 owned files/6,212,619bytes exactly preserved, including practice history and account ownership/privacy. Pre-launch schema5/revision883 has5pieces/30passages/24historical sets/15sessions/114attempts and no active set. Automatic launch was declined; Christian confirms Praelude opened, and a direct ledger read confirms schema5/revision883. Native Pencil/freeze/piano and actual two-device acceptance remain open. Earlier signing attempts and renewal recovery are retained in `docs/qa/ios/2.0.0/build6/device-update-attempt.json`; installed evidence is `docs/qa/ios/2.0.0/build6/personal-ipad-install.json`. Layout evidence: `docs/qa/ios/2.0.0/compact-practice.md`.
 
@@ -22,7 +31,7 @@
 
 **Build5 verification:** 385 core tests, 2,211 service assertions and 54 Python tests pass; the final native app-hosted run executes 193 tests with one live-account test skipped and zero failures. Seven distinct iPad and five phone UI cases pass across scoped runs. Final arm64 device Release compiles with fixture flags/test plug-ins absent; a later guarded physical update is recorded below. Exact evidence and remaining acceptance are in `docs/qa/ios/2.0.0/score-workflow.md`.
 
-**Next steps:** use the installed build5 to verify Pencil, black ink, sustained annotation during practice, reviewed movement/measure mapping and actual second-device continuity. Continuous desktop sync needs its separate adapter; Assistant remains on hold.
+**Next steps:** use the installed build6 to verify Pencil, black ink, sustained annotation during practice, reviewed movement/measure mapping and actual second-device continuity. Continuous desktop sync needs its separate adapter; Assistant remains on hold.
 
 ## Build5 candidate controls
 
@@ -247,3 +256,5 @@ Christian opened the installed app without a trust prompt. Read-only verificatio
 
 **Next steps:** complete build5 verification and a guarded update, then physical Pencil/piano and
 real-account/two-device acceptance. Import the reviewed Mac transfer when Christian is ready.
+
+Build7 candidate: in short landscape annotation windows, the score begins at stave width. Pinch to choose a zoom; finger navigation remains available with Pencil drawing. Automatic landscape fitting restores the previous portrait zoom. The phone resume strip remains above the tabs and available on secondary screens. Installed build6 does not include these repairs yet.

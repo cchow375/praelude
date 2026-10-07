@@ -33,13 +33,15 @@ struct AvatarView: View {
     }
 
     private func load() async {
-        guard let photoPath, photoPath != loadedForPath else {
-            if photoPath == nil { image = nil }
+        guard let photoPath, photoPath != loadedForPath || image == nil else {
+            if photoPath == nil { image = nil; loadedForPath = nil }
             return
         }
+        image = nil; loadedForPath = nil
         guard let url = await auth.avatarSignedURL(path: photoPath),
               let (data, _) = try? await URLSession.shared.data(from: url),
               let uiImage = UIImage(data: data) else { return }
+        guard !Task.isCancelled, self.photoPath == photoPath else { return }
         loadedForPath = photoPath
         image = Image(uiImage: uiImage)
     }

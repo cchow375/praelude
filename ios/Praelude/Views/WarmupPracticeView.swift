@@ -24,13 +24,24 @@ struct WarmupPracticeView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Spacer(minLength: 8)
-            if let active {
-                content(active)
-            } else {
-                ContentUnavailableView("No warmup is active", systemImage: "pianokeys")
+            // Keep Close and the verdict dock anchored when landscape or accessibility text
+            // makes the readout taller than the remaining screen. Only that readout scrolls.
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(spacing: 12) {
+                        if let active { content(active) }
+                        else { ContentUnavailableView("No warmup is active", systemImage: "pianokeys") }
+                        // A long storage/audio failure must remain readable without growing the
+                        // fixed dock until Close or the recovery controls leave the screen.
+                        if let error { Text(error).font(.caption).foregroundStyle(.red).padding(.horizontal, 20) }
+                        if let failure = store.errorMessage { Text(failure).font(.caption).foregroundStyle(.red).padding(.horizontal, 20) }
+                        if let failure = metronome.errorMessage { Text(failure).font(.caption).foregroundStyle(.red).padding(.horizontal, 20) }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - 16))
+                    .padding(.vertical, 8)
+                }
+                .scrollBounceBehavior(.basedOnSize)
             }
-            Spacer(minLength: 8)
             dock
         }
         .background(PraeludeColor.paper)
@@ -103,9 +114,6 @@ struct WarmupPracticeView: View {
                     verdictRow(active)
                 }
             }
-            if let error { Text(error).font(.caption).foregroundStyle(.red) }
-            if let failure = store.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
-            if let failure = metronome.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
             if speech.isListening && speech.ownerID == voiceOwnerID {
                 HStack(spacing: 8) {
                     Circle().fill(PraeludeColor.live).frame(width: 6, height: 6)

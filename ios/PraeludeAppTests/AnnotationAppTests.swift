@@ -9,6 +9,26 @@ import XCTest
 /// raster rotation transform, the curated tool/color model, stamp glyph rendering, and the new
 /// `ScoreMarkupState` fields.
 final class AnnotationAppTests: XCTestCase {
+    @MainActor func testUnreadableSavedRowsRemainDistinctFromAnEmptyPage() throws {
+        XCTAssertNil(ScoreInkCache.mergedData([]))
+        let row = InkStroke(pieceID: UUID(), page: 1, data: Data("damaged original".utf8))
+        let represented = try XCTUnwrap(ScoreInkCache.mergedData([row]))
+        XCTAssertThrowsError(try PKDrawing(data: represented), "The overlay must refuse editing unreadable ink")
+        XCTAssertEqual(row.data, Data("damaged original".utf8))
+    }
+
+    func testInkCachePressureRetainsExactUnsavedBaselineAndEvictsOldPages() {
+        let cache = ScoreInkCache(budget: 8)
+        let baseline = Data([1, 2, 3, 4])
+        cache.insert(key: "pending", signature: 1, data: baseline, protectedKeys: ["pending"])
+        for page in 0..<50 {
+            cache.insert(key: "page\(page)", signature: page, data: Data([5, 6, 7, 8]), protectedKeys: ["pending"])
+        }
+        XCTAssertEqual(cache.entry(for: "pending")?.data, baseline)
+        XCTAssertNil(cache.entry(for: "page0"))
+        XCTAssertEqual(cache.entry(for: "page49")?.data, Data([5, 6, 7, 8]))
+    }
+
     @MainActor private func stroke(at y: CGFloat) -> PKStroke {
         let points = [CGPoint(x: 20, y: y), CGPoint(x: 200, y: y + 20)].enumerated().map { index, location in
             PKStrokePoint(location: location, timeOffset: Double(index) / 10, size: CGSize(width: 3, height: 3),
@@ -47,6 +67,42 @@ final class AnnotationAppTests: XCTestCase {
         let a = stroke(at: 10), b = stroke(at: 60)
         XCTAssertEqual(InkPerStroke.fingerprint(a), InkPerStroke.fingerprint(a))
         XCTAssertNotEqual(InkPerStroke.fingerprint(a), InkPerStroke.fingerprint(b))
+    }
+
+    @MainActor func testPartialErasureMaskChangesIdentityAndCannotReuseOriginalInkBytes() throws {
+        let original = stroke(at: 10)
+        let mask = UIBezierPath(rect: CGRect(x: 20, y: 5, width: 70, height: 40))
+        let erased = PKStroke(ink: original.ink, path: original.path, transform: original.transform, mask: mask)
+        let sameMask = PKStroke(ink: original.ink, path: original.path, transform: original.transform,
+                                mask: UIBezierPath(rect: CGRect(x: 20, y: 5, width: 70, height: 40)))
+        XCTAssertNotEqual(InkPerStroke.fingerprint(original), InkPerStroke.fingerprint(erased))
+        XCTAssertEqual(InkPerStroke.fingerprint(erased), InkPerStroke.fingerprint(sameMask))
+        let saved = InkPerStroke.split(PKDrawing(strokes: [original]))[0]
+        let existing = InkStroke(pieceID: UUID(), page: 1, data: saved.data, fingerprint: saved.fingerprint)
+        let next = InkPerStroke.split(PKDrawing(strokes: [erased]), reusing: [existing])[0]
+        XCTAssertNotEqual(next.data, saved.data)
+        XCTAssertNotNil(try PKDrawing(data: next.data).strokes.first?.mask)
+    }
+
+    @MainActor func testLongPencilStrokeCanSaveAndReopenWithBoundedContentKey() throws {
+        let points = (0..<500).map { index in
+            PKStrokePoint(location: CGPoint(x: CGFloat(index), y: 20 + CGFloat(index % 20)),
+                          timeOffset: Double(index) / 120, size: CGSize(width: 3, height: 3),
+                          opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        }
+        let stroke = PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: .now))
+        let input = InkPerStroke.split(PKDrawing(strokes: [stroke]))
+        XCTAssertLessThanOrEqual(try XCTUnwrap(input.first?.fingerprint).count, 8192)
+        XCTAssertEqual(input.first?.fingerprint, InkPerStroke.fingerprint(stroke))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PracticeStore(directory: directory)
+        let piece = Piece(title: "Long-stroke regression", pdfFileName: "fixture.pdf", pageCount: 1)
+        try store.addPiece(piece)
+        try store.replaceInk(pieceID: piece.id, page: 1, layer: .mine, strokes: input)
+        let reopened = PracticeStore(directory: directory)
+        let rows = reopened.inkStrokes(pieceID: piece.id, page: 1, layer: .mine)
+        XCTAssertEqual(try InkPerStroke.merge(rows.map(\.data)).strokes.first?.path.count, 500)
     }
 
     /// The actual fix `ScoreWorkspace.persistInk` relies on: an unchanged stroke reuses its exact

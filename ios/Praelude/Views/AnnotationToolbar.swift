@@ -13,9 +13,7 @@ struct AnnotationToolbar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            GeometryReader { geometry in
-                toolRow(compact: simplifiedLabels || geometry.size.width < 600)
-            }.frame(height: simplifiedLabels ? 44 : 60)
+            toolRow(compact: true)
             detailRow
         }
         .onChange(of: markup.stampSize) { _, _ in markup.resizeStampPreview() }
@@ -33,12 +31,8 @@ struct AnnotationToolbar: View {
                 .accessibilityIdentifier("annotationTools")
                 Spacer(minLength: 4)
                 Toggle(isOn: $markup.fingerDrawing) {
-                    if compact {
-                        Image(systemName: "hand.draw").font(.system(size: 20)).frame(width: 32, height: 32)
-                    } else {
-                        Text("Draw with finger").font(.subheadline)
-                    }
-                }
+                    Image(systemName: "hand.draw").font(.system(size: 20)).frame(width: 24, height: 32)
+                }.fixedSize().frame(minHeight: 44)
                 .accessibilityLabel("Draw with finger").accessibilityIdentifier("fingerDrawing")
                 .praeludeToggleHaptic(markup.fingerDrawing)
                 Button(action: markup.undoInk) {
@@ -174,10 +168,14 @@ struct AnnotationToolbar: View {
         let selected = markup.armedStamp.map { $0.kind == kind && $0.label == label } ?? false
         return Button { markup.armedStamp = (kind, label); markup.selectedStampID = nil } label: {
             PraeludeStamp(kind: kind, label: label, size: 26)
+                .accessibilityHidden(true)
                 .padding(3).background(Color.white, in: RoundedRectangle(cornerRadius: 5))
                 .frame(width: 44, height: 44)
                 .background(selected ? PraeludeColor.inkFillPressed : PraeludeColor.inkFillQuiet, in: RoundedRectangle(cornerRadius: PraeludeRadius.tight))
-        }.buttonStyle(.plain).accessibilityIdentifier("stamp_\(kind.rawValue)_\(label ?? "plain")")
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+            .accessibilityLabel(PraeludeStamp(kind: kind, label: label).accessibilityDescription)
+            .accessibilityIdentifier("stamp_\(kind.rawValue)_\(label ?? "plain")")
     }
 
     private var layerRow: some View { HStack { Spacer(); layerControls } }
@@ -186,7 +184,12 @@ struct AnnotationToolbar: View {
     /// other than `activeLayer` is always shown read-only when visible — see `ScorePageOverlay`.
     private var layerControls: some View {
         Menu {
-            Picker("Write on layer", selection: $markup.activeLayer) {
+            Picker("Write on layer", selection: Binding(get: { markup.activeLayer }, set: { layer in
+                // Save against the old layer's baseline before changing the save callback's owner.
+                guard layer != markup.activeLayer, markup.flushInk() else { return }
+                markup.activeLayer = layer
+                markup.visibleLayers.insert(layer)
+            })) {
                 ForEach(InkLayer.allCases, id: \.self) { layer in Text(layerLabel(layer)).tag(layer) }
             }.accessibilityIdentifier("activeLayer")
             Section("Visible layers") {

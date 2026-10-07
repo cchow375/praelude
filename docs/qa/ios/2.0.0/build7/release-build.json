@@ -1,0 +1,23 @@
+{
+  "sourceTag": "ios-v2.0.0-build7-candidate",
+  "version": "2.0.0",
+  "build": "7",
+  "schema": 5,
+  "configuration": "Release",
+  "platform": "iPhoneOS",
+  "architecture": "arm64",
+  "deviceFamilies": [
+    1,
+    2
+  ],
+  "compiledInFreshDerivedData": true,
+  "signing": "disabled; unsigned device build",
+  "binaryBytes": 30150112,
+  "binarySHA256": "c53c90b2e8d6ced8d2acb2c895531d8cd5522245928a39fe7f76d362d7ed12a6",
+  "fixtureArgumentsExcluded": true,
+  "debugWidthDiagnosticsExcluded": true,
+  "testPluginsExcluded": true,
+  "embeddedProvisioningProfileExcluded": true,
+  "higherRefreshCapabilityOptIn": true,
+  "physicalInstallationPerformed": false
+}

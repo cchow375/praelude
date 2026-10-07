@@ -27,6 +27,209 @@ final class ScoreMarkupTests: XCTestCase {
         XCTAssertEqual(state.mode, .selecting)
     }
 
+    @MainActor func testDrawingSamplesDeferEncodingAndAutosaveUntilTheToolIsIdle() async throws {
+        let state = ScoreMarkupState()
+        state.mode = .writing
+        var saved: Data?
+        var writes = 0
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/sample-fixture.pdf"), page: .constant(1), twoPages: false,
+                                   markup: state, drawingData: { _ in saved }, saveDrawing: { _, data, _ in
+            writes += 1; saved = data.isEmpty ? nil : data; return true
+        }, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator(); coordinator.connectControls()
+        defer { coordinator.autosave?.cancel() }
+        let page = try makePage(); let document = PDFDocument(); document.insert(page, at: 0)
+        let view = PDFView(); view.document = document
+        let overlay = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: page) as? ScorePageOverlay)
+        coordinator.canvasViewDidBeginUsingTool(overlay.canvas)
+        coordinator.loading = true; overlay.canvas.drawing = ink(at: 40); coordinator.loading = false
+        for _ in 0..<120 { coordinator.canvasViewDrawingDidChange(overlay.canvas) }
+        XCTAssertEqual(writes, 0, "Pencil sample callbacks must never perform durable ledger writes")
+        XCTAssertTrue(state.pendingInk.isEmpty, "Movement callbacks must not repeatedly encode the whole drawing into observed state")
+        XCTAssertNil(coordinator.autosave, "An active stroke must not create and cancel a save task at every sample")
+        try await Task.sleep(for: .milliseconds(700))
+        XCTAssertEqual(writes, 0, "Even a long stroke must not save or replace its active canvas")
+        coordinator.canvasViewDidEndUsingTool(overlay.canvas)
+        XCTAssertEqual(writes, 0, "Lifting the Pencil does not synchronously write the ledger")
+        try await Task.sleep(for: .milliseconds(750))
+        XCTAssertEqual(writes, 1)
+        assertSameInk(try PKDrawing(data: XCTUnwrap(saved)), ink(at: 40))
+        XCTAssertTrue(coordinator.dirtyPages.isEmpty)
+        XCTAssertTrue(coordinator.flush()); XCTAssertEqual(writes, 1, "An unchanged lifecycle flush does not rewrite ink")
+    }
+
+    @MainActor func testPageEditSwitchMustSaveTheOriginalCanvasBeforeChangingItsGeometry() async throws {
+        let state = ScoreMarkupState()
+        var writesAllowed = false
+        var saved: Data?
+        let url = URL(fileURLWithPath: "/page-edit-fixture.pdf")
+        func parent(edits: [PageEdit]) -> PagedScoreView {
+            PagedScoreView(url: url, page: .constant(1), twoPages: false, markup: state, pageEdits: edits,
+                           drawingData: { _ in saved }, saveDrawing: { _, data, _ in
+                guard writesAllowed else { return false }; saved = data; return true
+            }, onPageChanged: { _ in })
+        }
+        let coordinator = parent(edits: []).makeCoordinator(); coordinator.connectControls()
+        defer { coordinator.autosave?.cancel() }
+        let page = try makePage(); let document = PDFDocument(); document.insert(page, at: 0)
+        let view = PDFView(); view.document = document
+        let overlay = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: page) as? ScorePageOverlay)
+        coordinator.loading = true; overlay.canvas.drawing = ink(at: 80); coordinator.loading = false
+        coordinator.canvasViewDrawingDidChange(overlay.canvas)
+        var edit = PageEdit(pieceID: UUID(), sourcePage: 1, displayOrder: 1)
+        edit.cropRect = NormalizedRect(x: 0.2, y: 0.2, width: 0.5, height: 0.5)
+        XCTAssertFalse(coordinator.adoptParent(parent(edits: [edit])))
+        XCTAssertTrue(coordinator.parent.pageEdits.isEmpty)
+        XCTAssertTrue(coordinator.overlays[1] === overlay)
+        XCTAssertNotNil(state.pendingInk[1], "Failed geometry changes keep the exact local drawing available")
+        writesAllowed = true
+        XCTAssertTrue(coordinator.adoptParent(parent(edits: [edit])))
+        assertSameInk(try PKDrawing(data: XCTUnwrap(saved)), ink(at: 80))
+        XCTAssertTrue(state.pendingInk.isEmpty)
+    }
+
+    @MainActor func testPendingInkFromAnotherLayerCannotBeFlushedIntoTheCurrentLayer() throws {
+        let state = ScoreMarkupState()
+        let url = URL(fileURLWithPath: "/layer-fixture.pdf")
+        state.rememberInk(page: 1, data: ink(at: 20).dataRepresentation(), expected: nil, document: url, layer: .teacher)
+        var writes = 0
+        let parent = PagedScoreView(url: url, page: .constant(1), twoPages: false, markup: state,
+                                   activeLayer: .mine, saveDrawing: { _, _, _ in writes += 1; return true }, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator()
+        XCTAssertFalse(coordinator.flush())
+        XCTAssertEqual(writes, 0)
+        XCTAssertEqual(state.pendingInkLayer, .teacher)
+        XCTAssertNotNil(state.pendingInk[1])
+    }
+
+    @MainActor func testKeepLocalConflictChoiceIncludesStrokesDrawnAfterTheFailedCheckpoint() async throws {
+        let state = ScoreMarkupState()
+        var saved = ink(at: 20).dataRepresentation()
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/updated-conflict-fixture.pdf"), page: .constant(1), twoPages: false,
+                                   markup: state, drawingData: { _ in saved }, saveDrawing: { page, data, expected in
+            guard expected == saved else { state.conflictPage = page; return false }
+            saved = data; return true
+        }, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator(); coordinator.connectControls()
+        defer { coordinator.autosave?.cancel() }
+        let page = try makePage(); let document = PDFDocument(); document.insert(page, at: 0)
+        let view = PDFView(); view.document = document
+        let overlay = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: page) as? ScorePageOverlay)
+        coordinator.loading = true; overlay.canvas.drawing = ink(at: 50); coordinator.loading = false
+        coordinator.canvasViewDrawingDidChange(overlay.canvas)
+        saved = ink(at: 80).dataRepresentation()
+        XCTAssertFalse(coordinator.flush())
+        let checkpoint = try XCTUnwrap(state.pendingInk[1]?.data)
+        let latest = PKDrawing(strokes: overlay.canvas.drawing.strokes + ink(at: 110).strokes)
+        coordinator.loading = true; overlay.canvas.drawing = latest; coordinator.loading = false
+        coordinator.canvasViewDrawingDidChange(overlay.canvas)
+        XCTAssertEqual(state.pendingInk[1]?.data, checkpoint, "The checkpoint deliberately precedes the newest stroke")
+        state.resolveInkConflict(1, true)
+        assertSameInk(try PKDrawing(data: saved), latest)
+        XCTAssertNil(state.conflictPage)
+        XCTAssertTrue(state.pendingInk.isEmpty)
+    }
+
+    @MainActor func testBackgroundPagePreviewMatchesCropRotationAndPreservesSourceBytes() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("score-preview-\(UUID()).pdf")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = PDFDocument(); source.insert(try makePage(), at: 0)
+        XCTAssertTrue(source.write(to: url))
+        let before = try Data(contentsOf: url)
+        let effective = EffectivePage(id: UUID(), displayOrder: 1, sourcePage: 1, kind: .original,
+                                      cropRect: NormalizedRect(x: 0.1, y: 0.2, width: 0.6, height: 0.5), rotationDegrees: 90)
+        let size = CGSize(width: 360, height: 500)
+        let rendered = await ScorePagePreviewRenderer.shared.render(url: url, page: effective, size: size)
+        let preview = try XCTUnwrap(rendered)
+        let expectedPage = try XCTUnwrap(ScorePageComposer.renderedPage(source: source, effective: effective,
+                                                                       fallbackSize: CGSize(width: 612, height: 792)))
+        let expected = expectedPage.thumbnail(of: size, for: .cropBox)
+        XCTAssertEqual(preview.size.width, expected.size.width, accuracy: 0.01)
+        XCTAssertEqual(preview.size.height, expected.size.height, accuracy: 0.01)
+        XCTAssertEqual(preview.pngData(), expected.pngData(), "The worker preview must show the same rotated/cropped notation as the reader")
+        let renderedLarge = await ScorePagePreviewRenderer.shared.render(url: url, page: effective, size: CGSize(width: 4000, height: 6000))
+        let large = try XCTUnwrap(renderedLarge)
+        let bitmap = try XCTUnwrap(large.cgImage)
+        XCTAssertLessThanOrEqual(max(bitmap.width, bitmap.height), 1200)
+        XCTAssertEqual(try Data(contentsOf: url), before)
+        XCTAssertEqual(source.page(at: 0)?.rotation, 0)
+    }
+
+    @MainActor func testBackgroundPagePreviewHandlesGeneratedBlankAndStaffPages() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("generated-preview-\(UUID()).pdf")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = PDFDocument(); source.insert(try makePage(), at: 0)
+        XCTAssertTrue(source.write(to: url))
+        let before = try Data(contentsOf: url)
+        let size = CGSize(width: 200, height: 300)
+        let blankPage = EffectivePage(id: UUID(), displayOrder: 2, sourcePage: nil, kind: .blank, cropRect: nil, rotationDegrees: 0)
+        let staffPage = EffectivePage(id: UUID(), displayOrder: 3, sourcePage: nil, kind: .staff, cropRect: nil, rotationDegrees: 0)
+        let renderedBlank = await ScorePagePreviewRenderer.shared.render(url: url, page: blankPage, size: size)
+        let renderedStaff = await ScorePagePreviewRenderer.shared.render(url: url, page: staffPage, size: size)
+        let blank = try XCTUnwrap(renderedBlank)
+        let staff = try XCTUnwrap(renderedStaff)
+        XCTAssertEqual(blank.size, staff.size)
+        XCTAssertNotEqual(blank.pngData(), staff.pngData(), "A manuscript preview must contain staff lines rather than showing another blank page")
+        for (effective, preview) in [(blankPage, blank), (staffPage, staff)] {
+            let expected = try XCTUnwrap(ScorePageComposer.renderedPage(source: source, effective: effective,
+                                                                      fallbackSize: CGSize(width: 612, height: 792)))
+            XCTAssertEqual(preview.pngData(), expected.thumbnail(of: size, for: .cropBox).pngData())
+        }
+        XCTAssertEqual(try Data(contentsOf: url), before)
+    }
+
+    @MainActor func testShortLandscapeAnnotationFitsLegibleWidthWithoutChangingInkCoordinates() async throws {
+        let state = ScoreMarkupState(); state.mode = .writing
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/short-landscape-fixture.pdf"), page: .constant(1),
+                                   twoPages: false, markup: state, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator()
+        let view = ZoomableScorePDFView(frame: CGRect(x: 0, y: 0, width: 844, height: 120))
+        view.displayMode = .singlePage; view.autoScales = true; view.isInMarkupMode = true
+        view.pageOverlayViewProvider = coordinator; coordinator.pdfView = view
+        let window = UIWindow(frame: view.bounds)
+        let controller = UIViewController(); controller.view.addSubview(view)
+        window.rootViewController = controller; window.isHidden = false
+        defer { window.isHidden = true; view.pageOverlayViewProvider = nil; coordinator.autosave?.cancel() }
+        let page = try makePage(); let document = PDFDocument(); document.insert(page, at: 0)
+        view.document = document; view.go(to: page)
+        view.layoutDocumentView(); view.layoutIfNeeded()
+        var overlay: ScorePageOverlay?
+        for _ in 0..<100 {
+            if let found = coordinator.overlays[1], found.window != nil, found.bounds.width > 0 { overlay = found; break }
+            try await Task.sleep(for: .milliseconds(20)); view.layoutIfNeeded()
+        }
+        let resolved = try XCTUnwrap(overlay)
+        let canvasSize = resolved.canvas.bounds.size
+        coordinator.loading = true; resolved.canvas.drawing = ink(at: 80); coordinator.loading = false
+        let drawingBefore = resolved.canvas.drawing.dataRepresentation()
+        let pageBoundsBefore = page.bounds(for: .cropBox)
+        view.prefersShortLandscapeWidthFit = true
+        view.layoutIfNeeded(); view.layoutDocumentView(); view.layoutIfNeeded()
+        let rendered = view.convert(page.bounds(for: .cropBox), from: page)
+        XCTAssertGreaterThan(rendered.width, view.bounds.width * 0.85, "A portrait score must not shrink to a tiny thumbnail in annotation landscape")
+        XCTAssertGreaterThanOrEqual(view.maxScaleFactor, view.scaleFactor)
+        // Leaving the automatic landscape zoom must restore fit-page rather than inheriting
+        // a ten-times-fit ratio and unexpectedly clamping portrait to its maximum zoom.
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 640)
+        view.frame = window.bounds
+        view.layoutIfNeeded(); view.layoutDocumentView(); view.layoutIfNeeded()
+        XCTAssertEqual(view.scaleFactor, view.minScaleFactor, accuracy: 0.001)
+        window.frame = CGRect(x: 0, y: 0, width: 844, height: 120)
+        view.frame = window.bounds
+        view.layoutIfNeeded(); view.layoutDocumentView(); view.layoutIfNeeded()
+        XCTAssertGreaterThan(view.convert(page.bounds(for: .cropBox), from: page).width, view.bounds.width * 0.85)
+        let widthFitScale = view.scaleFactor
+        view.scaleFactor = max(view.minScaleFactor, widthFitScale * 0.75)
+        let manualScale = view.scaleFactor
+        view.refreshScaleRange(); view.layoutIfNeeded()
+        XCTAssertEqual(view.scaleFactor, manualScale, accuracy: 0.001, "A later refresh must preserve manual zoom instead of repeatedly imposing width fit")
+        resolved.layoutIfNeeded()
+        XCTAssertEqual(resolved.canvas.bounds.size.width, canvasSize.width, accuracy: 0.01)
+        XCTAssertEqual(resolved.canvas.bounds.size.height, canvasSize.height, accuracy: 0.01)
+        XCTAssertEqual(resolved.canvas.drawing.dataRepresentation(), drawingBefore)
+        XCTAssertEqual(page.bounds(for: .cropBox), pageBoundsBefore)
+    }
+
     /// Blocker regression (design): the score's passage boxes must never carry a second accent hue
     /// (previously `.systemIndigo`/`.systemTeal`) — practiced/emphasized/selected states read by
     /// alpha weight only, matching the one-accent monochrome palette (§3a).
@@ -138,7 +341,7 @@ final class ScoreMarkupTests: XCTestCase {
 
         state.mode = .writing; state.tool.kind = .stamp; overlay.refresh()
         XCTAssertTrue(overlay.hitTest(point, with: nil) === overlay, "An armed stamp tool must claim taps for placement, not PDFKit")
-        XCTAssertFalse(overlay.canvas.isUserInteractionEnabled, "Ink must not draw while placing a stamp")
+        XCTAssertTrue(overlay.canvas.isUserInteractionEnabled, "Stamp routing must not implicitly resign the PencilKit responder")
         XCTAssertTrue(overlay.gestureRecognizerShouldBegin(overlay.selectionTap), "Tap must be live for stamp placement/selection")
         XCTAssertFalse(overlay.gestureRecognizerShouldBegin(overlay.selectionPan), "A drag while placing a stamp must not fall through to box-drawing")
 
@@ -149,7 +352,7 @@ final class ScoreMarkupTests: XCTestCase {
 
         state.mode = .reading; state.tool.kind = .pen; state.quickBoxArmed = true; overlay.refresh()
         XCTAssertTrue(overlay.hitTest(point, with: nil) === overlay, "An armed quick box must claim the drag that draws it")
-        XCTAssertFalse(overlay.canvas.isUserInteractionEnabled)
+        XCTAssertTrue(overlay.canvas.isUserInteractionEnabled, "Box routing must retain the canvas responder eligibility")
         XCTAssertTrue(overlay.gestureRecognizerShouldBegin(overlay.selectionPan), "Quick box is drawn by dragging, unlike stamp/text placement")
 
         state.quickBoxArmed = false; overlay.refresh()
@@ -290,7 +493,9 @@ final class ScoreMarkupTests: XCTestCase {
         XCTAssertTrue(overlay.contentReadOnly)
         coordinator.refreshOverlays()
         XCTAssertTrue(overlay.contentReadOnly, "A refresh cannot erase the corrupt-byte recovery boundary")
-        XCTAssertFalse(overlay.canvas.isUserInteractionEnabled)
+        overlay.frame = CGRect(x: 0, y: 0, width: 612, height: 792); overlay.layoutIfNeeded()
+        XCTAssertTrue(overlay.canvas.isUserInteractionEnabled, "Read-only protection belongs to input routing, not responder teardown")
+        XCTAssertNil(overlay.hitTest(CGPoint(x: 100, y: 100), with: nil), "Corrupt ink must never receive a replacement stroke")
         XCTAssertEqual(markup.pendingInk[1]?.data, Data([0xff, 0]), "Original unsaved bytes stay available for explicit recovery")
     }
 
@@ -346,7 +551,9 @@ final class ScoreMarkupTests: XCTestCase {
         let first = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: firstPage) as? ScorePageOverlay)
         let second = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: secondPage) as? ScorePageOverlay)
         coordinator.loading = true; first.canvas.drawing = ink(at: 40); coordinator.loading = false
+        coordinator.canvasViewDidBeginUsingTool(first.canvas)
         coordinator.canvasViewDrawingDidChange(first.canvas)
+        coordinator.otherLayersImageCache[1] = ([], CGSize(width: 600, height: 800), 1, nil)
         XCTAssertFalse(coordinator.flush())
         coordinator.pdfView(view, willEndDisplayingOverlayView: first, for: firstPage)
         XCTAssertTrue(coordinator.overlays[1] === first, "Never evict an unsaved page after a failed disk write")
@@ -354,6 +561,8 @@ final class ScoreMarkupTests: XCTestCase {
         writesAllowed = true
         coordinator.pdfView(view, willEndDisplayingOverlayView: first, for: firstPage)
         XCTAssertNil(coordinator.overlays[1])
+        XCTAssertFalse(coordinator.activeToolPages.contains(1), "Eviction must end activity even when PencilKit omits an end callback")
+        XCTAssertNil(coordinator.otherLayersImageCache[1], "Leaving pages must release flattened layer bitmaps")
         XCTAssertTrue(coordinator.overlays[2] === second)
         XCTAssertEqual(saved[1], first.canvas.drawing.dataRepresentation())
         XCTAssertEqual(saved[2], secondPageInk)
@@ -534,7 +743,9 @@ final class ScoreMarkupTests: XCTestCase {
         _ = coordinator.adoptParent(parent(allowsInk: false))
         coordinator.refreshOverlays()
         XCTAssertTrue(overlay.inkReadOnly, "Performance mode must lock ink on a page that already has a live overlay")
-        XCTAssertFalse(overlay.canvas.isUserInteractionEnabled)
+        overlay.frame = CGRect(x: 0, y: 0, width: 612, height: 792); overlay.layoutIfNeeded()
+        XCTAssertTrue(overlay.canvas.isUserInteractionEnabled)
+        XCTAssertNil(overlay.hitTest(CGPoint(x: 100, y: 100), with: nil), "Performance mode must reject ink at the real input boundary")
     }
 
     /// Major regression (verifier "reader lens", 2026-09-29): after a page-tool reorder, `parent.page`

@@ -101,7 +101,15 @@ private struct StudioDetailView: View {
             }
             .navigationTitle("Add member").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showAddMember = false } } }
-            .onChange(of: memberQuery) { _, query in Task { memberResults = await social.searchProfiles(query: query) } }
+            .task(id: memberQuery) {
+                let requested = memberQuery
+                memberResults = []
+                guard !requested.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                let found = await social.searchProfiles(query: requested)
+                guard !Task.isCancelled, memberQuery == requested else { return }
+                memberResults = found
+            }
         }
         .presentationDetents([.medium])
     }

@@ -2,8 +2,8 @@ import SwiftUI
 import PDFKit
 import PencilKit
 
-/// Establish a fit-page minimum and six-times maximum after native layout,
-/// preserving the reader's zoom as the available reading area changes.
+/// Establish a fit-page minimum and bounded zoom after native layout, preserving manual
+/// zoom while allowing a legible width fit in short annotation windows.
 final class ZoomableScorePDFView: PDFView {
     private var fittedSize: CGSize = .zero
     private var fittedScale: CGFloat = 0
@@ -12,6 +12,15 @@ final class ZoomableScorePDFView: PDFView {
         didSet { if prefersWidthFit != oldValue { needsInitialWidthFit = prefersWidthFit; refreshScaleRange() } }
     }
     private var needsInitialWidthFit = false
+    /// Annotation in a short landscape window needs legible stave width, rather than fitting
+    /// an entire portrait page into the small height left above the drawing tools.
+    var prefersShortLandscapeWidthFit = false {
+        didSet { if prefersShortLandscapeWidthFit != oldValue { refreshScaleRange() } }
+    }
+    private var appliedWidthFit = false
+    private var wasShortLandscape = false
+    private var preShortLandscapeZoom: CGFloat?
+    private var automaticShortLandscapeScale: CGFloat?
 
     #if DEBUG
     override var accessibilityValue: String? {
@@ -31,7 +40,8 @@ final class ZoomableScorePDFView: PDFView {
                 }
                 return root.subviews.flatMap(inkCounts)
             }
-            return "scale=\(scaleFactor),min=\(minScaleFactor),max=\(maxScaleFactor),auto=\(autoScales),markup=\(isInMarkupMode),hit=\(hitTest(CGPoint(x:bounds.midX,y:bounds.midY),with:nil).map { String(describing:type(of:$0)) } ?? "none");\(details);\(inkCounts(self).joined(separator: ";"))"
+            let renderedPageWidth = currentPage.map { convert($0.bounds(for: .cropBox), from: $0).width } ?? 0
+            return "renderedPageWidth=\(renderedPageWidth);scale=\(scaleFactor),min=\(minScaleFactor),max=\(maxScaleFactor),auto=\(autoScales),markup=\(isInMarkupMode),hit=\(hitTest(CGPoint(x:bounds.midX,y:bounds.midY),with:nil).map { String(describing:type(of:$0)) } ?? "none");\(details);\(inkCounts(self).joined(separator: ";"))"
         }
         set { super.accessibilityValue = newValue }
     }
@@ -44,24 +54,55 @@ final class ZoomableScorePDFView: PDFView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard document != nil, bounds.width > 0, bounds.height > 0,
-              needsScaleRange || fittedSize != bounds.size else { return }
+        guard document != nil, bounds.width > 0, bounds.height > 0 else { return }
+        let shortLandscape = prefersShortLandscapeWidthFit && bounds.height < 300 && bounds.width > bounds.height * 1.5
+        let widthFit = prefersWidthFit || shortLandscape
+        let enteringShortLandscape = shortLandscape && !wasShortLandscape
+        let leavingShortLandscape = !shortLandscape && wasShortLandscape
+        let previousZoom = fittedScale > 0 ? max(1, scaleFactor / fittedScale) : 1
+        func stillAtAutomaticWidth() -> Bool {
+            guard let automaticShortLandscapeScale else { return false }
+            return abs(scaleFactor - automaticShortLandscapeScale) <= max(0.001, automaticShortLandscapeScale * 0.002)
+        }
+        // Automatic readability zoom is temporary. Returning to portrait restores the previous
+        // reading zoom; an actual pinch in the short window opts out of that restoration.
+        let restoredZoom = leavingShortLandscape && stillAtAutomaticWidth() ? preShortLandscapeZoom : nil
+        if shortLandscape && !enteringShortLandscape && !stillAtAutomaticWidth() {
+            automaticShortLandscapeScale = nil
+        }
+        if widthFit != appliedWidthFit {
+            appliedWidthFit = widthFit; needsInitialWidthFit = widthFit; needsScaleRange = true
+        }
+        if enteringShortLandscape {
+            preShortLandscapeZoom = previousZoom; needsInitialWidthFit = true; needsScaleRange = true
+        } else if shortLandscape && stillAtAutomaticWidth() && fittedSize != bounds.size {
+            needsInitialWidthFit = true
+        }
+        if leavingShortLandscape {
+            preShortLandscapeZoom = nil; automaticShortLandscapeScale = nil; needsScaleRange = true
+        }
+        wasShortLandscape = shortLandscape
+        guard needsScaleRange || fittedSize != bounds.size else { return }
         let fit = scaleFactorForSizeToFit
         guard fit.isFinite, fit > 0 else { return }
-        let zoom = fittedScale > 0 ? min(6, max(1, scaleFactor / fittedScale)) : 1
+        let zoom = restoredZoom ?? previousZoom
+        let pageBounds = currentPage?.bounds(for: .cropBox) ?? .zero
+        let rotation = ((currentPage?.rotation ?? 0) % 360 + 360) % 360
+        let pageWidth = rotation == 90 || rotation == 270 ? pageBounds.height : pageBounds.width
+        let widthScale = pageWidth > 0 ? max(fit, (bounds.width - 8) / pageWidth) : fit
         fittedSize = bounds.size
         fittedScale = fit
         needsScaleRange = false
         autoScales = false
         minScaleFactor = fit
-        maxScaleFactor = fit * 6
-        if needsInitialWidthFit, let currentPage {
-            let pageBounds = currentPage.bounds(for: .cropBox)
-            if pageBounds.width > 0 {
-                scaleFactor = min(maxScaleFactor, max(fit, (bounds.width - 8) / pageBounds.width))
-            } else { scaleFactor = fit * zoom }
+        // Six times the fit-page scale can still be unreadably small in a short viewport.
+        // Permit full stave width and up to twice that scale; PDFKit keeps native tiled rendering.
+        maxScaleFactor = shortLandscape ? max(fit * 6, widthScale * 2) : fit * 6
+        if needsInitialWidthFit {
+            scaleFactor = min(maxScaleFactor, widthScale)
+            if shortLandscape { automaticShortLandscapeScale = scaleFactor }
             needsInitialWidthFit = false
-        } else { scaleFactor = fit * zoom }
+        } else { scaleFactor = min(maxScaleFactor, fit * zoom) }
     }
 }
 
@@ -158,13 +199,13 @@ struct PagedScoreView: UIViewRepresentable {
         view.displaysAsBook = scoreDisplaysAsBook(twoPages: twoPages, page: page)
         view.autoScales = true
         view.prefersWidthFit = focusPageTurns && !twoPages
+        view.prefersShortLandscapeWidthFit = !twoPages && markup.mode != .reading
         view.isInMarkupMode = true
         view.pageOverlayViewProvider = context.coordinator
         context.coordinator.pdfView = view
         context.coordinator.loadedURL = url
         view.document = context.coordinator.loadDocument(url: url, pageEdits: pageEdits)
         if let target = view.document?.page(at: max(0, page - 1)) { view.go(to: target) }
-        context.coordinator.prefetchNeighbors(around: page)
         context.coordinator.observer = NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: view, queue: .main) { [weak coordinator = context.coordinator, weak view] _ in
             MainActor.assumeIsolated {
                 guard let coordinator, let view, let current = view.currentPage, let doc = view.document else { return }
@@ -172,7 +213,6 @@ struct PagedScoreView: UIViewRepresentable {
                 guard index != coordinator.parent.page else { return }
                 coordinator.parent.page = index
                 coordinator.parent.onPageChanged(index)
-                coordinator.prefetchNeighbors(around: index)
             }
         }
         context.coordinator.connectControls()
@@ -180,8 +220,9 @@ struct PagedScoreView: UIViewRepresentable {
     }
     func updateUIView(_ view: ZoomableScorePDFView, context: Context) {
         view.prefersWidthFit = focusPageTurns && !twoPages
+        view.prefersShortLandscapeWidthFit = !twoPages && markup.mode != .reading
         let sourceChanged = context.coordinator.loadedURL != url || context.coordinator.parent.markup !== markup
-            || context.coordinator.loadedPageEdits != pageEdits
+            || context.coordinator.parent.activeLayer != activeLayer || context.coordinator.loadedPageEdits != pageEdits
         guard context.coordinator.adoptParent(self) else { return }
         if sourceChanged {
             context.coordinator.clearOverlays()
@@ -203,7 +244,6 @@ struct PagedScoreView: UIViewRepresentable {
         if let observer = coordinator.observer { NotificationCenter.default.removeObserver(observer) }
         _ = coordinator.flush()
         coordinator.autosave?.cancel()
-        coordinator.prefetchTask?.cancel()
         uiView.pageOverlayViewProvider = nil
     }
     @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate, @preconcurrency PDFPageOverlayViewProvider, PKCanvasViewDelegate {
@@ -221,19 +261,20 @@ struct PagedScoreView: UIViewRepresentable {
         var dirtyPages: Set<Int> = []
         var loading = false
         var autosave: Task<Void, Never>?
-        /// §7 reading: warms decode caches for pages the reader is about to turn to (see
-        /// `prefetchNeighbors`); cancelled and replaced on every page turn rather than left to pile up.
-        var prefetchTask: Task<Void, Never>?
+        /// Drawing callbacks can run at Pencil sample cadence. Only dirty-page identity changes
+        /// during a stroke; serialization and durable writes wait until the tool is idle.
+        var activeToolPages: Set<Int> = []
+        private var flushing = false
         let toolPicker = PKToolPicker()
         init(parent: PagedScoreView) { self.parent = parent }
-        var otherLayersImageCache: [Int: (signature: Int, image: UIImage?)] = [:]
+        var otherLayersImageCache: [Int: (blobs: [Data], size: CGSize, scale: CGFloat, image: UIImage?)] = [:]
         /// Flush with the original piece's callbacks before a reused representable changes owners.
         func adoptParent(_ updated: PagedScoreView) -> Bool {
             // A layer switch reuses the exact document-switch path below: flush whatever is pending
             // on the old layer, tear down every overlay, and reload from `drawingData`/`otherLayersInkData`
             // — which `ScoreWorkspace` now reads against the *new* `markup.activeLayer` — instead of
             // adding a second, parallel per-layer keying scheme to every dictionary in this class.
-            let changed = parent.url != updated.url || parent.markup !== updated.markup || parent.activeLayer != updated.activeLayer
+            let changed = parent.url != updated.url || parent.markup !== updated.markup || parent.activeLayer != updated.activeLayer || parent.pageEdits != updated.pageEdits
             if changed {
                 guard flush() else { return false }
                 let oldMarkup = parent.markup
@@ -257,32 +298,12 @@ struct PagedScoreView: UIViewRepresentable {
             guard let raw else { return nil }
             return ScorePageComposer.isIdentity(pages, sourcePageCount: sourceCount) ? raw : ScorePageComposer.composedDocument(source: raw, effectivePages: pages)
         }
-        /// §7 reading: "instant sharp render of heavy scans" for the pages just ahead of/behind
-        /// the one just displayed. This does not replace PDFKit's own page rendering with custom
-        /// tiling — it forces the (often dominant, for a large scanned image) cost of decoding a
-        /// page's embedded raster content to happen once, off the main thread, before the reader
-        /// actually turns there, rather than exactly when they do. `PDFPage.thumbnail(of:for:)` is
-        /// a synchronous CPU render with no UIKit main-thread affinity, so it is safe to call from
-        /// a detached background task; the returned image is discarded; only the decode work it
-        /// forces is the point.
-        func prefetchNeighbors(around displayIndex: Int) {
-            guard let document = pdfView?.document else { return }
-            let indices = [displayIndex - 1, displayIndex + 1, displayIndex + 2].filter { $0 >= 1 && $0 <= document.pageCount }
-            guard !indices.isEmpty else { return }
-            prefetchTask?.cancel()
-            prefetchTask = Task.detached(priority: .utility) {
-                for index in indices {
-                    guard !Task.isCancelled else { return }
-                    guard let page = document.page(at: index - 1) else { continue }
-                    let box = page.bounds(for: .cropBox)
-                    guard box.width > 0, box.height > 0 else { continue }
-                    let target = CGSize(width: min(1600, box.width * 2), height: min(1600, box.height * 2))
-                    _ = page.thumbnail(of: target, for: .cropBox)
-                }
-            }
-        }
+        // PDFKit lazily decodes visible pages. Speculatively rendering neighboring full scans
+        // discarded their thumbnails, consumed memory, and raced the live PDFDocument on another
+        // executor. Picker thumbnails use their own bounded renderer instead.
         func clearOverlays() {
             for overlay in overlays.values { toolPicker.removeObserver(overlay.canvas) }
+            autosave?.cancel(); activeToolPages.removeAll()
             overlays.removeAll(); committed.removeAll(); canvasBaseline.removeAll(); dirtyPages.removeAll()
             otherLayersImageCache.removeAll()
         }
@@ -309,7 +330,11 @@ struct PagedScoreView: UIViewRepresentable {
                 guard overlay != nil || pending != nil else { return }
                 let saved = parent.drawingData(number)
                 if keepLocal {
-                    let data = pending?.data ?? overlay.flatMap { encodedInk($0.canvas) } ?? Data()
+                    // A failed flush may have checkpointed an older local drawing. Additional
+                    // strokes remain in the dirty canvas until idle, so the live canvas wins.
+                    let data = dirtyPages.contains(number) && overlay != nil
+                        ? (overlay.flatMap { encodedInk($0.canvas) } ?? Data())
+                        : (pending?.data ?? overlay.flatMap { encodedInk($0.canvas) } ?? Data())
                     guard parent.saveDrawing(number, data, saved) else { return }
                     // Re-read through `parent.drawingData`, not the just-saved canvas bytes, so
                     // `committed` stays in the same representation `refresh()`'s comparison below and
@@ -354,7 +379,18 @@ struct PagedScoreView: UIViewRepresentable {
             if let overlay = overlays[number] { return overlay }
             let overlay = ScorePageOverlay(page: number, markup: parent.markup)
             overlay.inkReadOnly = !parent.allowsInk
-            overlay.pageImageForMagnifier = { size in page.thumbnail(of: size, for: .cropBox) }
+            overlay.onCanvasLayout = { [weak self, weak overlay] in
+                Task { @MainActor in
+                    guard let self, let overlay, self.overlays[number] === overlay else { return }
+                    self.refreshOtherLayersImage(overlay)
+                }
+            }
+            let previewPage = effectivePages.indices.contains(displayIndex - 1) ? effectivePages[displayIndex - 1]
+                : EffectivePage(id: UUID(), displayOrder: displayIndex, sourcePage: number, kind: .original, cropRect: nil, rotationDegrees: 0)
+            let previewURL = parent.url
+            overlay.pageImageForMagnifier = { size in
+                await ScorePagePreviewRenderer.shared.render(url: previewURL, page: previewPage, size: size)
+            }
             // §7 page tools: this display position's own crop, if any (see "(C) Schema3.md" and
             // `ScorePageOverlay.activeCrop`) — the exact same crop `ScorePageComposer.renderedPage`
             // just used to build this very `page`'s `.cropBox`, so the overlay and the PDF content it
@@ -363,7 +399,7 @@ struct PagedScoreView: UIViewRepresentable {
             let effectiveCrop = effectivePages.indices.contains(displayIndex - 1) ? effectivePages[displayIndex - 1].cropRect : nil
             overlay.activeCrop = (effectiveCrop?.isValid == true) ? effectiveCrop : nil
             loading = true
-            if let pending = parent.markup.pendingInk[number], parent.markup.pendingInkDocument == parent.url {
+            if let pending = parent.markup.pendingInk[number], parent.markup.pendingInkDocument == parent.url, parent.markup.pendingInkLayer == parent.activeLayer {
                 do {
                     let baseline = try decodeDrawing(pending.expected)
                     canvasBaseline[number] = baseline.strokes.isEmpty ? nil : baseline.dataRepresentation()
@@ -410,6 +446,8 @@ struct PagedScoreView: UIViewRepresentable {
             toolPicker.removeObserver(overlay.canvas)
             overlays.removeValue(forKey: overlay.pageNumber); committed.removeValue(forKey: overlay.pageNumber)
             canvasBaseline.removeValue(forKey: overlay.pageNumber)
+            activeToolPages.remove(overlay.pageNumber)
+            otherLayersImageCache.removeValue(forKey: overlay.pageNumber)
         }
         func refreshOverlays() { for overlay in Array(overlays.values) { refresh(overlay) }; updateUndoState() }
         private func refresh(_ overlay: ScorePageOverlay) {
@@ -419,18 +457,20 @@ struct PagedScoreView: UIViewRepresentable {
             // turned away and back. `inkReadOnly` must be kept in sync on every refresh pass, not only
             // set once at overlay creation (`pdfView(_:overlayViewFor:)`).
             overlay.inkReadOnly = !parent.allowsInk
-            overlay.displayedRegions = parent.regions
+            overlay.displayedRegions = parent.regions.filter { $0.page == overlay.pageNumber }
             overlay.regionColors = parent.regionColors
             overlay.emphasizedIDs = parent.emphasizedIDs; overlay.practicedIDs = parent.practicedIDs
-            overlay.displayedStamps = parent.stamps; overlay.displayedTextBoxes = parent.textBoxes
+            overlay.displayedStamps = parent.stamps.filter { $0.page == overlay.pageNumber }
+            overlay.displayedTextBoxes = parent.textBoxes.filter { $0.page == overlay.pageNumber }
             overlay.onPlaceStamp = parent.onPlaceStamp; overlay.onPlaceTextBox = parent.onPlaceTextBox
             overlay.onPlaceBreakPoint = parent.onPlaceBreakPoint
             overlay.onEditTextBox = parent.onEditTextBox
             let number = overlay.pageNumber
-            if !dirtyPages.contains(number), parent.drawingData(number) != committed[number] {
+            let stored = parent.drawingData(number)
+            if !overlay.contentReadOnly, !dirtyPages.contains(number), !activeToolPages.contains(number), stored != committed[number] {
                 loading = true
                 do {
-                    let data = parent.drawingData(number)
+                    let data = stored
                     overlay.canvas.drawing = try decodeDrawing(data)
                     committed[number] = data
                     canvasBaseline[number] = encodedInk(overlay.canvas)
@@ -475,25 +515,26 @@ struct PagedScoreView: UIViewRepresentable {
             guard overlay.bounds.width > 0, overlay.bounds.height > 0 else { return }
             let number = overlay.pageNumber
             let blobs = parent.otherLayersInkData(number)
-            var signature = blobs.count &* 31
-            for blob in blobs { signature = signature ^ blob.hashValue }
-            // `otherLayersImage` is a `didSet`-observed property (redraws the overlay); reassigning it
-            // to the same instance on every refresh pass, even when nothing changed, was part of the
-            // same over-eager-reassignment issue `lastAssignedTool` documents above.
+            let size = overlay.canvas.bounds.size
+            guard size.width > 0, size.height > 0 else { return }
+            // Cap decoded pixels even for an unusually tiny crop with a very large backing canvas.
+            let scale = min(min(3, overlay.window?.screen.scale ?? UIScreen.main.scale), 2400 / max(size.width, size.height))
             func apply(_ image: UIImage?) { if overlay.otherLayersImage !== image { overlay.otherLayersImage = image } }
-            if let cached = otherLayersImageCache[number], cached.signature == signature {
+            if let cached = otherLayersImageCache[number], cached.blobs == blobs, cached.size == size, cached.scale == scale {
                 apply(cached.image); return
             }
             guard !blobs.isEmpty else {
-                otherLayersImageCache[number] = (signature, nil); apply(nil); return
+                otherLayersImageCache[number] = (blobs, size, scale, nil); apply(nil); return
             }
             let drawing = (try? InkPerStroke.merge(blobs)) ?? PKDrawing()
-            let scale = min(3, overlay.window?.screen.scale ?? UIScreen.main.scale)
-            let image = drawing.strokes.isEmpty ? nil : drawing.image(from: CGRect(origin: .zero, size: overlay.bounds.size), scale: scale)
-            otherLayersImageCache[number] = (signature, image)
+            let image = drawing.strokes.isEmpty ? nil : drawing.image(from: CGRect(origin: .zero, size: size), scale: scale)
+            otherLayersImageCache[number] = (blobs, size, scale, image)
             apply(image)
         }
         func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            if let number = overlays.first(where: { $0.value.canvas === canvasView })?.key {
+                activeToolPages.insert(number); autosave?.cancel()
+            }
             #if DEBUG
             logCanvas("didBeginUsingTool", canvas: canvasView)
             #endif
@@ -503,26 +544,29 @@ struct PagedScoreView: UIViewRepresentable {
             logCanvas("drawingDidChange", canvas: canvasView)
             #endif
             guard !loading, let number = overlays.first(where: { $0.value.canvas === canvasView })?.key else { return }
-            let current = encodedInk(canvasView)
-            guard current != canvasBaseline[number] else {
-                dirtyPages.remove(number); parent.markup.clearPendingInk(page: number); updateUndoState(); return
-            }
-            parent.markup.rememberInk(page: number, data: current ?? Data(), expected: committed[number], document: parent.url, layer: parent.activeLayer)
-            dirtyPages.insert(number); updateUndoState()
-            autosave?.cancel()
-            autosave = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(300))
-                guard !Task.isCancelled else { return }
-                _ = self?.flush()
-            }
+            dirtyPages.insert(number)
+            // Undo/Redo also emits drawing changes, without begin/end tool callbacks.
+            if !activeToolPages.contains(number) { scheduleAutosave() }
         }
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
             #if DEBUG
             logCanvas("didEndUsingTool", canvas: canvasView)
             #endif
-            _ = flush(); updateUndoState()
+            guard let number = overlays.first(where: { $0.value.canvas === canvasView })?.key else { return }
+            activeToolPages.remove(number)
+            updateUndoState()
+            scheduleAutosave()
             // Do not refit the PDF underneath the first Pencil stroke.
             if parent.markup.mode == .reading && parent.allowsInk { parent.markup.mode = .writing }
+        }
+        private func scheduleAutosave() {
+            autosave?.cancel()
+            autosave = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: .milliseconds(600)) } catch { return }
+                guard let self, !Task.isCancelled, activeToolPages.isEmpty else { return }
+                _ = flush()
+                updateUndoState()
+            }
         }
         #if DEBUG
         func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
@@ -539,7 +583,11 @@ struct PagedScoreView: UIViewRepresentable {
         }
         #endif
         @discardableResult func flush() -> Bool {
-            guard parent.markup.pendingInkDocument == nil || parent.markup.pendingInkDocument == parent.url else { return false }
+            guard !flushing,
+                  parent.markup.pendingInkDocument == nil || parent.markup.pendingInkDocument == parent.url,
+                  parent.markup.pendingInkLayer == nil || parent.markup.pendingInkLayer == parent.activeLayer else { return false }
+            flushing = true
+            defer { flushing = false }
             var success = true
             let pages = dirtyPages.union(parent.markup.pendingInk.keys)
             for number in pages.sorted() {
@@ -549,6 +597,9 @@ struct PagedScoreView: UIViewRepresentable {
                 if let canvas = overlays[number]?.canvas, dirtyPages.contains(number) {
                     data = canvas.drawing.strokes.isEmpty ? Data() : canvas.drawing.dataRepresentation()
                     expected = committed[number]
+                    if (data.isEmpty ? nil : data) == canvasBaseline[number] {
+                        dirtyPages.remove(number); parent.markup.clearPendingInk(page: number); continue
+                    }
                 } else if let pending {
                     data = pending.data; expected = pending.expected
                 } else { success = false; continue }
@@ -562,7 +613,7 @@ struct PagedScoreView: UIViewRepresentable {
                     // reload that used to swap `canvas.drawing` out from under an in-flight PencilKit
                     // undo action (the root cause of "Undo greys out but leaves the stroke on screen").
                     committed[number] = parent.drawingData(number)
-                    canvasBaseline[number] = overlays[number].flatMap { encodedInk($0.canvas) }
+                    canvasBaseline[number] = data.isEmpty ? nil : data
                     dirtyPages.remove(number); parent.markup.clearPendingInk(page: number)
                     parent.markup.inkRevision += 1
                 } else { success = false }
@@ -610,8 +661,8 @@ struct PagedScoreView: UIViewRepresentable {
             }
             if let sourcePage = sourcePage(forDisplayIndex: displayIndex), let overlay = overlays[sourcePage] {
                 let point = overlay.convert(recognizer.location(in: view), from: view)
-                if let region = overlay.displayedRegions.reversed().first(where: { $0.page == overlay.pageNumber && $0.rect(in: overlay.bounds.size).contains(point) }) {
-                    parent.onRegionSelected(region.id)
+                if let regionID = overlay.passageRegion(at: point) {
+                    parent.onRegionSelected(regionID)
                     return
                 }
             }
@@ -648,39 +699,104 @@ struct PagedScoreView: UIViewRepresentable {
     }
 }
 
+/// Picker and stamp previews own their PDFDocuments, never sharing PDFKit's live display document
+/// with a background renderer. Work is serial and decoded images have a strict memory budget.
+actor ScorePagePreviewRenderer {
+    static let shared = ScorePagePreviewRenderer()
+    private var documents: [URL: PDFDocument] = [:]
+    private let images = NSCache<NSString, UIImage>()
+    init() { images.countLimit = 120; images.totalCostLimit = 20 * 1024 * 1024 }
+    private func document(_ url: URL) -> PDFDocument? {
+        if let document = documents[url] { return document }
+        if documents.count >= 2 { documents.removeAll() }
+        let loaded = PDFDocument(url: url); documents[url] = loaded
+        return loaded
+    }
+    func pages(url: URL, edits: [PageEdit]) -> [EffectivePage] {
+        guard let document = document(url) else { return [] }
+        return PageLayout.effectivePages(pageEdits: edits, sourcePageCount: document.pageCount)
+    }
+    func render(url: URL, page effective: EffectivePage, size: CGSize) async -> UIImage? {
+        guard !Task.isCancelled, size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0,
+              let source = document(url) else { return nil }
+        let target = CGSize(width: min(1200, size.width), height: min(1200, size.height))
+        let key = "\(url.path):\(effective.sourcePage ?? 0):\(effective.kind.rawValue):\(effective.cropRect.map { String(describing: $0) } ?? ""):\(effective.rotationDegrees):\(target.width):\(target.height)" as NSString
+        if let cached = images.object(forKey: key) { return cached }
+        let image: UIImage?
+        if effective.kind == .original {
+            guard let number = effective.sourcePage, number >= 1,
+                  let original = source.page(at: number - 1), let copy = original.copy() as? PDFPage else { return nil }
+            copy.rotation = ((copy.rotation + effective.rotationDegrees) % 360 + 360) % 360
+            if let crop = effective.cropRect, crop.isValid {
+                let media = original.bounds(for: .mediaBox)
+                copy.setBounds(CGRect(x: media.minX + crop.x * media.width, y: media.minY + (1 - crop.y - crop.height) * media.height,
+                                      width: crop.width * media.width, height: crop.height * media.height), for: .cropBox)
+            }
+            let bounds = copy.bounds(for: .cropBox)
+            guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else { return nil }
+            image = autoreleasepool { copy.thumbnail(of: target, for: .cropBox) }
+        } else {
+            let size = source.page(at: 0)?.bounds(for: .mediaBox).size ?? CGSize(width: 612, height: 792)
+            // The generated PDFPage stays entirely on its creator's actor. Only the immutable
+            // thumbnail crosses back; a live, non-Sendable PDFPage never crosses executors.
+            image = await MainActor.run {
+                ScorePageComposer.generatedPage(kind: effective.kind, size: size)?.thumbnail(of: target, for: .cropBox)
+            }
+        }
+        guard !Task.isCancelled, let image else { return nil }
+        if let bitmap = image.cgImage { images.setObject(image, forKey: key, cost: bitmap.bytesPerRow * bitmap.height) }
+        return image
+    }
+}
+
+private struct ScorePagePreview: View {
+    let url: URL
+    let page: EffectivePage
+    @State private var image: UIImage?
+    var body: some View {
+        Group {
+            if let image { Image(uiImage: image).resizable().scaledToFit() }
+            else { Rectangle().fill(PraeludeColor.inkFillQuiet).overlay { ProgressView() } }
+        }
+        .frame(height: 160).clipShape(RoundedRectangle(cornerRadius: PraeludeRadius.tight))
+        .task(id: page) {
+            let rendered = await ScorePagePreviewRenderer.shared.render(url: url, page: page, size: CGSize(width: 360, height: 500))
+            if !Task.isCancelled { image = rendered }
+        }
+    }
+}
+
 struct ScorePagePicker: View {
     let url: URL
     var pageEdits: [PageEdit] = []
     let currentPage: Int
     let onSelect: (Int) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var document: PDFDocument?
+    @State private var pages: [EffectivePage] = []
+    private struct Source: Equatable { let url: URL; let edits: [PageEdit] }
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 20)], spacing: 24) {
-                    if let document {
-                        ForEach(0..<document.pageCount, id: \.self) { index in
-                            Button {
-                                onSelect(index + 1); dismiss()
-                            } label: {
-                                VStack(spacing: 8) {
-                                    if let pdfPage = document.page(at: index) {
-                                        Image(uiImage: pdfPage.thumbnail(of: CGSize(width: 180, height: 250), for: .cropBox))
-                                            .resizable().scaledToFit().frame(height: 160)
-                                            .clipShape(RoundedRectangle(cornerRadius: PraeludeRadius.tight))
-                                    }
-                                    Text("\(index + 1)").font(.subheadline.monospacedDigit())
-                                }.padding(8).frame(maxWidth: .infinity).contentShape(Rectangle())
-                                    .background(index + 1 == currentPage ? PraeludeColor.inkFillQuiet : Color.clear, in: RoundedRectangle(cornerRadius: PraeludeRadius.control))
-                            }.buttonStyle(.plain).accessibilityLabel("Page \(index + 1)")
-                        }
+                    ForEach(pages) { page in
+                        Button {
+                            onSelect(page.displayOrder); dismiss()
+                        } label: {
+                            VStack(spacing: 8) {
+                                ScorePagePreview(url: url, page: page)
+                                Text("\(page.displayOrder)").font(.subheadline.monospacedDigit())
+                            }.padding(8).frame(maxWidth: .infinity).contentShape(Rectangle())
+                                .background(page.displayOrder == currentPage ? PraeludeColor.inkFillQuiet : Color.clear, in: RoundedRectangle(cornerRadius: PraeludeRadius.control))
+                        }.buttonStyle(.plain).accessibilityLabel("Page \(page.displayOrder)")
                     }
                 }.padding(20)
             }
             .navigationTitle("Pages").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .onAppear { document = ScorePageComposer.displayDocument(url: url, pageEdits: pageEdits) }
+            .task(id: Source(url: url, edits: pageEdits)) {
+                let loaded = await ScorePagePreviewRenderer.shared.pages(url: url, edits: pageEdits)
+                if !Task.isCancelled { pages = loaded }
+            }
         }.presentationDetents([.large])
     }
 }

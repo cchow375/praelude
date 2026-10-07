@@ -6,7 +6,6 @@ struct MetronomeView: View {
     @Environment(MetronomeService.self) private var metronome
     @Environment(PracticeStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tool = MetronomeTool.metronome
     @State private var tempoError: String?
     private var activeTempo: Bool { store.activeSet.map { $0.status == .running || $0.status == .paused } ?? false }
@@ -67,12 +66,8 @@ struct MetronomeView: View {
                 }.listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
 
                 Section {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], spacing: 8) {
-                        ForEach(0..<metronome.pulsesPerBar, id: \.self) { index in beatButton(index) }
-                    }.padding(.vertical, 4)
-                    if metronome.isPlaying && !reduceMotion {
-                        ProgressView(value: metronome.beatProgress).tint(.secondary).accessibilityHidden(true)
-                    }
+                    MetronomePulseGrid()
+                    MetronomePulseProgress()
                     Menu {
                         ForEach([2, 3, 4, 5], id: \.self) { beats in
                             Button("\(beats)/4") { metronome.setMeter(beats: beats, denominator: 4) }
@@ -84,7 +79,11 @@ struct MetronomeView: View {
                             }
                         }
                         Button("7/8 · eighth-note pulse") { metronome.setMeter(beats: 7, denominator: 8) }
-                    } label: { Label("Common meters", systemImage: "music.note") }
+                    } label: {
+                        Label("Common meters", systemImage: "music.note")
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
                         .accessibilityIdentifier("meterPresets")
                     Picker("Beats per bar", selection: $metronome.beatsPerBar) {
                         ForEach(1...12, id: \.self) { Text("\($0)").tag($0) }
@@ -125,13 +124,7 @@ struct MetronomeView: View {
                         .accessibilityIdentifier("keepMetronomeRunning")
                 } header: { Text("Starting & locking") }
                   footer: { Text("Count-in plays once on Start, using audible main beats. A count-in change applies the next time you start. Practice pauses when the app backgrounds; this option keeps only the click playing.") }
-                if metronome.isCountingIn {
-                    Section { Label("Count-in · enter on the next first beat", systemImage: "hourglass") }
-                } else if metronome.isDropoutSilent {
-                    Section { Label("Silent bars · keep your pulse", systemImage: "speaker.slash") }
-                } else if metronome.pulseAccents.allSatisfy({ $0 == .muted }) {
-                    Section { Text("Every beat is silent. Tap a beat above to restore its click.").foregroundStyle(.secondary) }
-                }
+                MetronomePlaybackStatus()
                 if let tempoError { Section { Text(tempoError).foregroundStyle(.red) } }
 
                 Section("Click sound") {
@@ -163,10 +156,44 @@ struct MetronomeView: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .accessibilityIdentifier("metronomeSettingsForm")
     }
 
-    private func beatButton(_ index: Int) -> some View {
-        let accent = metronome.pulseAccents[index]
+    private func changeTempo(_ value: Double) {
+        do {
+            if activeTempo { try store.adjustActiveTempo(value) }
+            metronome.setTempo(activeTempo ? store.activeSet!.currentBPM : value)
+            tempoError = nil
+        } catch { tempoError = error.localizedDescription }
+    }
+
+    private func tapTempo() {
+        guard let value = metronome.tappedTempo() else { return }
+        do {
+            if activeTempo { try store.adjustActiveTempo(value) }
+            metronome.applyTappedTempo(value)
+            tempoError = nil
+        } catch { tempoError = error.localizedDescription }
+    }
+
+}
+
+/// Only the pulse display subscribes to the audio playhead. Settings, pickers and menus remain
+/// stable while the service publishes beat progress roughly 30 times each second.
+private struct MetronomePulseGrid: View {
+    @Environment(MetronomeService.self) private var metronome
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        // Lazy grid children can finish rendering after a meter edit has shortened the live
+        // accent list. Each child must retain its own captured accent rather than subscript it.
+        let accents = Array(metronome.pulseAccents.enumerated())
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], spacing: 8) {
+            ForEach(accents, id: \.offset) { item in beatButton(item.offset, accent: item.element) }
+        }.padding(.vertical, 4)
+    }
+
+    private func beatButton(_ index: Int, accent: BeatAccent) -> some View {
         let current = metronome.isPlaying && metronome.beat == index + 1
         let pulseOn = current && metronome.beatProgress < 0.22
         return Button { metronome.cyclePulseAccent(at: index) } label: {
@@ -186,21 +213,30 @@ struct MetronomeView: View {
         .accessibilityLabel("Beat \(index + 1), \(accent.title)")
         .accessibilityHint("Tap to change the accent")
     }
-    private func changeTempo(_ value: Double) {
-        do {
-            if activeTempo { try store.adjustActiveTempo(value) }
-            metronome.setTempo(activeTempo ? store.activeSet!.currentBPM : value)
-            tempoError = nil
-        } catch { tempoError = error.localizedDescription }
-    }
+}
 
-    private func tapTempo() {
-        guard let value = metronome.tappedTempo() else { return }
-        do {
-            if activeTempo { try store.adjustActiveTempo(value) }
-            metronome.applyTappedTempo(value)
-            tempoError = nil
-        } catch { tempoError = error.localizedDescription }
-    }
+private struct MetronomePulseProgress: View {
+    @Environment(MetronomeService.self) private var metronome
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    var body: some View {
+        if metronome.isPlaying && !reduceMotion {
+            ProgressView(value: metronome.beatProgress).tint(.secondary).accessibilityHidden(true)
+        }
+    }
+}
+
+/// Count-in and dropout status are fed by the same sample-clock poll as the pulse display.
+private struct MetronomePlaybackStatus: View {
+    @Environment(MetronomeService.self) private var metronome
+
+    var body: some View {
+        if metronome.isCountingIn {
+            Section { Label("Count-in · enter on the next first beat", systemImage: "hourglass") }
+        } else if metronome.isDropoutSilent {
+            Section { Label("Silent bars · keep your pulse", systemImage: "speaker.slash") }
+        } else if metronome.pulseAccents.allSatisfy({ $0 == .muted }) {
+            Section { Text("Every beat is silent. Tap a beat above to restore its click.").foregroundStyle(.secondary) }
+        }
+    }
 }

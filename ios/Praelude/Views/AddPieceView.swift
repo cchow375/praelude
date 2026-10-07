@@ -122,7 +122,7 @@ struct AddPieceView: View {
                     images.append(image)
                 }
                 guard !images.isEmpty else { throw PracticeError.invalid("None of the selected photos could be opened.") }
-                try adoptScan(images)
+                try await adoptScan(images)
             } catch { self.error = error.localizedDescription }
         }
     }
@@ -130,13 +130,17 @@ struct AddPieceView: View {
         composing = true
         Task {
             defer { composing = false }
-            do { try adoptScan(images) } catch { self.error = error.localizedDescription }
+            do { try await adoptScan(images) } catch { self.error = error.localizedDescription }
         }
     }
-    private func adoptScan(_ images: [UIImage]) throws {
-        let data = try ScoreScanImport.makePDF(images: images)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("scan-\(UUID().uuidString).pdf")
-        try data.write(to: url)
+    private func adoptScan(_ images: [UIImage]) async throws {
+        let url = try await Task.detached(priority: .userInitiated) {
+            let data = try ScoreScanImport.makePDF(images: images)
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("scan-\(UUID().uuidString).pdf")
+            try data.write(to: url)
+            return url
+        }.value
+        guard !Task.isCancelled else { try? FileManager.default.removeItem(at: url); throw CancellationError() }
         adopt(scannedPDF: url, defaultTitle: "Scanned score")
     }
     private func save() {

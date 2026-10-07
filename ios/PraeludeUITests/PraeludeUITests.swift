@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 final class PraeludeUITests: XCTestCase {
     // Use single 150 ms presses after observing lost 50 ms touches on this simulator host.
@@ -6,6 +7,9 @@ final class PraeludeUITests: XCTestCase {
 
     @MainActor private func launch(seed: Bool = true, reset: Bool = true) -> XCUIApplication {
         continueAfterFailure = false
+        // XCTest can abort a preceding rotation test without executing its Swift defer.
+        // Every main smoke flow starts independently of that simulator orientation.
+        XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting"] + (reset ? ["--reset"] : []) + (seed ? ["--seed"] : [])
         app.launch()
@@ -15,13 +19,45 @@ final class PraeludeUITests: XCTestCase {
         let hideSidebar = app.buttons["Hide Sidebar"]
         if hideSidebar.waitForExistence(timeout: 1), hideSidebar.isHittable { hideSidebar.press(forDuration: 0.15) }
 
+        // On phones, Today places recent pieces below its session plan and statistics. Those
+        // List rows are virtualized, so waiting for a piece before scrolling cannot find it.
+        // The visible Pieces tab provides the direct library route instead.
+        let piecesTab = app.tabBars.buttons["Pieces"]
+        if piecesTab.exists, piecesTab.isHittable {
+            piecesTab.press(forDuration: 0.15)
+            XCTAssertTrue(app.navigationBars["Pieces"].waitForExistence(timeout: 5), app.debugDescription)
+        }
         let piece = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Practice study")).firstMatch
+        func visibleViewport() -> CGRect {
+            var viewport = app.frame
+            if let bar = app.navigationBars.allElementsBoundByIndex.last(where: { $0.isHittable }) {
+                let top = max(viewport.minY, bar.frame.maxY)
+                viewport = CGRect(x: viewport.minX, y: top, width: viewport.width, height: max(0, viewport.maxY - top))
+            }
+            if app.tabBars.firstMatch.exists {
+                viewport.size.height = max(0, min(viewport.maxY, app.tabBars.firstMatch.frame.minY) - viewport.minY)
+            }
+            return viewport
+        }
+        for _ in 0..<8 {
+            if piece.exists, piece.isHittable, visibleViewport().contains(piece.frame) { break }
+            let viewport = visibleViewport()
+            XCTAssertGreaterThan(viewport.height, 60, app.debugDescription)
+            let towardTop = piece.exists && piece.frame.minY < viewport.minY
+            scroll(viewport, towardTop: towardTop, app: app)
+        }
         XCTAssertTrue(piece.waitForExistence(timeout: 10), app.debugDescription)
-        for _ in 0..<5 where !piece.isHittable { app.swipeUp() }
+        XCTAssertTrue(piece.isHittable && visibleViewport().contains(piece.frame), app.debugDescription)
         piece.press(forDuration: 0.15)
         // §10a: the arm panel is already showing with rule defaults filled — no separate "start set"
         // tap opens it first, that trip through a modal is exactly what this track removed.
         XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 5))
+    }
+    @MainActor private func scroll(_ viewport: CGRect, towardTop: Bool = false, app: XCUIApplication) {
+        let base = app.coordinate(withNormalizedOffset: .zero)
+        let start = base.withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * (towardTop ? 0.35 : 0.75)))
+        let end = base.withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * (towardTop ? 0.75 : 0.35)))
+        start.press(forDuration: 0.15, thenDragTo: end)
     }
     @MainActor private func startSet(_ app: XCUIApplication) {
         let start = app.buttons["armStartSet"]
@@ -98,6 +134,17 @@ final class PraeludeUITests: XCTestCase {
         app.buttons["toggleMetronome"].press(forDuration: 0.15)
         app.buttons["Done"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 10))
+    }
+    @MainActor func testLandscapeLibraryPieceRemainsReachableAboveTabBar() {
+        let app = launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        // The seeded second library row begins below the narrow landscape list viewport.
+        // openScore must scroll that list above the tab bar before performing its single tap.
+        openScore(app)
+        XCTAssertTrue(app.otherElements["scorePDF"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(app.buttons["armStartSet"].exists, app.debugDescription)
+        screenshot("landscape-library-piece-opened")
     }
     @MainActor private func tapSettings(_ app: XCUIApplication) {
         let hideSidebar = app.buttons["Hide Sidebar"]
@@ -201,13 +248,105 @@ final class PraeludeUITests: XCTestCase {
         app.buttons["warmupVerdict_clean"].press(forDuration: 0.15)
         XCTAssertTrue(app.staticTexts["warmupProgress"].waitForExistence(timeout: 5))
         screenshot("12-warmup-one-rep")
-        app.buttons["closeWarmupPractice"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["resumePractice"].waitForExistence(timeout: 5), "closing mid-set must leave it resumable, not discard it")
-        app.buttons["Rewards"].press(forDuration: 0.15)
+        let closeWarmup = app.buttons["closeWarmupPractice"]
+        closeWarmup.press(forDuration: 0.15)
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: closeWarmup)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed, app.debugDescription)
+        guard let resume = app.buttons.matching(identifier: "resumePractice").allElementsBoundByIndex.first(where: {
+            let frame = $0.frame
+            return frame.width > 1 && frame.height > 1 && app.frame.contains(frame) && $0.isHittable
+        }) else {
+            XCTFail("Closing mid-set must leave a visible resumable set, not discard it.\n" + app.debugDescription)
+            return
+        }
+        // Compact navigation keeps Rewards in More; the iPad sidebar lists it directly.
+        let more = app.tabBars.buttons["More"]
+        if more.exists, more.isHittable {
+            XCTAssertLessThanOrEqual(resume.frame.maxY, app.tabBars.firstMatch.frame.minY + 1,
+                                     "The resume strip must sit above the tab bar, so tab taps cannot resume the set.\n" + app.debugDescription)
+            more.press(forDuration: 0.15)
+            XCTAssertTrue(app.navigationBars["More"].waitForExistence(timeout: 5), app.debugDescription)
+        }
+        let rewards = app.buttons["Rewards"]
+        for _ in 0..<6 {
+            if rewards.exists, rewards.isHittable, app.frame.contains(rewards.frame) { break }
+            let top = app.navigationBars.allElementsBoundByIndex.last(where: { $0.isHittable })?.frame.maxY ?? app.frame.minY
+            let bottom = app.tabBars.firstMatch.exists ? app.tabBars.firstMatch.frame.minY : app.frame.maxY
+            scroll(CGRect(x: app.frame.minX, y: top, width: app.frame.width, height: max(0, bottom - top)), app: app)
+        }
+        XCTAssertTrue(rewards.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(rewards.isHittable && app.frame.contains(rewards.frame), app.debugDescription)
+        rewards.press(forDuration: 0.15)
         XCTAssertTrue(app.navigationBars["Rewards"].waitForExistence(timeout: 10), app.debugDescription)
         RunLoop.current.run(until: Date().addingTimeInterval(0.3)) // let the List finish laying out before capturing it
         screenshot("13-rewards")
         XCTAssertTrue(app.staticTexts["Your rank grows with recorded practice."].exists, app.debugDescription)
+    }
+
+    @MainActor func testLandscapeWarmupControlsCloseAndRewardsRemainReachable() {
+        let app = launch()
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let warmups = app.buttons["Warmups"]
+        if !warmups.exists, app.buttons["Show Sidebar"].exists { app.buttons["Show Sidebar"].press(forDuration: 0.15) }
+        XCTAssertTrue(warmups.waitForExistence(timeout: 5) && warmups.isHittable, app.debugDescription)
+        warmups.press(forDuration: 0.15)
+        let next = app.buttons["warmupNextInRotation"]
+        XCTAssertTrue(next.waitForExistence(timeout: 8) && next.isHittable, app.debugDescription)
+        next.press(forDuration: 0.15)
+        let close = app.buttons["closeWarmupPractice"]
+        XCTAssertTrue(close.waitForExistence(timeout: 8), app.debugDescription)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        for control in [close, app.buttons["Pause practice"], app.buttons["warmupVerdict_again"],
+                        app.buttons["warmupVerdict_sloppy"], app.buttons["warmupVerdict_clean"]] {
+            let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                control.exists && control.isHittable && app.frame.contains(control.frame)
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 5), .completed, app.debugDescription)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 43.99)
+        }
+        app.buttons["warmupVerdict_clean"].press(forDuration: 0.15)
+        let recorded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "1 of 5 clean"), object: app.staticTexts["warmupProgress"])
+        XCTAssertEqual(XCTWaiter.wait(for: [recorded], timeout: 5), .completed, app.debugDescription)
+        screenshot("landscape-warmup-controls-after-clean")
+        close.press(forDuration: 0.15)
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: close)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed, app.debugDescription)
+        guard let resume = app.buttons.matching(identifier: "resumePractice").allElementsBoundByIndex.first(where: {
+            let frame = $0.frame
+            return frame.width > 1 && frame.height > 1 && app.frame.contains(frame) && $0.isHittable
+        }) else { XCTFail("The saved warmup must remain visibly resumable.\n" + app.debugDescription); return }
+        let more = app.tabBars.buttons["More"]
+        if more.exists {
+            XCTAssertTrue(more.isHittable, app.debugDescription)
+            XCTAssertLessThanOrEqual(resume.frame.maxY, app.tabBars.firstMatch.frame.minY + 1, app.debugDescription)
+            more.press(forDuration: 0.15)
+            XCTAssertTrue(app.navigationBars["More"].waitForExistence(timeout: 5), app.debugDescription)
+        }
+        guard let currentResume = app.buttons.matching(identifier: "resumePractice").allElementsBoundByIndex.first(where: {
+            let frame = $0.frame
+            return frame.width > 1 && frame.height > 1 && app.frame.contains(frame) && $0.isHittable
+        }) else { XCTFail("Navigation must preserve the visible resume strip.\n" + app.debugDescription); return }
+        let rewards = app.buttons["Rewards"]
+        var viewport = CGRect.zero
+        for _ in 0..<8 {
+            let top = app.navigationBars.allElementsBoundByIndex.last(where: { $0.isHittable })?.frame.maxY ?? app.frame.minY
+            let bottom = min(currentResume.frame.minY, app.tabBars.firstMatch.exists ? app.tabBars.firstMatch.frame.minY : app.frame.maxY)
+            viewport = CGRect(x: app.frame.minX, y: top, width: app.frame.width, height: max(0, bottom - top))
+            XCTAssertGreaterThan(viewport.height, 60, app.debugDescription)
+            if rewards.exists, rewards.isHittable, viewport.contains(rewards.frame) { break }
+            scroll(viewport, app: app)
+        }
+        XCTAssertTrue(rewards.exists && rewards.isHittable && viewport.contains(rewards.frame), app.debugDescription)
+        rewards.press(forDuration: 0.15)
+        XCTAssertTrue(app.navigationBars["Rewards"].waitForExistence(timeout: 8), app.debugDescription)
+        guard let rewardsResume = app.buttons.matching(identifier: "resumePractice").allElementsBoundByIndex.first(where: {
+            let frame = $0.frame
+            return frame.width > 1 && frame.height > 1 && app.frame.contains(frame) && $0.isHittable
+        }) else { XCTFail("Pushed Rewards must keep the saved set visibly resumable.\n" + app.debugDescription); return }
+        if app.tabBars.firstMatch.exists {
+            XCTAssertLessThanOrEqual(rewardsResume.frame.maxY, app.tabBars.firstMatch.frame.minY + 1, app.debugDescription)
+        }
+        screenshot("landscape-warmup-closed-rewards")
     }
 
 }

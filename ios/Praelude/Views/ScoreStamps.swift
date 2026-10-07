@@ -40,6 +40,10 @@ struct PraeludeStamp: View {
         content
             .frame(width: size, height: size)
             .environment(\.colorScheme, .light)
+            // These are score symbols with an explicit geometric size, not prose. Scaling the
+            // font again at accessibility sizes spills glyphs outside their picker hit targets.
+            .dynamicTypeSize(.large)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityDescription)
     }
 
@@ -89,7 +93,7 @@ struct PraeludeStamp: View {
         default: return .accidentalNatural
         }
     }
-    private var accessibilityDescription: String {
+    var accessibilityDescription: String {
         switch kind {
         case .fingering: return "Fingering \(label ?? "1")"
         case .dynamic: return "Dynamic \(label ?? "mf")"

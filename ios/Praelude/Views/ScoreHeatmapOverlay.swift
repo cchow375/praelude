@@ -15,6 +15,7 @@ struct ScoreHeatmapView: View {
     let url: URL
     @State private var page: Int
     @State private var image: UIImage?
+    @State private var renderFailed = false
 
     init(pieceID: UUID, url: URL, startPage: Int) {
         self.pieceID = pieceID; self.url = url
@@ -33,6 +34,7 @@ struct ScoreHeatmapView: View {
             ScrollView([.horizontal, .vertical]) {
                 Group {
                     if let image { Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity) }
+                    else if renderFailed { Text("This score page could not be displayed.").foregroundStyle(.secondary).padding() }
                     else { SwiftUI.ProgressView().frame(maxWidth: .infinity, minHeight: 300) }
                 }
             }
@@ -44,8 +46,7 @@ struct ScoreHeatmapView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) { pageControls }
             }
-            .task(id: page) { render() }
-            .onChange(of: store.state.revision) { _, _ in render() }
+            .task(id: "\(page)_\(store.state.revision)") { await render() }
         }
     }
 
@@ -82,10 +83,13 @@ struct ScoreHeatmapView: View {
         }
     }
 
-    private func render() {
-        image = ScoreHeatmapRenderer.render(
-            url: url, page: page, passages: passages, taps: taps, now: Date(),
-            levelForPassage: { PracticeHeatmap.passageLevel(passageID: $0, state: store.state, now: Date(), calendar: .current) })
+    private func render() async {
+        let state = store.state
+        let requestedPage = page
+        image = nil; renderFailed = false
+        let rendered = await ScoreHeatmapWorker.shared.render(url: url, page: requestedPage, pieceID: pieceID, state: state)
+        guard !Task.isCancelled, page == requestedPage else { return }
+        image = rendered; renderFailed = rendered == nil
     }
 }
 
@@ -94,13 +98,29 @@ struct ScoreHeatmapView: View {
 /// its page-rotation correction) rather than inventing a second convention for the same job.
 /// Internal (not `private`) so `PraeludeAppTests` can exercise it directly — see
 /// `ScoreHeatmapRendererTests.swift`.
-@MainActor enum ScoreHeatmapRenderer {
+/// Serial background rendering and rule evaluation keeps a history-heavy heatmap off the UI actor.
+private actor ScoreHeatmapWorker {
+    static let shared = ScoreHeatmapWorker()
+    func render(url: URL, page: Int, pieceID: UUID, state: LibraryState) -> UIImage? {
+        guard !Task.isCancelled else { return nil }
+        return autoreleasepool {
+            let now = Date()
+            let passages = state.passages.filter { $0.pieceID == pieceID && !$0.archived && $0.deletedAt == nil }
+            let ids = Set(passages.map(\.id))
+            let taps = state.breakPointTaps.filter { ids.contains($0.passageID) }
+            return ScoreHeatmapRenderer.render(url: url, page: page, passages: passages, taps: taps, now: now,
+                levelForPassage: { PracticeHeatmap.passageLevel(passageID: $0, state: state, now: now, calendar: .current) })
+        }
+    }
+}
+
+enum ScoreHeatmapRenderer {
     static func render(url: URL, page: Int, passages: [Passage], taps: [BreakPointTap], now: Date,
                         levelForPassage: (UUID) -> HeatLevel?) -> UIImage? {
-        guard let pdfPage = PDFDocument(url: url)?.page(at: max(0, page - 1)) else { return nil }
+        guard page > 0, let pdfPage = PDFDocument(url: url)?.page(at: page - 1) else { return nil }
         let bounds = pdfPage.bounds(for: .cropBox)
-        guard bounds.width > 0, bounds.height > 0 else { return nil }
-        let scale = min(3, 1400 / bounds.width)
+        guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else { return nil }
+        let scale = min(3, 1600 / max(bounds.width, bounds.height))
         let base = pdfPage.thumbnail(of: CGSize(width: bounds.width * scale, height: bounds.height * scale), for: .cropBox)
         let rotation = ((pdfPage.rotation % 360) + 360) % 360
 
@@ -116,8 +136,11 @@ struct ScoreHeatmapView: View {
                           width: rect.width * base.size.width, height: rect.height * base.size.height)
         }
 
-        let ink = UIColor(PraeludeColor.scoreInk)
-        return UIGraphicsImageRenderer(size: base.size).image { context in
+        let ink = UIColor(red: 0.094, green: 0.082, blue: 0.071, alpha: 1)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: base.size, format: format).image { context in
             base.draw(at: .zero)
             let cg = context.cgContext
             for passage in passages {

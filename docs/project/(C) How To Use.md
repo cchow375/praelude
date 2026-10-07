@@ -1,5 +1,14 @@
 # Praelude — How To Use
 
+Build7 source candidate also keeps the phone’s resume strip above the tabs. In short landscape annotation windows, the score opens at stave width; pinch to choose another zoom and use finger navigation with Pencil drawing. Automatic width fitting returns to the previous portrait zoom. Scroll the bounded tool tray to reveal Done in short windows. Warmup Close and verdicts stay anchored while the central readout and error messages scroll. These controls are not installed yet; the installed mobile guide still matches build6.
+
+## October6 source repair boundary
+
+The iPad remains on 2.0.0/build6/schema5. Build7 is a source candidate for freezing, disappearing ink, slow previews and crowded annotation controls; it has not been installed. Candidate control changes and exact verification are described in the mobile usage/QA guides. Keep using the installed instructions below until a guarded update establishes the new device boundary.
+
+**Next steps:** requested guarded update after the completed source/native/Release gates, then sustained physical drawing/practice acceptance.
+
+
 ## Installed mobile build6 (October3)
 
 The physical iPad runs2.0.0/build6/schema5. The guarded update preserves all11 owned files exactly. Christian confirms it opens; direct schema5/revision883 read passes. Personal Team provisioning expiresOctober10 at1:55PM EDT; renew with the same app/team using `npm run ios:refresh`.
@@ -8,11 +17,11 @@ The score controls now use the available width. Start without grading, Technique
 
 **Next steps:** judge compact controls and Pencil/black ink/in-set annotation on the actual iPad, then verify real-account second-device continuity. These physical checks remain open.
 
-**Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-10-03.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.
+**Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-10-06.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.
 
 ## Separate iPhone/iPad development candidate
 
-The installed Mac instructions and Matches line above describe v11.1.0/schema21. Mobile source is **2.0.0/build6/schema5 DEVELOPMENT CANDIDATE**; the physical iPad now runs build6/schema5. Its candidate workflow is documented in `ios/docs/USING_MOBILE.md`; historical September14 device evidence is in `docs/qa/ios/1.1.0/`.
+The installed Mac instructions and Matches line above describe v11.1.0/schema21. Mobile source is **2.0.0/build7/schema5 DEVELOPMENT CANDIDATE**; the physical iPad runs build6/schema5. Its candidate workflow is documented in `ios/docs/USING_MOBILE.md`; historical September14 device evidence is in `docs/qa/ios/1.1.0/`.
 
 Phone tabs are Today, Pieces, Warmups, Progress and More. On iPad, the sidebar exposes every section. Settings → Import from Mac opens a reviewed transfer from Files and adds compatible scores, passage boxes, pencil marks and goals without replacing mobile data. Progress → Mac practice record retains original Mac history and all table records. Build5 extends Supabase sync to goals/routines, preferences, score metadata and private covers alongside supported native records/PDFs/recordings. The original Mac archive stays local and backed up; continuous desktop sync still requires an adapter.
 
@@ -140,11 +149,11 @@ Choose the profile button, enter a **Display name**, and **Save profile**. This 
 
 Practise a real passage using honest verdicts and keep unfinished work paused. Real installed Score/Variants already pass; actual cover selection/save/restart still needs acceptance. Only Christian can judge whether the new room and interface make sustained practice better. A Git clone on another Mac is a development checkout, not a transfer of this Mac's practice history or scores; follow the repository's `docs/NEW_MAC_SETUP.md` and do not copy the live database without a separately verified migration plan.
 
-## Mobile build4 candidate controls (separate from installed Mac)
+## Historical mobile build4 controls (separate from installed Mac)
 
-The current native candidate uses passage search/current-page groups, explicit finish-and-switch, retained set settings and optional editable Techniques. Metronome exposes count-in, compound dotted pulse and lock playback; in-set tempo changes retain earned progress. Schema4 migration preserves originals; tempo-history backups require version3. These are source controls pending physical installation; the installed Mac Matches line above remains unchanged.
+The historical build4 candidate introduced passage search/current-page groups, explicit finish-and-switch, retained set settings and optional editable Techniques. Metronome exposes count-in, compound dotted pulse and lock playback; in-set tempo changes retain earned progress. Schema4 migration preserves originals; tempo-history backups require version3. These are source controls pending physical installation; the installed Mac Matches line above remains unchanged.
 
-### Build4 technique and lock details (candidate)
+### Historical build4 technique and lock details
 
 A technique chain shows its actual clean count per stage; use Edit stage targets to change each one.
 The general target count applies only when there is no chain. If a playing metronome differs from the

@@ -327,7 +327,13 @@ struct PassagePreview: View {
         }
         .background(Color.white).clipShape(RoundedRectangle(cornerRadius: PraeludeRadius.tight))
         .accessibilityLabel("Visual target, \(passage.locationLabel)")
-        .task(id: PassageThumbnailRenderer.identity(url: url, passage: passage)) { thumbnail = await PassageThumbnailRenderer.shared.render(url: url, passage: passage) }
+        .task(id: PassageThumbnailRenderer.identity(url: url, passage: passage)) {
+            thumbnail = nil
+            guard !Task.isCancelled else { return }
+            let loaded = await PassageThumbnailRenderer.shared.render(url: url, passage: passage)
+            guard !Task.isCancelled else { return }
+            thumbnail = loaded
+        }
     }
     static func makeThumbnail(url: URL, passage: Passage) -> UIImage? {
         let number = passage.regions.map(\.page).min() ?? passage.page
@@ -342,7 +348,11 @@ struct PassagePreview: View {
         let pageBounds = CGRect(origin: .zero, size: image.size)
         let target = boxes.reduce(CGRect.null) { $0.union($1) }
         let crop = target.isNull ? pageBounds : target.insetBy(dx: -16, dy: -16).intersection(pageBounds)
-        return UIGraphicsImageRenderer(size: crop.size).image { context in
+        guard crop.width.isFinite, crop.height.isFinite, crop.width > 0, crop.height > 0 else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: crop.size, format: format).image { context in
             context.cgContext.translateBy(x: -crop.minX, y: -crop.minY)
             image.draw(at: .zero)
             context.cgContext.setFillColor(UIColor(PraeludeColor.scoreInk).withAlphaComponent(0.105).cgColor)

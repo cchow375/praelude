@@ -237,4 +237,28 @@ final class ScoreExportTests: XCTestCase {
         XCTAssertTrue(unreadable.isReadOnly)
         XCTAssertThrowsError(try ScoreExport.annotatedPDF(pieceID: piece.id, store: unreadable))
     }
+    @MainActor func testResponsiveExportPreservesVectorPagesAndSavedLedger() async throws {
+        let (store, piece, _) = try fixture()
+        let bytes = try Data(contentsOf: store.fileURL)
+        let output = try await ScoreExport.annotatedPDFResponsive(pieceID: piece.id, store: store)
+        addTeardownBlock { try? FileManager.default.removeItem(at: output.deletingLastPathComponent()) }
+        let document = try XCTUnwrap(PDFDocument(url: output))
+        XCTAssertEqual(document.pageCount, 5)
+        let source = try XCTUnwrap(PDFDocument(url: XCTUnwrap(NativeLibraryFiles(store: store).scoreURL(for: piece))))
+        for index in 0..<document.pageCount {
+            XCTAssertEqual(try XCTUnwrap(document.page(at: index)?.string), try XCTUnwrap(source.page(at: index)?.string))
+        }
+        XCTAssertEqual(try Data(contentsOf: store.fileURL), bytes)
+    }
+
+    @MainActor func testCancelledResponsiveExportDoesNotCreateAnOutputOrChangeLibrary() async throws {
+        let (store, piece, _) = try fixture()
+        let bytes = try Data(contentsOf: store.fileURL)
+        let task = Task { try await ScoreExport.annotatedPDFResponsive(pieceID: piece.id, store: store) }
+        task.cancel()
+        do { _ = try await task.value; XCTFail("A canceled export must not render a copy") }
+        catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertEqual(try Data(contentsOf: store.fileURL), bytes)
+    }
+
 }

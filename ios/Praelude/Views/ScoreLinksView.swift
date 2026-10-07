@@ -76,6 +76,7 @@ private struct ScoreLinkEditorView: View {
     @State private var errorMessage: String?
     @State private var dragStart: CGPoint?
     @State private var regionFraction: CGRect?
+    @State private var previewSize: CGSize?
 
     /// `link.sourcePage` is a *displayed* page number (this type's own doc comment); `PageThumbnail`
     /// (also used by the page-tools editor, which always passes a real source page directly) expects
@@ -99,11 +100,11 @@ private struct ScoreLinkEditorView: View {
                         // below is measured against `fit`, not the raw container, or a region drawn
                         // partly (or entirely) in the letterbox margin would be saved at the wrong place
                         // on the page (see "(C) Audit.md").
-                        let fit = resolvedSourcePage.flatMap { PageThumbnail.fitFrame(pieceID: pieceID, page: $0, store: store, in: geometry.size) }
+                        let fit = previewSize.flatMap { PageThumbnail.fitFrame(imageSize: $0, in: geometry.size) }
                             ?? CGRect(origin: .zero, size: geometry.size)
                         ZStack(alignment: .topLeading) {
                             if let resolvedSourcePage {
-                                PageThumbnail(pieceID: pieceID, page: resolvedSourcePage)
+                                PageThumbnail(pieceID: pieceID, page: resolvedSourcePage, onImageSize: { previewSize = $0 })
                             } else {
                                 PraeludeColor.inkFillQuiet
                                 Text("This page has no source PDF page to preview.").font(.caption).foregroundStyle(.secondary).padding()
@@ -120,7 +121,7 @@ private struct ScoreLinkEditorView: View {
                         .contentShape(Rectangle())
                         .gesture(DragGesture(minimumDistance: 4)
                             .onChanged { value in
-                                guard fit.width > 0, fit.height > 0 else { return }
+                                guard previewSize != nil, fit.width > 0, fit.height > 0 else { return }
                                 if dragStart == nil { dragStart = value.startLocation }
                                 guard let start = dragStart else { return }
                                 let rect = CGRect(x: min(start.x, value.location.x), y: min(start.y, value.location.y),
@@ -139,7 +140,7 @@ private struct ScoreLinkEditorView: View {
                     .background(PraeludeColor.inkFillQuiet)
                     .clipShape(RoundedRectangle(cornerRadius: PraeludeRadius.tight))
                     Stepper("Source page \(link.sourcePage)", value: $link.sourcePage, in: 1...max(1, pageCount))
-                        .onChange(of: link.sourcePage) { regionFraction = nil }
+                        .onChange(of: link.sourcePage) { regionFraction = nil; previewSize = nil }
                 } header: {
                     Text("Draw the tap region")
                 } footer: { Text("Drag on the page above to mark where the repeat, D.S. or coda is written.") }
@@ -185,26 +186,28 @@ private struct ScoreLinkEditorView: View {
 struct PageThumbnail: View {
     let pieceID: UUID
     let page: Int
+    var onImageSize: (CGSize?) -> Void = { _ in }
     @Environment(PracticeStore.self) private var store
+    @State private var image: UIImage?
     var body: some View {
         GeometryReader { geometry in
-            if let image = renderedImage(size: geometry.size) {
-                Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                PraeludeColor.inkFillQuiet
+            Group {
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else { PraeludeColor.inkFillQuiet }
+            }
+            .task(id: "\(pieceID)_\(page)_\(Int(geometry.size.width))x\(Int(geometry.size.height))") {
+                image = nil; onImageSize(nil)
+                guard geometry.size.width > 1, geometry.size.height > 1,
+                      let piece = store.state.pieces.first(where: { $0.id == pieceID }),
+                      let url = NativeLibraryFiles(store: store).scoreURL(for: piece), !Task.isCancelled else { return }
+                let pixels = CGSize(width: geometry.size.width * UIScreen.main.scale,
+                                    height: geometry.size.height * UIScreen.main.scale)
+                let loaded = await PassageThumbnailRenderer.shared.renderPage(url: url, number: page, size: pixels)
+                guard !Task.isCancelled else { return }
+                image = loaded; onImageSize(loaded?.size)
             }
         }
-    }
-    private func renderedImage(size: CGSize) -> UIImage? {
-        guard size.width > 1, size.height > 1,
-              let piece = store.state.pieces.first(where: { $0.id == pieceID }),
-              let url = NativeLibraryFiles(store: store).scoreURL(for: piece),
-              let document = PDFDocument(url: url), page >= 1, page <= document.pageCount,
-              let pdfPage = document.page(at: page - 1) else { return nil }
-        let box = pdfPage.bounds(for: .cropBox)
-        guard box.width > 0, box.height > 0 else { return nil }
-        let scale = min(4, max(0.3, size.width * UIScreen.main.scale / box.width))
-        return pdfPage.thumbnail(of: CGSize(width: box.width * scale, height: box.height * scale), for: .cropBox)
     }
     /// The actual on-screen frame `.scaledToFit()` gives this view's rendered page image within a
     /// container of `size` — a page whose aspect ratio doesn't match `size` is letterboxed, centered,
@@ -219,7 +222,16 @@ struct PageThumbnail: View {
               let pdfPage = document.page(at: page - 1) else { return nil }
         let box = pdfPage.bounds(for: .cropBox)
         guard box.width > 0, box.height > 0 else { return nil }
-        let aspect = box.width / box.height
+        let rotation = ((pdfPage.rotation % 360) + 360) % 360
+        let rotated = rotation == 90 || rotation == 270 ? CGSize(width: box.height, height: box.width) : box.size
+        return fitFrame(imageSize: rotated, in: size)
+    }
+
+    /// Pure geometry for live gestures; the PDF is read only once by the background preview task.
+    static func fitFrame(imageSize: CGSize, in size: CGSize) -> CGRect? {
+        guard imageSize.width.isFinite, imageSize.height.isFinite, imageSize.width > 0, imageSize.height > 0,
+              size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return nil }
+        let aspect = imageSize.width / imageSize.height
         let containerAspect = size.width / size.height
         let fitSize = aspect > containerAspect ? CGSize(width: size.width, height: size.width / aspect)
                                                 : CGSize(width: size.height * aspect, height: size.height)

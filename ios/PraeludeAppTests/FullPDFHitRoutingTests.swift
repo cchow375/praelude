@@ -1,4 +1,5 @@
 import PDFKit
+import PencilKit
 import SwiftUI
 import XCTest
 @testable import Praelude
@@ -10,6 +11,7 @@ private struct PDFHitRoutingHost: View {
         // Match ScoreWorkspace's observation of edit mode so the real representable refreshes.
         let _ = markup.mode
         let _ = markup.fingerDrawing
+        let _ = markup.tool
         return PagedScoreView(url: url, page: .constant(1), twoPages: false, markup: markup, onPageChanged: { _ in })
     }
 }
@@ -121,6 +123,35 @@ final class FullPDFHitRoutingTests: XCTestCase {
         let inkHit = loadedPDF.hitTest(point, with: nil)
         XCTAssertTrue(inkHit === pageOverlay.canvas || inkHit?.isDescendant(of: pageOverlay.canvas) == true,
                       "Explicit finger ink must reach the real canvas through all PDF ancestors.\n\(diagnostic(pageOverlay, through: loadedPDF))")
+        // Native freeze regression: disabling this attached first-responder canvas to switch
+        // tools enters an infinite UIKit resign/become responder loop. Exercise the real loaded
+        // PDF hierarchy while preserving a stroke, not an unattached UIView with no responder.
+        XCTAssertTrue(pageOverlay.canvas.becomeFirstResponder())
+        XCTAssertTrue(pageOverlay.canvas.isFirstResponder)
+        let points = [CGPoint(x: 120, y: 180), CGPoint(x: 200, y: 200)].enumerated().map { index, location in
+            PKStrokePoint(location: location, timeOffset: Double(index) / 10, size: CGSize(width: 3, height: 3),
+                          opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        }
+        pageOverlay.canvas.drawing = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black),
+            path: PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSince1970: 1_700_000_000)))])
+        let inkBefore = pageOverlay.canvas.drawing.dataRepresentation()
+        for kind in [AnnotationToolKind.stamp, .text] {
+            markup.tool.kind = kind
+            try await Task.sleep(for: .milliseconds(100))
+            host.view.layoutIfNeeded(); loadedPDF.layoutIfNeeded()
+            XCTAssertTrue(pageOverlay.canvas.isUserInteractionEnabled)
+            XCTAssertTrue(pageOverlay.canvas.isFirstResponder, "Changing tools must not invoke an implicit PDFKit responder handoff")
+            let placementHit = loadedPDF.hitTest(point, with: nil)
+            XCTAssertTrue(placementHit === pageOverlay, "Placement belongs to the overlay instead of the retained PencilKit responder")
+            XCTAssertEqual(pageOverlay.canvas.drawing.dataRepresentation(), inkBefore)
+        }
+        markup.tool.kind = .pen
+        try await Task.sleep(for: .milliseconds(100))
+        host.view.layoutIfNeeded(); loadedPDF.layoutIfNeeded()
+        XCTAssertTrue(pageOverlay.canvas.isFirstResponder)
+        let restoredHit = loadedPDF.hitTest(point, with: nil)
+        XCTAssertTrue(restoredHit === pageOverlay.canvas || restoredHit?.isDescendant(of: pageOverlay.canvas) == true)
+        XCTAssertEqual(pageOverlay.canvas.drawing.dataRepresentation(), inkBefore)
         markup.fingerDrawing = false
         try await Task.sleep(for: .milliseconds(100))
         host.view.layoutIfNeeded(); loadedPDF.layoutIfNeeded()

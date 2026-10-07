@@ -7,6 +7,43 @@ private enum ScoreSheet: String, Identifiable {
     var id: String { rawValue }
 }
 
+/// Serialization cache is not UI state. Writing it during a PDF representable refresh must not
+/// invalidate SwiftUI and schedule another refresh of that same canvas.
+final class ScoreInkCache {
+    private var entries: [String: (signature: Int, data: Data?)] = [:]
+    private var recentKeys: [String] = []
+    private var byteCount = 0
+    private let budget: Int
+    init(budget: Int = 16 * 1024 * 1024) { self.budget = budget }
+
+    static func mergedData(_ rows: [InkStroke]) -> Data? {
+        guard !rows.isEmpty else { return nil }
+        do { return try InkPerStroke.merge(rows.map(\.data)).dataRepresentation() }
+        catch {
+            // Nil means genuinely blank. Invalid bytes trigger read-only recovery rather than
+            // accepting a replacement drawing over unreadable originals.
+            return Data("Praelude-invalid-saved-ink".utf8)
+        }
+    }
+
+    func entry(for key: String) -> (signature: Int, data: Data?)? {
+        guard let entry = entries[key] else { return nil }
+        recentKeys.removeAll { $0 == key }; recentKeys.append(key)
+        return entry
+    }
+    func insert(key: String, signature: Int, data: Data?, protectedKeys: Set<String>) {
+        byteCount -= entries[key]?.data?.count ?? 0
+        entries[key] = (signature, data); byteCount += data?.count ?? 0
+        recentKeys.removeAll { $0 == key }; recentKeys.append(key)
+        // Pin exact live/failed-save baselines: rebuilding identical PKDrawing changes its bytes.
+        while byteCount > budget || entries.count > 24 {
+            guard let victim = recentKeys.first(where: { $0 != key && !protectedKeys.contains($0) }) else { break }
+            byteCount -= entries.removeValue(forKey: victim)?.data?.count ?? 0
+            recentKeys.removeAll { $0 == victim }
+        }
+    }
+}
+
 struct ScoreWorkspace: View {
     let pieceID: UUID
     let onClose: (() -> Void)?
@@ -77,6 +114,8 @@ struct ScoreWorkspace: View {
     @State private var ending = false
     @State private var error: String?
     @State private var sharingURL: URL?
+    @State private var exporting = false
+    @State private var exportTask: Task<Void, Never>?
     @State private var editingTextBox: TextBoxAnnotation?
     /// §8: a long press landing on a saved passage's outline while reading (not performance mode,
     /// which uses the same gesture to exit) — drives `.passageQuickActions` below.
@@ -146,15 +185,23 @@ struct ScoreWorkspace: View {
     /// conflict. Keyed by the stored rows' own stable identity (id + content), mirroring
     /// `PagedScoreView.Coordinator.refreshOtherLayersImage`'s existing signature-cache idiom for this
     /// exact same instability one layer up (the read-only underlay image).
-    @State private var mergedInkCache: [String: (signature: Int, data: Data?)] = [:]
+    @State private var mergedInkCache = ScoreInkCache()
     private func mergedInkData(_ page: Int) -> Data? {
         let rows = store.inkStrokes(pieceID: pieceID, page: page, layer: markup.activeLayer)
-        var signature = rows.count &* 31
-        for row in rows { signature = signature ^ row.id.hashValue ^ (row.fingerprint ?? row.data).hashValue }
+        var hasher = Hasher()
+        hasher.combine(rows.count)
+        for row in rows {
+            hasher.combine(row.id); hasher.combine(row.updatedAt); hasher.combine(row.fingerprint ?? row.data)
+        }
+        let signature = hasher.finalize()
         let key = "\(pieceID)|\(page)|\(markup.activeLayer.rawValue)"
-        if let cached = mergedInkCache[key], cached.signature == signature { return cached.data }
-        let data = rows.isEmpty ? nil : try? InkPerStroke.merge(rows.map(\.data)).dataRepresentation()
-        mergedInkCache[key] = (signature, data)
+        if let cached = mergedInkCache.entry(for: key), cached.signature == signature { return cached.data }
+        let data = ScoreInkCache.mergedData(rows)
+        let visiblePages = (max(1, self.page - 2)...(self.page + 2)).compactMap(sourcePage(forDisplayPage:))
+        var protected = Set(visiblePages.map { "\(pieceID)|\($0)|\(markup.activeLayer.rawValue)" })
+        let pendingLayer = markup.pendingInkLayer ?? markup.activeLayer
+        protected.formUnion(markup.pendingInk.keys.map { "\(pieceID)|\($0)|\(pendingLayer.rawValue)" })
+        mergedInkCache.insert(key: key, signature: signature, data: data, protectedKeys: protected)
         return data
     }
     /// Every visible layer other than the active one, flattened for `ScorePageOverlay`'s read-only
@@ -167,6 +214,10 @@ struct ScoreWorkspace: View {
         Group {
             if let piece {
                 GeometryReader { geometry in
+                    // A bottom safe-area inset can extend its scrolling viewport through the
+                    // home-indicator region. Exclude both inset allowances before halving so
+                    // the visible tray, including that extension, stays within half the workspace.
+                    let annotationFooterHeight = min(360, max(0, geometry.size.height - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom) * 0.5)
                     ZStack {
                         if let scoreURL, FileManager.default.fileExists(atPath: scoreURL.path) {
                             // Pinned paper-white, not the paper/stage token: the score stays paper in both appearances.
@@ -202,7 +253,17 @@ struct ScoreWorkspace: View {
                         if markup.mode == .selecting {
                             selectionTools
                         } else if markup.mode == .writing {
-                            writingTools
+                            // Long stamp trays and accessibility labels must remain reachable without
+                            // consuming the entire score in landscape or a narrow multitasking window.
+                            ViewThatFits(in: .vertical) {
+                                writingTools.fixedSize(horizontal: false, vertical: true)
+                                ScrollView { writingTools.fixedSize(horizontal: false, vertical: true) }
+                                    .frame(height: annotationFooterHeight)
+                            }
+                            .frame(maxHeight: annotationFooterHeight)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("annotationControls")
                         } else if markup.mode == .reading && focusMode && !performanceMode {
                             // "Focus on score" must still leave Stop/Undo/the metronome toggle and a
                             // verdict fallback one tap away (§3d) — only true performance mode ("the
@@ -249,9 +310,9 @@ struct ScoreWorkspace: View {
                             Button("Bookmarks", systemImage: "bookmark.fill") { sheet = .bookmarks }
                             Button("Links", systemImage: "arrow.triangle.turn.up.right.diamond") { sheet = .links }
                             if !jumpBackStack.isEmpty { Button("Jump back to page \(jumpBackStack.last ?? page)", systemImage: "arrow.uturn.backward") { jumpBack() } }
-                            Button("Movements & pieces", systemImage: "list.bullet.rectangle") { sheet = .sections }
+                            Button("Movements & pieces", systemImage: "list.bullet.rectangle") { if markup.flushInk() { sheet = .sections } }
                             Button("Measure map", systemImage: "number.square") { sheet = .measureMap }
-                            Button("Page tools", systemImage: "square.stack") { sheet = .pageTools }
+                            Button("Page tools", systemImage: "square.stack") { if markup.flushInk() { sheet = .pageTools } }
                             Toggle("Show passage boxes", isOn: preference(\.showPassageBoxes))
                             Toggle("Compact score controls", isOn: preference(\.compactScoreControls))
                             if let selectedPassage {
@@ -266,10 +327,8 @@ struct ScoreWorkspace: View {
                                 .disabled(scoreURL == nil)
                             Toggle("Turn passage page after each verdict", isOn: preference(\.autoTurnPassageAfterVerdict))
                             Button("Replace score PDF", systemImage: "doc.badge.plus") { importing = true }
-                            Button("Share annotated score", systemImage: "square.and.arrow.up") {
-                                guard markup.flushInk() else { return }
-                                perform { sharingURL = try ScoreExport.annotatedPDF(pieceID: pieceID, store: store); sheet = .share }
-                            }.disabled(scoreURL == nil)
+                            Button(exporting ? "Preparing annotated score…" : "Share annotated score", systemImage: "square.and.arrow.up", action: exportAnnotatedScore)
+                                .disabled(scoreURL == nil || exporting)
                             if active != nil { Button("End practice", systemImage: "stop.circle", role: .destructive) { ending = true } }
                         } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Score options")
                     }
@@ -356,6 +415,7 @@ struct ScoreWorkspace: View {
         .passageQuickActions(target: $longPressedPassage, allPassages: savedPassages, pageCount: piece?.pageCount ?? 1, onEditBoxes: { beginSelection($0) })
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
             guard let piece else { return }
+            guard markup.flushInk() else { return }
             perform {
                 let url = try result.get()
                 _ = try NativeLibraryFiles(store: store).importPDF(url, title: piece.title, composer: piece.composer, replacing: piece)
@@ -393,8 +453,9 @@ struct ScoreWorkspace: View {
                 rearmIfIdle()
             }
         }
-        .onDisappear { _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); runtime.scoreDisappeared(ownerID: voiceOwnerID) }
+        .onDisappear { exportTask?.cancel(); _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); runtime.scoreDisappeared(ownerID: voiceOwnerID) }
         .onChange(of: pieceID) { _, _ in
+            exportTask?.cancel()
             markup.onConfirmSelection = saveSelection
             markup.showPassageBoxes = showPassageBoxes
             if markup.flushInk() { markup.finish() }
@@ -467,20 +528,20 @@ struct ScoreWorkspace: View {
     }
     private var scoreModeControls: some View {
         HStack(spacing: 4) {
-            Button { sheet = .passages } label: { Image(systemName: "bookmark").frame(width: 44, height: 44) }
+            Button { sheet = .passages } label: { Image(systemName: "bookmark").frame(width: 44, height: 44).contentShape(Rectangle()) }
                 .accessibilityLabel("Passages").accessibilityIdentifier("passages")
             if markup.mode == .reading { pageControls(compact: true) }
             Spacer(minLength: 0)
             Button { returnToPractice() } label: {
-                Image(systemName: markup.mode == .writing ? "checkmark" : "play.rectangle").frame(width: 44, height: 44)
+                Image(systemName: markup.mode == .writing ? "checkmark" : "play.rectangle").frame(width: 44, height: 44).contentShape(Rectangle())
                     .background(markup.mode == .reading ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 9))
             }.accessibilityLabel(markup.mode == .writing ? "Done" : "Practice mode")
                 .accessibilityIdentifier(markup.mode == .writing ? "finishScoreMarkup" : "scorePracticeMode")
             Button { beginSelection(nil) } label: {
-                Image(systemName: "rectangle.dashed").frame(width: 44, height: 44)
+                Image(systemName: "rectangle.dashed").frame(width: 44, height: 44).contentShape(Rectangle())
             }.accessibilityLabel("Draw passage").accessibilityIdentifier("drawPassageOnScore")
             Button { beginWriting() } label: {
-                Image(systemName: "pencil.tip.crop.circle").frame(width: 44, height: 44)
+                Image(systemName: "pencil.tip.crop.circle").frame(width: 44, height: 44).contentShape(Rectangle())
                     .background(markup.mode == .writing ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 9))
             }.accessibilityLabel("Annotate score").accessibilityIdentifier("annotateScore")
         }.font(.system(size: 18))
@@ -497,6 +558,22 @@ struct ScoreWorkspace: View {
         if markup.mode == .selecting { closeAfterDiscard = true; confirmDiscardSelection = true; return }
         markup.stampDraft = nil
         if let onClose { onClose() } else { dismiss() }
+    }
+    private func exportAnnotatedScore() {
+        guard !exporting, markup.flushInk() else { return }
+        exporting = true
+        exportTask = Task { @MainActor in
+            defer { exporting = false; exportTask = nil }
+            do {
+                let url = try await ScoreExport.annotatedPDFResponsive(pieceID: pieceID, store: store)
+                guard !Task.isCancelled else {
+                    try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+                    return
+                }
+                sharingURL = url; sheet = .share
+            } catch is CancellationError { }
+            catch { self.error = error.localizedDescription }
+        }
     }
     private var selectionTools: some View {
         VStack(spacing: 2) {
@@ -850,7 +927,8 @@ struct ScoreWorkspace: View {
         PraeludeHaptic.confirm()
     }
     private func jumpBack() {
-        guard let target = jumpBackStack.popLast(), markup.flushInk() else { return }
+        guard let target = jumpBackStack.last, markup.flushInk() else { return }
+        jumpBackStack.removeLast()
         page = target
         savePage(page)
     }

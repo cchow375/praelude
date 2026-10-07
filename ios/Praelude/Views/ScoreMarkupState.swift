@@ -3,26 +3,26 @@ import PencilKit
 
 /// The in-progress selection is a draft until Done commits the complete passage.
 @MainActor @Observable final class ScoreMarkupState {
-    enum Mode { case reading, selecting, writing }
+    enum Mode: Equatable { case reading, selecting, writing }
     struct PendingInk {
         let data: Data
         /// Exact stored bytes, not PencilKit's re-encoded representation.
         let expected: Data?
     }
-    private(set) var pendingInk: [Int: PendingInk] = [:]
-    private(set) var pendingInkDocument: URL?
+    @ObservationIgnored private(set) var pendingInk: [Int: PendingInk] = [:]
+    @ObservationIgnored private(set) var pendingInkDocument: URL?
     /// Guards a layer switch the same way `pendingInkDocument` already guards a document switch:
     /// `rememberInk` refuses ink for a different layer while unflushed ink from another layer is
     /// still pending, so a mid-edit layer swap can never silently attribute a stroke to the wrong
     /// mine/teacher/performance row.
-    private(set) var pendingInkLayer: InkLayer?
+    @ObservationIgnored private(set) var pendingInkLayer: InkLayer?
     var mode: Mode = .reading
     var draft: Passage?
     private(set) var baseline: Passage?
     var selectedRegionID: UUID?
     var fingerDrawing = false
     var showPassageBoxes = true
-    struct StampDraft {
+    struct StampDraft: Equatable {
         let page: Int
         var position: NormalizedRect
     }

@@ -4,6 +4,7 @@ import UIKit
 final class MobileMarkupUITests: XCTestCase {
     @MainActor private func openScore(_ app: XCUIApplication, reset: Bool = true, largeText: Bool = false) {
         continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["--uitesting"] + (reset ? ["--reset", "--seed"] : [])
         if largeText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
         app.launch()
@@ -23,7 +24,46 @@ final class MobileMarkupUITests: XCTestCase {
         piece.tap()
         XCTAssertTrue(app.buttons["drawPassageOnScore"].waitForExistence(timeout: 8), app.debugDescription)
         XCTAssertTrue(app.otherElements["scorePDF"].textViews.firstMatch.waitForExistence(timeout: 8))
-        settle(app.buttons["drawPassageOnScore"], app: app)
+        revealPracticeControl(app.buttons["drawPassageOnScore"], app: app)
+    }
+    @MainActor private func revealPracticeControl(_ element: XCUIElement, app: XCUIApplication) {
+        // At accessibility sizes the setup dock deliberately scrolls to preserve score space.
+        // Reveal its final mode row within that scroller rather than swiping the score itself.
+        let footer = app.scrollViews["accessiblePracticeControls"]
+        if footer.exists {
+            for _ in 0..<8 {
+                let viewport = footer.frame.intersection(app.frame).insetBy(dx: 0, dy: 2)
+                if element.exists, element.isHittable, viewport.contains(element.frame) { break }
+                if element.exists, element.frame.minY < viewport.minY { footer.swipeDown() }
+                else { footer.swipeUp() }
+            }
+            XCTAssertTrue(element.exists && element.isHittable && footer.frame.intersection(app.frame).contains(element.frame),
+                          "The practice footer must scroll to its mode controls.\n" + app.debugDescription)
+        }
+        settle(element, app: app)
+    }
+    @MainActor private func revealAnnotationControl(_ element: XCUIElement, app: XCUIApplication) {
+        let controls = app.descendants(matching: .any).matching(identifier: "annotationControls").firstMatch
+        XCTAssertTrue(controls.waitForExistence(timeout: 5), app.debugDescription)
+        for _ in 0..<8 {
+            let viewport = controls.frame.intersection(app.frame)
+            if element.exists, element.isHittable, viewport.contains(element.frame) { break }
+            // The bounded footer may itself be the ScrollView. Exclude horizontal rows and
+            // the PDF, so a clipped footer with no vertical scroller still fails this test.
+            let candidates = (controls.elementType == .scrollView ? [controls] : []) +
+                controls.scrollViews.allElementsBoundByIndex
+            guard let vertical = candidates.first(where: {
+                $0.frame.height > 70 && abs($0.frame.width - viewport.width) < 8
+            }) else {
+                XCTFail("The annotation control is clipped and its footer has no vertical scroll.\n" + app.debugDescription)
+                return
+            }
+            if element.exists, element.frame.minY < viewport.minY { vertical.swipeDown() }
+            else { vertical.swipeUp() }
+        }
+        XCTAssertTrue(element.exists && element.isHittable && controls.frame.intersection(app.frame).contains(element.frame),
+                      "The bounded annotation footer must scroll to its controls.\n" + app.debugDescription)
+        settle(element, app: app)
     }
     @MainActor private func settle(_ element: XCUIElement, app: XCUIApplication) {
         var previous = CGRect.zero
@@ -227,17 +267,66 @@ final class MobileMarkupUITests: XCTestCase {
             shot("18-accessible-selection-" + name)
         }
         app.buttons["finishScoreMarkup"].press(forDuration: 0.15)
+        revealPracticeControl(app.buttons["annotateScore"], app: app)
         app.buttons["annotateScore"].press(forDuration: 0.15)
         XCTAssertTrue(app.switches["fingerDrawing"].waitForExistence(timeout: 8))
         for (orientation, name) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
             XCUIDevice.shared.orientation = orientation
-            settle(app.buttons["finishScoreMarkup"], app: app)
+            revealAnnotationControl(app.switches["fingerDrawing"], app: app)
             XCTAssertTrue(app.switches["fingerDrawing"].isHittable)
+            revealAnnotationControl(app.buttons["finishScoreMarkup"], app: app)
             XCTAssertTrue(app.frame.contains(app.buttons["finishScoreMarkup"].frame))
             XCTAssertGreaterThan(app.otherElements["scorePDF"].frame.height, 60, app.debugDescription)
             shot("19-accessible-ink-" + name)
         }
         app.buttons["finishScoreMarkup"].press(forDuration: 0.15)
+    }
+
+    @MainActor func testLargestTextStampTrayScrollsWithoutCoveringScoreInLandscape() {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = XCUIApplication(); openScore(app, largeText: true)
+        let annotate = app.buttons["annotateScore"]
+        revealPracticeControl(annotate, app: app); annotate.tap()
+        let controls = app.descendants(matching: .any).matching(identifier: "annotationControls").firstMatch
+        XCTAssertTrue(controls.waitForExistence(timeout: 8), app.debugDescription)
+        XCUIDevice.shared.orientation = .landscapeLeft
+
+        // The fitting tray is an Other; the bounded scrolling fallback is a ScrollView.
+        // Keep this query valid as choosing Stamp changes which branch fits.
+        let tools = controls.scrollViews["annotationTools"]
+        XCTAssertTrue(tools.waitForExistence(timeout: 8), app.debugDescription)
+        let stampTool = controls.buttons["annotationTool_stamp"]
+        for _ in 0..<6 {
+            if stampTool.exists, stampTool.isHittable, tools.frame.intersection(app.frame).contains(stampTool.frame) { break }
+            tools.swipeLeft()
+        }
+        XCTAssertTrue(stampTool.exists && stampTool.isHittable, app.debugDescription)
+        settle(stampTool, app: app); stampTool.tap()
+        let fingering = controls.buttons["stamp_fingering_1"]
+        XCTAssertTrue(fingering.waitForExistence(timeout: 8) && fingering.isHittable, app.debugDescription)
+        fingering.tap()
+
+        let pdf = app.otherElements["scorePDF"]
+        let bounded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard controls.exists, pdf.exists,
+                  let bar = app.navigationBars.allElementsBoundByIndex.last(where: { $0.isHittable }) else { return false }
+            let footer = controls.frame
+            let workspaceHeight = app.frame.maxY - bar.frame.maxY
+            return footer.height > 0 && footer.height <= workspaceHeight * 0.5 + 1 &&
+                app.frame.contains(footer) && pdf.frame.height > 60
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [bounded], timeout: 8), .completed,
+                       "The largest-text stamp tray must keep at least 60 points of score and fit half the workspace.\n" + app.debugDescription)
+        shot("build7-largest-text-stamp-tray-landscape")
+
+        let done = controls.buttons["finishScoreMarkup"]
+        revealAnnotationControl(done, app: app)
+        XCTAssertGreaterThanOrEqual(done.frame.height, 43.99)
+        shot("build7-largest-text-stamp-tray-done-reachable")
+        done.tap()
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertFalse(controls.exists)
     }
 
     @MainActor func testStampSliderGrowsAndShrinksPreviewBeforeOneConfirmedPlacement() {
@@ -286,6 +375,24 @@ final class MobileMarkupUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [placed], timeout: 5), .completed, app.debugDescription)
         XCTAssertFalse(app.buttons["confirmStamp"].exists, "Confirmation consumes the preview exactly once")
         shot("build5-stamp-confirmed-size")
+        // Return through the same attached responder to prove pen input still works after stamp
+        // placement; previously the pen -> stamp transition froze in UIKit responder teardown.
+        let pen = app.buttons["annotationTool_pen"]
+        for _ in 0..<5 where !pen.isHittable { tools.swipeRight() }
+        XCTAssertTrue(pen.isHittable, app.debugDescription)
+        pen.press(forDuration: 0.15)
+        let finger = app.switches["fingerDrawing"]
+        XCTAssertTrue(finger.waitForExistence(timeout: 5), app.debugDescription)
+        if finger.value as? String != "1" {
+            finger.coordinate(withNormalizedOffset: .init(dx: 0.97, dy: 0.5)).press(forDuration: 0.15)
+        }
+        drag(app, from: .init(dx: 0.24, dy: 0.32), to: .init(dx: 0.67, dy: 0.36))
+        let restoredPen = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "inkPage1=1"), object: pdf)
+        XCTAssertEqual(XCTWaiter.wait(for: [restoredPen], timeout: 8), .completed, "Pen input must resume after a stamp without losing the placed mark")
+        XCTAssertTrue((pdf.value as? String ?? "").contains("stampCountPage1=1"))
+        app.buttons["finishScoreMarkup"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 8), app.debugDescription)
+        shot("build7-pen-after-stamp")
     }
 
 }

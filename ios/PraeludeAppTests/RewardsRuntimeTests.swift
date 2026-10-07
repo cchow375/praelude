@@ -32,6 +32,24 @@ final class RewardsRuntimeTests: XCTestCase {
 
     // MARK: - Completed reps (honesty, §14) — high-water-mark counting under Undo
 
+    @MainActor func testCatchUpPaysAllMissingRepsInOneLibraryWrite() throws {
+        let f = fixture()
+        let piece = Piece(title: "Study")
+        try f.store.addPiece(piece)
+        try f.store.startSet(PracticeConfiguration(pieceID: piece.id, basis: .totalPlays, targetCount: 100, startBPM: 60, targetBPM: 60))
+        for _ in 0..<40 { try f.store.record(.clean) }
+        // Avoid a rank-snapshot write so the observed revision isolates the rep catch-up.
+        var standing = f.store.state.rewardsState
+        standing.rank = RewardsEngine.rankProgress(totalXP: 40).rankName
+        try f.store.updateRewardsState(standing)
+        let revision = f.store.state.revision
+        f.runtime.reconcile()
+        XCTAssertEqual(coinsFor("Completed repetition", in: f.store), 40)
+        XCTAssertEqual(f.store.state.revision, revision + 1)
+        f.runtime.reconcile()
+        XCTAssertEqual(f.store.state.revision, revision + 1, "Catch-up retry must not award twice.")
+    }
+
     /// `reconcile` counts "completed reps" by comparing the currently-effective attempt count
     /// against how many "Completed repetition" ledger entries already exist, awarding only the
     /// difference. Undo can make the effective count dip (an undone attempt no longer counts) and

@@ -39,6 +39,7 @@ struct LibraryView: View {
 
     private var visiblePieces: [Piece] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let practiced = latestPracticeDates
         return store.realPieces.filter { piece in
             piece.status == collection
                 && (folderFilter == nil || piece.folderIDs.contains(folderFilter!))
@@ -47,8 +48,8 @@ struct LibraryView: View {
         }.sorted { left, right in
             switch sort {
             case .recent:
-                let a = lastPractice(left.id) ?? left.createdAt
-                let b = lastPractice(right.id) ?? right.createdAt
+                let a = practiced[left.id] ?? left.createdAt
+                let b = practiced[right.id] ?? right.createdAt
                 return a == b ? left.title.localizedStandardCompare(right.title) == .orderedAscending : a > b
             case .title:
                 return left.title.localizedStandardCompare(right.title) == .orderedAscending
@@ -118,6 +119,7 @@ struct LibraryView: View {
     }
 
     @ViewBuilder private var listBody: some View {
+        let practiced = latestPracticeDates
         List {
             Section {
                 collectionPicker
@@ -138,7 +140,7 @@ struct LibraryView: View {
                 Section {
                     ForEach(visiblePieces) { piece in
                         Button { onOpenPiece(piece.id) } label: {
-                            LibraryPieceRow(piece: piece, lastPractice: lastPractice(piece.id))
+                            LibraryPieceRow(piece: piece, lastPractice: practiced[piece.id])
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("pieceRow")
@@ -249,8 +251,10 @@ struct LibraryView: View {
         }
     }
 
-    private func lastPractice(_ pieceID: UUID) -> Date? {
-        store.sessions.filter { $0.pieceID == pieceID }.map(\.startedAt).max()
+    private var latestPracticeDates: [UUID: Date] {
+        store.sessions.reduce(into: [:]) { dates, session in
+            dates[session.pieceID] = max(dates[session.pieceID] ?? .distantPast, session.startedAt)
+        }
     }
 
     private func changeStatus(_ piece: Piece, to status: PieceStatus) {
@@ -284,7 +288,10 @@ struct PieceCoverView: View {
         .task(id: cacheIdentity) {
             let pixelSize = CGSize(width: size, height: size * 1.22)
             if let cached = ScoreThumbnailCache.shared.cached(for: piece, size: pixelSize) { image = cached; return }
-            image = await ScoreThumbnailCache.shared.load(for: piece, store: store, size: pixelSize)
+            image = nil
+            let loaded = await ScoreThumbnailCache.shared.load(for: piece, store: store, size: pixelSize)
+            guard !Task.isCancelled else { return }
+            image = loaded
         }
     }
     /// Re-runs `.task` when the piece's own cover-affecting fields change (see `ScoreThumbnailCache`'s key).

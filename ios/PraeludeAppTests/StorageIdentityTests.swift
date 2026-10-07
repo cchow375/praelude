@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import XCTest
 @testable import Praelude
 
@@ -15,4 +16,12 @@ import XCTest
         }
         XCTAssertTrue(ScoreAndRecordingStorage.isSafeFileName("score.pdf"))
     }
+    func testBackgroundFileFingerprintMatchesCompleteDataDigest() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-hash-\(UUID())")
+        let data = Data(repeating: 0xA5, count: 170_000)
+        try data.write(to: url); defer { try? FileManager.default.removeItem(at: url) }
+        let digest = try await Task.detached { try ScoreAndRecordingStorage.fingerprint(url) }.value
+        XCTAssertEqual(digest, SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
+    }
+
 }
