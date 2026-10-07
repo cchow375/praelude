@@ -89,6 +89,8 @@ The October3 renewal profile expires **October10 at17:55:53UTC /1:55PM EDT**. Th
 renewal, not an automatic future schedule. Actual app signing, in-place build6 installation and complete-file preservation pass; the user
 confirms launch. Future refreshes must verify those gates again.
 
+The October7 guarded build7 update reuses the still-valid profile with that same October10 expiry. Actual signature/profile/signer trust and same-bundle installation pass; all11 owned files/7,981,365bytes are exactly preserved. Automatic launch failed; subsequent read-only inspection confirms Praelude running and schema5/revision1660, with original history/marks retained. User screen quality and sustained hardware behavior remain separate. Current proof is [build7 personal install](../../docs/qa/ios/2.0.0/build7/personal-ipad-install.json).
+
 ## Move an existing signing identity between your Macs
 
 Sharing an existing identity is one recovery path. A new valid certificate/key pair on this Mac

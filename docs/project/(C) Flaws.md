@@ -1,5 +1,7 @@
 # Praelude — Flaws, Risks & Honest Limits
 
+**October7 installed boundary:** build7 is installed with exact11-file preservation and verified signing. Automatic launch failed; subsequent device running-process/schema5 readback pass, with exact original history/marks retained. B124 and physical acceptance portions of B129–B136 remain open; source/native fixes do not establish sustained real-Pencil/piano success.
+
 ## October6 mobile stability findings
 
 - **B136 — Short landscape warmups clip Close offscreen (reproduced, source repair candidate).** The native phone case showed the fullscreen Close button partly above the window because fixed header/readout/dock content exceeded the available height. Build7 anchors header/dock and scrolls the central readout and failure messages. Strict short-landscape verdict/Close/resume/tab navigation verification is required; physical usability remains separate.

@@ -1,15 +1,15 @@
 # Using Praelude Mobile
 
-## Build7 candidate controls (not installed)
+## Build7 controls (installed October7)
 
 Pen, highlighter, eraser, lasso, stamps and notes use a shallow icon strip with accessible names. Fingers navigate unless Draw with finger is on. Long tool trays scroll inside a bounded footer. Changing layers saves the original layer first; a failed save keeps that layer open. Ordinary drawing saves after a brief idle interval; leaving the score, turning pages or backgrounding also checkpoints ink. Keep my drawing retains the newest canvas after a conflict. Today reorder actions are in each item’s options menu. Sharing an annotated score prepares pages asynchronously before opening the share sheet.
 
 In short landscape drawing windows, notation initially fits the score width. Pinch to adjust; an automatic fit restores your earlier portrait zoom. Scroll the tool tray to reveal Done when space is short. The phone resume strip stays above the tabs, and lists scroll above it. Warmup Close, transport and verdicts stay anchored; the center readout and error messages scroll.
 
-The installed build6 instructions below remain the device boundary. Physical sustained drawing and higher-refresh-rate acceptance remain open.
+Build7 is installed on the personal iPad with exact complete-file preservation; Praelude is running and schema5 readback passes. Earlier build6 instructions below are historical. Physical sustained drawing and higher-refresh-rate acceptance remain open.
 
 
-**Matches: installed 2.0.0/build6/schema5; build7 candidate changes above are not yet installed.**
+**Matches: installed2.0.0/build7/schema5 (October7); running-process/readback confirmed, physical feature quality remains open.**
 
 ## October2 build5 — score workflow and shared data
 
@@ -101,7 +101,7 @@ the musician-controlled Mac import and actual piano-session/two-device acceptanc
 installation and first-open records below supersede the build4 installation/launch gates.
 
 **Guide boundary:** the build4 polish above is historical evidence. The controls below describe
-installed build6/schema5, including its shallower full-width practice controls. Older build-specific notes are dated evidence.
+installed build7/schema5, including compact drawing controls and the existing shallow full-width practice dock. Older build-specific notes are dated evidence.
 [Current QA](../../docs/qa/ios/2.0.0/README.md) separates simulator evidence from hardware/two-device acceptance.
 
 ## Import your Mac library — installed build6 scope

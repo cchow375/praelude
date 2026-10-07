@@ -1,27 +1,36 @@
 # Praelude — How To Use
 
-Build7 source candidate also keeps the phone’s resume strip above the tabs. In short landscape annotation windows, the score opens at stave width; pinch to choose another zoom and use finger navigation with Pencil drawing. Automatic width fitting returns to the previous portrait zoom. Scroll the bounded tool tray to reveal Done in short windows. Warmup Close and verdicts stay anchored while the central readout and error messages scroll. These controls are not installed yet; the installed mobile guide still matches build6.
+## October7 — build7 installed on the personal iPad
+
+Guarded same-bundle refresh installs2.0.0/build7/schema5 from source `3e03330`. Independent full pre/post inventory review proves all11 owned files/7,981,365bytes identical by filename,size andSHA256, including scores, annotations, history, account ownership/privacy/preferences. Pre-launch schema5/revision1647 has5pieces/44passages/43historical sets/30sessions/255unique attempts; retained active set is completed, with no running set. No schema migration, import, restore, uninstall or Mac change occurred.
+
+Actual signed device Release passes strict signature, app/profile/team agreement, signer-certificate membership/trust and helper device inclusion; fixture arguments/debug diagnostics/test plug-ins are absent. Profile expiresOctober10 at17:55:53UTC (1:55PM EDT). Automatic launch failed; subsequent read-only device inspection confirms Praelude running and schema5/revision1660. Independent post-launch review retains all255 attempts,44set IDs,30sessions and every original45ink record, plus exact profile/privacy/preferences. A completed set is archived and newer ink/reward/page activity is observed; no author or automatic-startup attribution is inferred. User screen-quality confirmation remains separate. Source/native simulator verification remains distinct from physical Pencil/audio/freeze/long-session/real-account two-device acceptance. Exact sanitized evidence: `docs/qa/ios/2.0.0/build7/personal-ipad-install.json`; private complete backups stay outside Git.
+
+**Next steps:** use the installed build7 for real practice to verify sustained Pencil/eraser/Undo/layer/page transitions and responsiveness. Renew with the same app/team before the actual profile expiry.
+
+
+Build7 source candidate also keeps the phone’s resume strip above the tabs. In short landscape annotation windows, the score opens at stave width; pinch to choose another zoom and use finger navigation with Pencil drawing. Automatic width fitting returns to the previous portrait zoom. Scroll the bounded tool tray to reveal Done in short windows. Warmup Close and verdicts stay anchored while the central readout and error messages scroll. These build7 controls are installed now; Praelude is running and schema5 readback passes.
 
 ## October6 source repair boundary
 
-The iPad remains on 2.0.0/build6/schema5. Build7 is a source candidate for freezing, disappearing ink, slow previews and crowded annotation controls; it has not been installed. Candidate control changes and exact verification are described in the mobile usage/QA guides. Keep using the installed instructions below until a guarded update establishes the new device boundary.
+At this historical October6 boundary, the iPad remained on2.0.0/build6/schema5. Build7 was a source candidate for freezing, disappearing ink, slow previews and crowded annotation controls; it was not installed then. The October7 installed boundary above now supersedes that source-only status.
 
 **Next steps:** requested guarded update after the completed source/native/Release gates, then sustained physical drawing/practice acceptance.
 
 
-## Installed mobile build6 (October3)
+## Historical installed mobile build6 (October3)
 
-The physical iPad runs2.0.0/build6/schema5. The guarded update preserves all11 owned files exactly. Christian confirms it opens; direct schema5/revision883 read passes. Personal Team provisioning expiresOctober10 at1:55PM EDT; renew with the same app/team using `npm run ios:refresh`.
+At the October3 historical boundary, the physical iPad ran2.0.0/build6/schema5. The guarded update preserves all11 owned files exactly. Christian confirms it opens; direct schema5/revision883 read passes. Personal Team provisioning expiresOctober10 at1:55PM EDT; renew with the same app/team using `npm run ios:refresh`.
 
 The score controls now use the available width. Start without grading, Techniques and More options share44-point secondary actions; first-attempt and running verdicts use52-point horizontal labels. Setup/transport share rows when they fit; narrow and accessibility layouts reflow. Bottom Practice/Select/Draw, Done/double-tap, Library exit, colored hideable passages, stamp previews and expandable yellow notes remain available. Mobile usage: `/Users/c3/praelude/ios/docs/USING_MOBILE.md`.
 
 **Next steps:** judge compact controls and Pencil/black ink/in-set annotation on the actual iPad, then verify real-account second-device continuity. These physical checks remain open.
 
-**Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-10-06.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.
+**Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-10-07.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.
 
 ## Separate iPhone/iPad development candidate
 
-The installed Mac instructions and Matches line above describe v11.1.0/schema21. Mobile source is **2.0.0/build7/schema5 DEVELOPMENT CANDIDATE**; the physical iPad runs build6/schema5. Its candidate workflow is documented in `ios/docs/USING_MOBILE.md`; historical September14 device evidence is in `docs/qa/ios/1.1.0/`.
+The installed Mac instructions and Matches line above describe v11.1.0/schema21. Mobile source is **2.0.0/build7/schema5 DEVELOPMENT CANDIDATE**; the physical iPad now runs build7/schema5. Its workflow is documented in `ios/docs/USING_MOBILE.md`; historical September14 device evidence is in `docs/qa/ios/1.1.0/`.
 
 Phone tabs are Today, Pieces, Warmups, Progress and More. On iPad, the sidebar exposes every section. Settings → Import from Mac opens a reviewed transfer from Files and adds compatible scores, passage boxes, pencil marks and goals without replacing mobile data. Progress → Mac practice record retains original Mac history and all table records. Build5 extends Supabase sync to goals/routines, preferences, score metadata and private covers alongside supported native records/PDFs/recordings. The original Mac archive stays local and backed up; continuous desktop sync still requires an adapter.
 
