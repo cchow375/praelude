@@ -1,6 +1,14 @@
 # 📜 Praelude — Changelog
 
+## October 7 — installation confirmation and final documentation audit
+
+Christian confirms build7 reached the iPad and requests a complete log. Added the session handoff linking implementation, tests, failed attempts, installation/data preservation and remaining hardware gates. Updated the current QA index, installation confirmation proof, project status, summary, roadmap, command center, tutorial, flaws, native guides, NOTES and the local task ledger; synchronized the Git-backed manual. Existing source/build evidence and shipped version records retain their original boundaries. App code and personal data are unchanged.
+
+**Next steps:** verify sustained real practice on installed build7 and renew provisioning before October 10 at 1:55 PM EDT.
+
 ## October7 — build7 installed on the personal iPad
+
+**October 7 user confirmation:** Christian confirms the update reached the iPad. This confirms installation; sustained Pencil, audio, freeze recovery, refresh rate and real two-device behavior still require physical acceptance. The complete implementation, verification and deployment handoff is `docs/qa/ios/2.0.0/build7/session-handoff.md` (source `3e03330`, installation record `2227817`).
 
 Guarded same-bundle refresh installs2.0.0/build7/schema5 from source `3e03330`. Independent full pre/post inventory review proves all11 owned files/7,981,365bytes identical by filename,size andSHA256, including scores, annotations, history, account ownership/privacy/preferences. Pre-launch schema5/revision1647 has5pieces/44passages/43historical sets/30sessions/255unique attempts; retained active set is completed, with no running set. No schema migration, import, restore, uninstall or Mac change occurred.
 

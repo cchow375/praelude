@@ -2,6 +2,8 @@
 
 ## Build7 controls (installed October7)
 
+**October 7 user confirmation:** Christian confirms the update reached the iPad. This confirms installation; sustained Pencil, audio, freeze recovery, refresh rate and real two-device behavior still require physical acceptance. The complete implementation, verification and deployment handoff is `docs/qa/ios/2.0.0/build7/session-handoff.md` (source `3e03330`, installation record `2227817`).
+
 Pen, highlighter, eraser, lasso, stamps and notes use a shallow icon strip with accessible names. Fingers navigate unless Draw with finger is on. Long tool trays scroll inside a bounded footer. Changing layers saves the original layer first; a failed save keeps that layer open. Ordinary drawing saves after a brief idle interval; leaving the score, turning pages or backgrounding also checkpoints ink. Keep my drawing retains the newest canvas after a conflict. Today reorder actions are in each item’s options menu. Sharing an annotated score prepares pages asynchronously before opening the share sheet.
 
 In short landscape drawing windows, notation initially fits the score width. Pinch to adjust; an automatic fit restores your earlier portrait zoom. Scroll the tool tray to reveal Done when space is short. The phone resume strip stays above the tabs, and lists scroll above it. Warmup Close, transport and verdicts stay anchored; the center readout and error messages scroll.

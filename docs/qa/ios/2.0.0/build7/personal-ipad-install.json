@@ -38,7 +38,7 @@
   },
   "launch": {
     "automatic": "failed",
-    "manualUserConfirmation": "not supplied; subsequent independent running-process and ledger readback confirmed",
+    "manualUserConfirmation": "Installation receipt confirmed by user October 7; explicit manual opening not separately confirmed. Running process and schema readback independently confirmed.",
     "postLaunchReadback": {
       "schema": 5,
       "revision": 1660,
@@ -64,5 +64,10 @@
   },
   "destructiveWorkaroundsUsed": false,
   "macAppOrDataChanged": false,
-  "physicalFeatureAcceptance": "Pencil/audio/freeze/long-session/actual-two-device acceptance remain separate"
+  "physicalFeatureAcceptance": "Pencil/audio/freeze/long-session/actual-two-device acceptance remain separate",
+  "userInstallationConfirmation": {
+    "date": "2026-10-07",
+    "confirmed": true,
+    "scope": "user confirms update reached iPad; no sustained physical-feature acceptance supplied"
+  }
 }

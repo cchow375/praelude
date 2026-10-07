@@ -1,5 +1,7 @@
 # Install and refresh on your own iPad
 
+**October 7 user confirmation:** Christian confirms the update reached the iPad. This confirms installation; sustained Pencil, audio, freeze recovery, refresh rate and real two-device behavior still require physical acceptance. The complete implementation, verification and deployment handoff is `docs/qa/ios/2.0.0/build7/session-handoff.md` (source `3e03330`, installation record `2227817`).
+
 A free **Apple Account / Xcode Personal Team** is enough to run Praelude on your own iPad or iPhone.
 You do not need a paid developer membership for this workflow. Personal Team profiles expire
 **seven days after issuance**; Apple requires rebuilding and reinstalling after expiration.

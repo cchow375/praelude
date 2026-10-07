@@ -1,5 +1,7 @@
 # Praelude — Flaws, Risks & Honest Limits
 
+**October 7 user confirmation:** Christian confirms the update reached the iPad. This confirms installation; sustained Pencil, audio, freeze recovery, refresh rate and real two-device behavior still require physical acceptance. The complete implementation, verification and deployment handoff is `docs/qa/ios/2.0.0/build7/session-handoff.md` (source `3e03330`, installation record `2227817`).
+
 **October7 installed boundary:** build7 is installed with exact11-file preservation and verified signing. Automatic launch failed; subsequent device running-process/schema5 readback pass, with exact original history/marks retained. B124 and physical acceptance portions of B129–B136 remain open; source/native fixes do not establish sustained real-Pencil/piano success.
 
 ## October6 mobile stability findings

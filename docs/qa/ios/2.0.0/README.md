@@ -1,9 +1,8 @@
 # Mobile 2.0 overview and October 2 verification
 
-**Current follow-up:** [build5/schema5 score workflow and shared-data candidate](score-workflow.md).
-Earlier [build4/schema4 pianist workflow polish](practice-polish.md) remains its own installed/evidence boundary. The build3 evidence below is the earlier snapshot review and remains historical.
+**Current follow-up (October 7):** [build7 stability repairs, native verification and guarded installation](build7/stability.md); [complete session handoff](build7/session-handoff.md). Build7/schema5 is installed on the personal iPad; the user confirms receipt. Installation, exact file preservation and running-process/schema readback pass. Physical Pencil/audio/long-session/refresh-rate/two-device acceptance remains open.
 
-Everything below records the earlier build3 review. Its then-current/pending statements do not override the build5 follow-up above or the subsequently confirmed physical build4 installation.
+Historical follow-ups: [build6 compact practice](compact-practice.md), [build5/schema5 score workflow](score-workflow.md), and [build4/schema4 practice polish](practice-polish.md). Everything below retains the October 2 build3 review and does not override the current build7 boundary.
 
 **Development candidate: 2.0.0/build3/schema3.** Base before this session: `8c87409`. Implementation: `635a5ae`.
 The [verification manifest](verification.json) records exact Release input/binary fingerprints and scoped check results.
