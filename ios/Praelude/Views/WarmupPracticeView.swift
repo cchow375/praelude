@@ -59,8 +59,10 @@ struct WarmupPracticeView: View {
 
     private var header: some View {
         HStack(spacing: 2) {
-            Button { onClose() } label: { Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle()) }
-                .buttonStyle(.plain).accessibilityLabel("Close warmup").accessibilityIdentifier("closeWarmupPractice")
+            Button(action: pauseAndClose) { Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle()) }
+                .buttonStyle(.plain).accessibilityLabel("Close warmup").accessibilityHint("Pause and return. Your repetitions stay saved.").accessibilityIdentifier("closeWarmupPractice")
+            Button("Finish", action: finishAndClose).font(.subheadline).frame(minHeight: 44)
+                .accessibilityIdentifier("finishWarmupPractice")
             Spacer()
             Text("Warmup").font(.subheadline.weight(.semibold)).foregroundStyle(PraeludeColor.inkSecondary)
             Spacer()
@@ -85,7 +87,8 @@ struct WarmupPracticeView: View {
                     .accessibilityIdentifier("warmupProgress")
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(Int(active.currentBPM))").praeludeNumeral(dynamicTypeSize.isAccessibilitySize ? 40 : 56)
+                TempoDial(bpm: Binding(get: { active.currentBPM }, set: { adjustTempo($0) }),
+                          locked: active.isComplete, numeralSize: dynamicTypeSize.isAccessibilitySize ? 40 : 56, compact: true)
                 Text("bpm").font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary)
             }
             SwiftUI.ProgressView(value: active.progressFraction).tint(PraeludeColor.live)
@@ -99,7 +102,7 @@ struct WarmupPracticeView: View {
             if let active {
                 if active.isComplete {
                     HStack(spacing: 12) {
-                        Button("Finish") { perform { try store.endSession() }; metronome.stop(); onClose() }.buttonStyle(.praeludeQuiet)
+                        Button("Finish", action: finishAndClose).buttonStyle(.praeludeQuiet)
                         Button("Next in rotation") { startNextInRotation() }.buttonStyle(.praeludePrimary).accessibilityIdentifier("warmupNextAfterComplete")
                     }
                 } else {
@@ -107,6 +110,12 @@ struct WarmupPracticeView: View {
                         Button { perform { try runtime.undo() } } label: { Image(systemName: "arrow.uturn.backward") }
                             .buttonStyle(.praeludeEdgeControl).accessibilityLabel("Undo last repetition")
                             .disabled(!active.attempts.contains { $0.undoneAt == nil })
+                        Button {
+                            if metronome.isPlaying { metronome.stop() }
+                            else { metronome.setTempo(active.currentBPM); metronome.start() }
+                        } label: { Image(systemName: "metronome") }
+                            .buttonStyle(.praeludeEdgeControl)
+                            .accessibilityLabel(metronome.isPlaying ? "Stop metronome" : "Start metronome")
                         Spacer()
                         Button { togglePause() } label: { Image(systemName: active.status == .paused ? "play.fill" : "pause.fill") }
                             .buttonStyle(.praeludeEdgeControl).accessibilityLabel(active.status == .paused ? "Resume practice" : "Pause practice")
@@ -174,9 +183,32 @@ struct WarmupPracticeView: View {
         }.presentationDetents([.large])
     }
 
+    private func pauseAndClose() {
+        perform {
+            if active?.status == .running { try store.pause() }
+            metronome.stop()
+            onClose()
+        }
+    }
+
+    private func finishAndClose() {
+        perform {
+            try store.endSession()
+            metronome.stop()
+            onClose()
+        }
+    }
+
+    private func adjustTempo(_ bpm: Double) {
+        perform {
+            try store.adjustActiveTempo(bpm)
+            if let active { metronome.setTempo(active.currentBPM) }
+        }
+    }
+
     private func togglePause() { perform { if active?.status == .paused { try store.resume() } else { try store.pause() } } }
 
-    private func perform(_ action: () throws -> Void) { do { try action() } catch { self.error = error.localizedDescription } }
+    private func perform(_ action: () throws -> Void) { do { try action(); error = nil } catch { self.error = error.localizedDescription } }
 
     private func record(_ verdict: Verdict) {
         guard active?.status == .running else { return }
@@ -228,15 +260,17 @@ struct WarmupPracticeView: View {
         case .stop: if let active, !active.isComplete { perform { try store.endSet(); metronome.stop() } }
         // Mirrors ScoreWorkspace's "Next": once this set is complete, keep the rotation moving.
         case .next: if active?.isComplete == true { startNextInRotation() }
-        // Tempo follows the running set here too (see .setTempo below) — nothing to nudge.
-        case .slower, .faster: break
+        case .slower:
+            if let active, !active.isComplete { adjustTempo(active.currentBPM - 4) }
+        case .faster:
+            if let active, !active.isComplete { adjustTempo(active.currentBPM + 4) }
         case .metronomeStart:
             if let set = active, !set.isComplete { metronome.setTempo(set.currentBPM) }
             metronome.start()
         case .metronomeStop: metronome.stop()
         case .setTempo(let bpm):
             if active == nil || active?.isComplete == true { metronome.setTempo(bpm) }
-            else { error = "Tempo follows your current set. Finish the set to choose a new tempo." }
+            else { adjustTempo(bpm) }
         case .nextPage, .previousPage: break
         }
     }

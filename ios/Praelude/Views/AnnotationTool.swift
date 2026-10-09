@@ -3,11 +3,8 @@ import SwiftUI
 
 // MARK: - Annotation tools (§7 annotation bullets)
 //
-// A small, custom toolbar replaces the raw system `PKToolPicker` (still used underneath for
-// PencilKit's own double-tap/squeeze shortcuts, but no longer the primary way to choose a tool —
-// see `AnnotationToolbar.swift`), so the palette can be curated (§3b: no stock rainbow color
-// picker) while `PKLassoTool`'s native move/resize/duplicate/delete interaction and the canvas's
-// own `undoManager` are reused as-is rather than reimplemented.
+// The compact custom palette drives PencilKit tools directly. Pencil double-tap is handled by
+// UIPencilInteraction, without installing a hidden PKToolPicker into PDFKit's responder hierarchy.
 
 /// What the writing-mode canvas does with the next touch.
 enum AnnotationToolKind: String, CaseIterable, Identifiable, Sendable {
@@ -77,10 +74,13 @@ enum AnnotationWidth: Int, CaseIterable, Identifiable, Sendable {
     /// Points, for `PKInkingTool`. A highlighter reads its own separate, wider scale (below) — a
     /// "Bold" pen and a "Bold" highlighter are not the same stroke weight in real pencil cases either.
     var penPoints: CGFloat {
-        switch self { case .fine: return 1.4; case .medium: return 2.6; case .bold: return 5 }
+        // PencilKit clamps values below its supported minimum (about 0.88 pt for this pen).
+        // Derive all stops from the real minimum so Fine and Medium cannot collapse together.
+        let minimum = PKInkingTool.InkType.pen.validWidthRange.lowerBound
+        switch self { case .fine: return minimum; case .medium: return minimum * 2.2; case .bold: return minimum * 4.8 }
     }
     var highlighterPoints: CGFloat {
-        switch self { case .fine: return 10; case .medium: return 16; case .bold: return 24 }
+        switch self { case .fine: return 6; case .medium: return 11; case .bold: return 18 }
     }
 }
 
@@ -89,14 +89,14 @@ enum AnnotationWidth: Int, CaseIterable, Identifiable, Sendable {
 struct AnnotationTool: Equatable {
     var kind: AnnotationToolKind = .pen
     var color: AnnotationColor = .graphite
-    var width: AnnotationWidth = .medium
+    var width: AnnotationWidth = .fine
 
     /// `nil` for `.lasso`/`.eraser` (no ink attributes to show) and for `.stamp`/`.text` (placement
     /// tools, not inking tools — `ScorePageOverlay` never sets these as the canvas's live `PKTool`).
     var pkTool: PKTool? {
         switch kind {
         case .pen: return PKInkingTool(.pen, color: color.uiColor, width: width.penPoints)
-        case .highlighter: return PKInkingTool(.marker, color: color.uiColor, width: width.highlighterPoints)
+        case .highlighter: return PKInkingTool(.marker, color: color.uiColor.withAlphaComponent(0.16), width: width.highlighterPoints)
         case .eraser: return PKEraserTool(.vector)
         case .lasso: return PKLassoTool()
         case .stamp, .text: return nil

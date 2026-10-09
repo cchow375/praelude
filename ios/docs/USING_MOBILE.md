@@ -1,5 +1,20 @@
 # Using Praelude Mobile
 
+## Build8 controls preview — not installed
+
+**DEVELOPMENT CANDIDATE 2.0.0/build8/schema5, October 9.** The physical iPad still runs build7; the following actions apply only after a verified build8 update. Final native verification passes245 tests with1 live-account skip/0 failures. UI15 actual sticky double/triple-tap and permission-denied recovery passes on the same production source. Phone3 largest-text portrait/landscape and independent layout review pass. Exact tempo/goals/hands, movement editing, warmup Finish, selection/annotation continuity and Undo have scoped native UI passes. Source is frozen; signed Release and guarded installation remain pending. These are candidate instructions, not an installed or week-long acceptance claim.
+
+- **Tempo:** compact numbers show BPM and the Start/Goal controls have distinct spoken labels. Tap the BPM number to replace it with an exact value, use ±1/±5 or Tap tempo, then Apply. Cancel leaves the current value unchanged. Dragging the number previews the change and applies it on release. The supported range is 20–300 BPM.
+- **Tempo goal and hands:** before starting, open the visible Tempo goal action in its large sheet, choose Start and Goal, a BPM/percent increase and the clean target, then Use goal. A passage can also retain that goal for future practice; the compact running controls show the full goal value. Choose L, Both or R directly. Techniques shows an ordered sequence with per-stage clean counts; changes describe the next set and do not invent attempts. Explore remains the ungraded start action.
+- **Marking while practicing:** Draw keeps practice controls reachable. In Select, Done and selection actions stay above the scrolling practice controls; narrow large-text layouts use two rows. Selection Done is reachable in both orientations on Phone2. Its later drawing-space failure has a source repair: short drawing windows give the palette more room, while the practice controls remain scrollable. Cancel and Done have clearer separation; Phone3 now passes the full portrait/landscape accessibility flow, with independently accepted screenshots. All six drawing tools have visible 44-point targets; narrower palettes put finger/Undo/Redo controls on a second row. Drag the palette by its handle or collapse it to uncover notation; moving it keeps the score in place. Two-finger tap undoes the latest drawing edit; visible Undo/Redo remains available. Fine, medium and broad widths and a lighter highlighter support compact annotations. Pinch to zoom with native ink rendering.
+- **Names and notes:** double-tap a selected passage to rename it, or triple-tap to dictate a draft. The passage list also has a pencil button and Rename swipe action. Double-tap a sticky note to edit, triple-tap to dictate, or hold and drag to move it. VoiceOver can identify each visible note by its text and activate its note panel. Review text and Save; microphone errors leave keyboard entry available. The actual sticky double/triple-tap and permission-denied recovery flow passes UI14. UI15 repeats that actual flow successfully; the final strict native run passes245 tests/1 live-account skip/0 failures after a test-only mounted-window fixture correction. Score gestures lists these shortcuts.
+- **Movements:** use Movements & pieces in the score or the library's movement entries. Name the movement and set its first/last PDF pages with the large number fields or adjacent steppers. Typing replaces the selected page number; empty, zero or out-of-range pages keep Save disabled until corrected. An entry opens that source-page range and shows its own practice target. The PDF and annotations remain shared; saved practice retains the movement name and source range even if the label later changes. Actual saved passages keep their own identity and history.
+- **Warmups:** adjust tempo or metronome without leaving the exercise. Pause & close preserves unfinished practice; Finish ends the session. Failed saves stay visible so work is not silently discarded.
+
+**Delivery checkpoint:** the first two signed device Release attempts stopped before compilation with Xcode `No Accounts` / `No Profiles`; Xcode settings confirmed it was signed out. The user now confirms sign-in, and the final signed Release build is running. Its signing/profile validation and guarded installation remain pending. No credentials were obtained or new account/certificate created; the prior profile backup is archived. Build7 remains installed and unchanged.
+
+**Next steps:** complete native and guarded-install gates before treating this preview as installed behavior, then exercise the actual Pencil, microphone and sustained practice flows. No week-long usability trial has been completed.
+
 ## Build7 controls (installed October7)
 
 **October 7 user confirmation:** Christian confirms the update reached the iPad. This confirms installation; sustained Pencil, audio, freeze recovery, refresh rate and real two-device behavior still require physical acceptance. The complete implementation, verification and deployment handoff is `docs/qa/ios/2.0.0/build7/session-handoff.md` (source `3e03330`, installation record `2227817`).
@@ -11,7 +26,7 @@ In short landscape drawing windows, notation initially fits the score width. Pin
 Build7 is installed on the personal iPad with exact complete-file preservation; Praelude is running and schema5 readback passes. Earlier build6 instructions below are historical. Physical sustained drawing and higher-refresh-rate acceptance remain open.
 
 
-**Matches: installed2.0.0/build7/schema5 (October7); running-process/readback confirmed, physical feature quality remains open.**
+**Matches: installed 2.0.0/build7/schema5, confirmed October 9; build8 preview above is not installed. Last updated: 2026-10-09. Physical feature quality remains open.**
 
 ## October2 build5 — score workflow and shared data
 

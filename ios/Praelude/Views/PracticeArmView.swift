@@ -20,6 +20,7 @@ struct PracticeArmView: View {
     @State private var variantDraft: [VariantStage] = []
     @State private var error: String?
     @State private var setupExpanded = false
+    @State private var showTempoGoal = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -74,6 +75,9 @@ struct PracticeArmView: View {
         .onChange(of: configBinding.wrappedValue.startBPM) { _, newValue in
             if configBinding.wrappedValue.targetBPM < newValue { configBinding.wrappedValue.targetBPM = newValue }
         }
+        .sheet(isPresented: $showTempoGoal) {
+            PracticeTempoGoalView(configuration: configBinding, passage: passage)
+        }
         .sheet(isPresented: $showVariants) {
             NavigationStack {
                 VariantEditorView(stages: $variantDraft)
@@ -84,7 +88,7 @@ struct PracticeArmView: View {
                             if !variantDraft.isEmpty { value.basis = .cleanStreak }
                             arm.applyConfigurationOverride(value)
                             showVariants = false
-                        }
+                        }.disabled(variantDraft.contains { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || $0.name.count > 100 })
                     } }
             }.presentationDetents([.large]).presentationDragIndicator(.visible)
         }
@@ -100,7 +104,17 @@ struct PracticeArmView: View {
     private var tempoControls: some View {
         HStack(spacing: 6) {
             TempoDial(bpm: startBPMBinding(configBinding), numeralSize: 22, compact: true)
-            Text("BPM").font(.caption).foregroundStyle(.secondary)
+            Button { showTempoGoal = true } label: {
+                VStack(spacing: 2) {
+                    Text("Goal").font(.caption2).foregroundStyle(.secondary)
+                    Text(configBinding.wrappedValue.targetBPM > configBinding.wrappedValue.startBPM
+                         ? "\(Int(configBinding.wrappedValue.targetBPM))" : "Set")
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                }.frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel("Tempo goal")
+                .accessibilityValue(configBinding.wrappedValue.targetBPM > configBinding.wrappedValue.startBPM
+                                    ? "\(Int(configBinding.wrappedValue.targetBPM)) BPM" : "Fixed tempo")
+                .accessibilityIdentifier("armTempoGoal")
             Button {
                 configBinding.wrappedValue.useMetronome.toggle()
             } label: {
@@ -124,7 +138,7 @@ struct PracticeArmView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(passage?.title ?? "Whole piece").font(.subheadline.weight(.semibold))
+            Text(passage?.title ?? arm.configuration?.passageSnapshot?.title ?? "Whole piece").font(.subheadline.weight(.semibold))
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
             Text(passage.map { target in ScoreOrganization.locationLabel(for: target, in: store.pieces.first { $0.id == target.pieceID }) } ?? pieceSubtitle)
                 .font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
@@ -161,19 +175,26 @@ struct PracticeArmView: View {
     }
 
     @ViewBuilder private var secondaryButtons: some View {
+        PracticeHandsControl(hands: Binding(get: { configBinding.wrappedValue.hands },
+                                            set: { configBinding.wrappedValue.hands = $0 }))
         if arm.awaitingColdGrade {
-            Button("Start without grading") { start(skippingColdGrade: true) }
+            Button("Explore") { start(skippingColdGrade: true) }
+                .accessibilityLabel("Start without grading")
+                .accessibilityHint("Explore this passage without grading a first attempt")
                 .accessibilityIdentifier("skipColdGrade")
                 .buttonStyle(ArmSecondaryButtonStyle())
         }
         Button {
             variantDraft = configBinding.wrappedValue.stages
             showVariants = true
-        } label: { Text("Techniques") }
+        } label: {
+            Text(configBinding.wrappedValue.stages.isEmpty ? "Techniques" : "\(configBinding.wrappedValue.stages.count) stages")
+        }
             .accessibilityIdentifier("armVariants")
             .buttonStyle(ArmSecondaryButtonStyle())
-        Button("More options", action: onOpenAdvanced)
-            .buttonStyle(ArmSecondaryButtonStyle())
+        Button(action: onOpenAdvanced) {
+            Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel("More options")
     }
 
     /// §10a: "conditions — goal, streak target, ladder, variants — reachable in ≤2 taps... with

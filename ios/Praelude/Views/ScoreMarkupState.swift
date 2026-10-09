@@ -33,8 +33,8 @@ import PencilKit
     @ObservationIgnored var onConfirmSelection: () -> Void = {}
     /// §7: pen/highlighter/eraser/lasso/stamp/text, with the curated color/width that go with it.
     /// Drives the canvas's live `PKTool` directly (`AnnotationTool.pkTool`) — the custom
-    /// `AnnotationToolbar` is the primary way to change this; the system `PKToolPicker` stays
-    /// available underneath for Apple Pencil's own double-tap/squeeze shortcuts.
+    /// `AnnotationToolbar` changes these directly; UIPencilInteraction handles Pencil double-tap
+    /// without introducing a hidden system tool picker into PDFKit's responder chain.
     var tool = AnnotationTool()
     /// §7 layers: which layer new ink/stamps/text are captured into, and which layers currently show.
     /// Only `activeLayer`'s ink is ever loaded into the editable canvas — the other visible layers

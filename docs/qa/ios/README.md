@@ -1,6 +1,28 @@
 # Native iPhone/iPad candidate acceptance
 
-**Current candidate: [1.1.0/build2/schema2](1.1.0/README.md), scoped simulator/build verification
+## Current candidate — October 9, 2026
+
+Native source is **2.0.0/build8/schema5, DEVELOPMENT CANDIDATE**. The physical iPad remains on
+build7; the installed Mac remains v11.1.0/schema21. The [45-item usability review](2.0.0/build8/usability-review.md)
+retains exact run scopes, failures, screenshots and open gates; [physical build7 crash analysis](2.0.0/build8/crash-analysis.md)
+records the matching-dSYM PDFKit/SwiftUI responder-cycle evidence.
+
+Final source verification:406 core tests,2,211 service assertions and57 helper tests pass.
+The final native run executes245 tests/1 live-account skip/0 failures in16.881s. UI15 actual
+sticky double/triple-tap and permission-denied recovery passes59.539s on the same production
+source. Phone3 accessibility portrait/landscape passes71.631s with four accepted screenshots.
+Source and scoped layout review pass; source is frozen. Earlier failed runs, the test-only
+mounted-window fixture correction and all exact scopes remain in the45-item review.
+
+**Delivery checkpoint:** the first two signed device Release attempts stopped before compilation with Xcode `No Accounts` / `No Profiles`; Xcode settings confirmed it was signed out. The user now confirms sign-in, and the final signed Release build is running. Its signing/profile validation and guarded installation remain pending. No credentials were obtained or new account/certificate created; the prior profile backup is archived. Build7 remains installed and unchanged.
+
+**Next steps:** complete the signed device Release after user-confirmed sign-in; the final mounted-window native suite and independent review pass. Then verify actual
+Release/signing and the guarded all-file-preserving update. Installation, launch/readback and
+physical Pencil/audio/sustained-use acceptance must be recorded separately.
+
+## Historical 1.1 candidate evidence
+
+**Historical September14 candidate: [1.1.0/build2/schema2](1.1.0/README.md), scoped simulator/build verification
 complete (2026-09-14).** Core29/services2,166/helper28 and 36 native hosted tests on each simulator
 pass. Final-toolbar iPad9 passes 3/3 and Phone4 passes 2/2. iPad7 and Phone2/3 supply the remaining
 scoped cases: five targeted iPad and seven distinct phone scenarios have passing evidence across
@@ -11,7 +33,7 @@ September 14 at 20:56 EDT**, after successful complete pre/post file preservatio
 launch was denied; the user launch/trust step, migration and physical features remain unaccepted.
 Earlier 20:50–20:52 EDT backup failures are retained as history in the versioned QA ledger.
 
-Use the versioned 1.1 ledger for current work. The section below retains the 1.0 test results,
+Use the build8 review linked above for current candidate work; the versioned 1.1 ledger remains historical. The section below retains the 1.0 test results,
 failures, manifests and installed-candidate boundary as historical evidence; they have not been
 overwritten or promoted to 1.1 acceptance.
 

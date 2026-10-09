@@ -527,4 +527,53 @@ final class PracticeArmControllerTests: XCTestCase {
         XCTAssertEqual(fixture.store.state.coldGrades.map(\.tempo), [60])
     }
 
+    @MainActor func testMovementDraftsRemainSeparateAndStartWithoutPassageRules() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        let first = ScoreSection(id: passage.id, title: "I. Allegro", startPage: 1, endPage: 2)
+        let second = ScoreSection(title: "II. Adagio", startPage: 3, endPage: 4)
+        try fixture.store.setScoreSections([first, second], for: piece.id)
+        let existingPassages = fixture.store.state.passages
+        fixture.arm.arm(pieceID: piece.id, passage: nil, store: fixture.store, scoreSection: first)
+        XCTAssertFalse(fixture.arm.awaitingColdGrade)
+        var chosen = try XCTUnwrap(fixture.arm.configuration)
+        chosen.startBPM = 72; chosen.targetBPM = 84; chosen.hands = "Left hand"
+        fixture.arm.applyConfigurationOverride(chosen)
+        fixture.arm.arm(pieceID: piece.id, passage: nil, store: fixture.store, scoreSection: second)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 60)
+        XCTAssertEqual(fixture.arm.configuration?.passageSnapshot?.title, "II. Adagio · source pages 3–4")
+        fixture.arm.arm(pieceID: piece.id, passage: nil, store: fixture.store, scoreSection: first)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 72)
+        XCTAssertEqual(fixture.arm.configuration?.targetBPM, 84)
+        XCTAssertEqual(fixture.arm.configuration?.hands, "Left hand")
+        XCTAssertTrue(try fixture.arm.start(store: fixture.store, runtime: fixture.runtime))
+        XCTAssertNil(fixture.store.activeSet?.configuration.passageID)
+        XCTAssertEqual(fixture.store.activeSet?.configuration.passageSnapshot?.title, "I. Allegro · source pages 1–2")
+        XCTAssertTrue(try XCTUnwrap(fixture.store.activeSet).attempts.isEmpty)
+        XCTAssertTrue(fixture.store.state.coldGrades.isEmpty)
+        XCTAssertEqual(fixture.store.state.passages, existingPassages)
+        try fixture.store.endSet()
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store, scoreSection: first)
+        XCTAssertNil(fixture.arm.scoreSection)
+        XCTAssertEqual(fixture.arm.configuration?.hands, "Both hands", "A section and passage can share a UUID without sharing draft settings")
+        XCTAssertTrue(fixture.arm.awaitingColdGrade)
+        XCTAssertEqual(fixture.arm.configuration?.passageID, passage.id)
+        fixture.arm.arm(pieceID: piece.id, passage: nil, store: fixture.store)
+        XCTAssertNil(fixture.arm.configuration?.passageSnapshot)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 60)
+    }
+
+    @MainActor func testRemovedMovementRefusesStartWithoutFallingBackToWholePiece() throws {
+        let fixture = try fixture()
+        let (piece, _) = try addPassage(fixture.store)
+        let section = ScoreSection(title: "Adagio", startPage: 2, endPage: 4)
+        try fixture.store.setScoreSections([section], for: piece.id)
+        fixture.arm.arm(pieceID: piece.id, passage: nil, store: fixture.store, scoreSection: section)
+        try fixture.store.setScoreSections([], for: piece.id)
+        let before = fixture.store.state
+        XCTAssertThrowsError(try fixture.arm.start(store: fixture.store, runtime: fixture.runtime))
+        XCTAssertEqual(fixture.store.state, before)
+        XCTAssertNil(fixture.store.activeSet)
+    }
+
 }

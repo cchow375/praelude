@@ -167,7 +167,7 @@ final class RecordingService {
         stopPlayback()
         errorMessage = nil
         do {
-            try AudioSessionCoordinator.shared.acquire(.recording)
+            try AudioSessionCoordinator.shared.acquire(.recordingPlayback)
             let newPlayer = try AVAudioPlayer(contentsOf: fileURL(for: recording, in: store))
             guard newPlayer.play() else { throw RecordingError.couldNotPlay }
             player = newPlayer
@@ -177,7 +177,7 @@ final class RecordingService {
         } catch {
             player = nil
             nowPlayingID = nil
-            AudioSessionCoordinator.shared.release(.recording)
+            AudioSessionCoordinator.shared.release(.recordingPlayback)
             errorMessage = "That recording could not be played: \(error.localizedDescription)"
         }
     }
@@ -190,7 +190,7 @@ final class RecordingService {
         player = nil
         isPlaying = false
         nowPlayingID = nil
-        AudioSessionCoordinator.shared.release(.recording)
+        AudioSessionCoordinator.shared.release(.recordingPlayback)
     }
 
     /// `AVAudioPlayer` has no async completion API; a short poll (mirrors `MetronomeService`'s own

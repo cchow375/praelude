@@ -294,7 +294,7 @@ final class MobileMarkupUITests: XCTestCase {
 
         // The fitting tray is an Other; the bounded scrolling fallback is a ScrollView.
         // Keep this query valid as choosing Stamp changes which branch fits.
-        let tools = controls.scrollViews["annotationTools"]
+        let tools = controls.descendants(matching: .any).matching(identifier: "annotationTools").firstMatch
         XCTAssertTrue(tools.waitForExistence(timeout: 8), app.debugDescription)
         let stampTool = controls.buttons["annotationTool_stamp"]
         for _ in 0..<6 {

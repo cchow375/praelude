@@ -4,9 +4,18 @@
 from pathlib import Path
 import hashlib
 import json
+import plistlib
 
 root = Path(__file__).resolve().parents[1]
 objects = {}
+
+# Permission requests otherwise terminate the app before Swift can report an error. Check the
+# actual plist used by both Debug and Release, not a generated setting that can silently drift.
+with (root / "Praelude" / "Info.plist").open("rb") as source:
+    privacy_plist = plistlib.load(source)
+for privacy_key in ("NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription", "NSCameraUsageDescription"):
+    if not isinstance(privacy_plist.get(privacy_key), str) or not privacy_plist[privacy_key].strip():
+        raise ValueError(f"Missing required privacy description: {privacy_key}")
 
 
 def ident(value):
@@ -309,7 +318,7 @@ app_config = configs(
         "INFOPLIST_FILE": "Praelude/Info.plist",
         "GENERATE_INFOPLIST_FILE": "NO",
         "MARKETING_VERSION": "2.0.0",
-        "CURRENT_PROJECT_VERSION": "7",
+        "CURRENT_PROJECT_VERSION": "8",
         "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
         "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
         "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",

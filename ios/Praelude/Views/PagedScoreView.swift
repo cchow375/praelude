@@ -1,6 +1,7 @@
 import SwiftUI
 import PDFKit
 import PencilKit
+import Observation
 
 /// Establish a fit-page minimum and bounded zoom after native layout, preserving manual
 /// zoom while allowing a legible width fit in short annotation windows.
@@ -22,6 +23,35 @@ final class ZoomableScorePDFView: PDFView {
     private var preShortLandscapeZoom: CGFloat?
     private var automaticShortLandscapeScale: CGFloat?
 
+    override var accessibilityElements: [Any]? {
+        get {
+            guard let coordinator = pageOverlayViewProvider as? PagedScoreView.Coordinator else {
+                return super.accessibilityElements
+            }
+            let visibleOverlays = coordinator.overlays.values.filter {
+                isVisibleAccessibilityOverlay($0) && $0.convert($0.bounds, to: self).intersects(bounds)
+            }.sorted { $0.pageNumber < $1.pageNumber }
+            guard !visibleOverlays.isEmpty else { return super.accessibilityElements }
+            // PDFKit's document is itself an accessibility text container and masks its page
+            // overlays. Preserve that native traversal, then vend the real overlay containers
+            // alongside it so notes, PencilKit and expanded-note controls remain reachable.
+            let native = super.accessibilityElements ?? subviews
+            return native + visibleOverlays.filter { overlay in
+                !native.contains { ($0 as? UIView) === overlay }
+            }
+        }
+        set { super.accessibilityElements = newValue }
+    }
+    private func isVisibleAccessibilityOverlay(_ overlay: ScorePageOverlay) -> Bool {
+        var ancestor: UIView? = overlay
+        while let current = ancestor {
+            guard !current.isHidden, current.alpha > 0.01, !current.accessibilityElementsHidden else { return false }
+            if current === self { return true }
+            ancestor = current.superview
+        }
+        return false
+    }
+
     #if DEBUG
     override var accessibilityValue: String? {
         get {
@@ -36,12 +66,13 @@ final class ZoomableScorePDFView: PDFView {
                 if let overlay = root as? ScorePageOverlay {
                     let canvas = overlay.canvas
                     let stampWidth = overlay.markup.stampDraft?.page == overlay.pageNumber ? overlay.markup.stampDraft?.position.width ?? 0 : 0
-                    return ["stampPreviewWidth=\(stampWidth),stampCountPage\(overlay.pageNumber)=\(overlay.displayedStamps.filter { $0.page == overlay.pageNumber }.count),inkPage\(overlay.pageNumber)=\(canvas.drawing.strokes.count),canvasBounds=\(canvas.bounds),canvasFrame=\(canvas.frame),contentSize=\(canvas.contentSize),contentOffset=\(canvas.contentOffset),canvasZoom=\(canvas.zoomScale),drawingBounds=\(canvas.drawing.bounds)"]
+                    return ["stampPreviewWidth=\(stampWidth),stampCountPage\(overlay.pageNumber)=\(overlay.displayedStamps.filter { $0.page == overlay.pageNumber }.count),inkPage\(overlay.pageNumber)=\(canvas.drawing.strokes.count),canvasBounds=\(canvas.bounds),canvasFrame=\(canvas.frame),contentSize=\(canvas.contentSize),contentOffset=\(canvas.contentOffset),canvasZoom=\(canvas.zoomScale),drawingBounds=\(canvas.drawing.bounds);\(overlay.noteGestureDiagnostic)"]
                 }
                 return root.subviews.flatMap(inkCounts)
             }
             let renderedPageWidth = currentPage.map { convert($0.bounds(for: .cropBox), from: $0).width } ?? 0
-            return "renderedPageWidth=\(renderedPageWidth);scale=\(scaleFactor),min=\(minScaleFactor),max=\(maxScaleFactor),auto=\(autoScales),markup=\(isInMarkupMode),hit=\(hitTest(CGPoint(x:bounds.midX,y:bounds.midY),with:nil).map { String(describing:type(of:$0)) } ?? "none");\(details);\(inkCounts(self).joined(separator: ";"))"
+            let quickEdit = (pageOverlayViewProvider as? PagedScoreView.Coordinator)?.quickEditDiagnostic ?? ""
+            return "renderedPageWidth=\(renderedPageWidth);scale=\(scaleFactor),min=\(minScaleFactor),max=\(maxScaleFactor),auto=\(autoScales),markup=\(isInMarkupMode),hit=\(hitTest(CGPoint(x:bounds.midX,y:bounds.midY),with:nil).map { String(describing:type(of:$0)) } ?? "none");\(details);quickEdit=[\(quickEdit)];\(inkCounts(self).joined(separator: ";"))"
         }
         set { super.accessibilityValue = newValue }
     }
@@ -117,6 +148,12 @@ final class ZoomableScorePDFView: PDFView {
 /// public way to construct the `UIViewRepresentableContext` a test would need.
 func scoreDisplaysAsBook(twoPages: Bool, page: Int) -> Bool { twoPages && page.isMultiple(of: 2) }
 
+/// A successful durable save's exact readable baseline. A nil `data` means an empty saved page;
+/// a nil receipt means the save failed. The submitted canvas can have a different stroke order.
+struct ScoreInkSaveReceipt {
+    let data: Data?
+}
+
 struct PagedScoreView: UIViewRepresentable {
     let url: URL
     @Binding var page: Int
@@ -147,11 +184,18 @@ struct PagedScoreView: UIViewRepresentable {
     var otherLayersInkData: (Int) -> [Data] = { _ in [] }
     var drawingData: (Int) -> Data? = { _ in nil }
     var saveDrawing: (Int, Data, Data?) -> Bool = { _, _, _ in false }
+    /// Optional background preparation for idle saves. A callback must check cancellation/CAS
+    /// immediately before its synchronous durable commit, and return its exact committed baseline.
+    var saveDrawingAsync: ((Int, Data, Data?) async -> ScoreInkSaveReceipt?)? = nil
     var onRegionSelected: (UUID) -> Void = { _ in }
     var onPlaceStamp: (Int, NormalizedRect) -> Bool = { _, _ in true }
     var onPlaceTextBox: (Int, NormalizedRect) -> Void = { _, _ in }
     var onPlaceBreakPoint: (Int, NormalizedRect) -> Void = { _, _ in }
     var onEditTextBox: (TextBoxAnnotation) -> Void = { _ in }
+    var onRenameRegion: (UUID) -> Void = { _ in }
+    var onDictateRegion: (UUID) -> Void = { _ in }
+    var onMoveTextBox: (TextBoxAnnotation, NormalizedRect) -> Bool = { _, _ in false }
+    var onDictateTextBox: (TextBoxAnnotation) -> Void = { _ in }
     var onTurnPage: (Int) -> Void = { _ in }
     /// §7 performance mode: a long press anywhere on the score exits it (the only way out while
     /// every other control is deliberately hidden, so it fires regardless of `focusPageTurns`) — a
@@ -168,6 +212,21 @@ struct PagedScoreView: UIViewRepresentable {
         pageTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         pageTap.delegate = context.coordinator
         view.addGestureRecognizer(pageTap)
+        let undoTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.twoFingerTapped(_:)))
+        undoTap.numberOfTouchesRequired = 2
+        undoTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        undoTap.delegate = context.coordinator
+        view.addGestureRecognizer(undoTap); context.coordinator.undoTap = undoTap
+        let renameTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.renameTapped(_:)))
+        renameTap.numberOfTapsRequired = 2; renameTap.delegate = context.coordinator
+        renameTap.allowedTouchTypes = undoTap.allowedTouchTypes
+        let dictateTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.dictateTapped(_:)))
+        dictateTap.numberOfTapsRequired = 3; dictateTap.delegate = context.coordinator
+        dictateTap.allowedTouchTypes = undoTap.allowedTouchTypes
+        renameTap.require(toFail: dictateTap)
+        pageTap.require(toFail: renameTap); pageTap.require(toFail: dictateTap)
+        view.addGestureRecognizer(renameTap); view.addGestureRecognizer(dictateTap)
+        context.coordinator.renameTap = renameTap; context.coordinator.dictateTap = dictateTap
         let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.longPressed(_:)))
         longPress.cancelsTouchesInView = false
         longPress.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
@@ -186,6 +245,7 @@ struct PagedScoreView: UIViewRepresentable {
         for direction: UISwipeGestureRecognizer.Direction in [.left, .right] {
             let swipe = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.swiped(_:)))
             swipe.direction = direction
+            swipe.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
             swipe.delegate = context.coordinator
             view.addGestureRecognizer(swipe)
         }
@@ -208,43 +268,36 @@ struct PagedScoreView: UIViewRepresentable {
         if let target = view.document?.page(at: max(0, page - 1)) { view.go(to: target) }
         context.coordinator.observer = NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: view, queue: .main) { [weak coordinator = context.coordinator, weak view] _ in
             MainActor.assumeIsolated {
-                guard let coordinator, let view, let current = view.currentPage, let doc = view.document else { return }
+                guard let coordinator, !coordinator.isApplyingViewUpdate,
+                      let view, let current = view.currentPage, let doc = view.document else { return }
                 let index = doc.index(for: current) + 1
                 guard index != coordinator.parent.page else { return }
                 coordinator.parent.page = index
                 coordinator.parent.onPageChanged(index)
             }
         }
+        context.coordinator.scaleObserver = NotificationCenter.default.addObserver(forName: .PDFViewScaleChanged, object: view, queue: .main) { [weak coordinator = context.coordinator] _ in
+            MainActor.assumeIsolated { coordinator?.refreshInkResolution() }
+        }
         context.coordinator.connectControls()
         return view
     }
     func updateUIView(_ view: ZoomableScorePDFView, context: Context) {
-        view.prefersWidthFit = focusPageTurns && !twoPages
-        view.prefersShortLandscapeWidthFit = !twoPages && markup.mode != .reading
-        let sourceChanged = context.coordinator.loadedURL != url || context.coordinator.parent.markup !== markup
-            || context.coordinator.parent.activeLayer != activeLayer || context.coordinator.loadedPageEdits != pageEdits
-        guard context.coordinator.adoptParent(self) else { return }
-        if sourceChanged {
-            context.coordinator.clearOverlays()
-            view.document = context.coordinator.loadDocument(url: url, pageEdits: pageEdits); context.coordinator.loadedURL = url
-            view.refreshScaleRange()
-        }
-        let mode: PDFDisplayMode = twoPages ? .twoUp : .singlePage
-        if view.displayMode != mode { view.displayMode = mode; view.refreshScaleRange() }
-        let book = scoreDisplaysAsBook(twoPages: twoPages, page: page)
-        if view.displaysAsBook != book { view.displaysAsBook = book; view.refreshScaleRange() }
-        if let doc = view.document, let target = doc.page(at: max(0, page - 1)), view.currentPage != target {
-            guard context.coordinator.flush() else { return }
-            view.go(to: target)
-            view.refreshScaleRange()
-        }
-        context.coordinator.refreshOverlays()
+        // PDFKit removes the previous overlay synchronously when go(to:), displayMode or the
+        // document changes. Removing a focused canvas tells SwiftUI about a new first responder.
+        // Doing that while SwiftUI is evaluating this representable reenters its AttributeGraph
+        // and caused the six symbolicated build7 iPad hangs. Coalesce on the next main turn.
+        context.coordinator.enqueueViewUpdate(self, view: view)
     }
     static func dismantleUIView(_ uiView: ZoomableScorePDFView, coordinator: Coordinator) {
+        coordinator.cancelPendingViewUpdate()
         if let observer = coordinator.observer { NotificationCenter.default.removeObserver(observer) }
+        if let observer = coordinator.scaleObserver { NotificationCenter.default.removeObserver(observer) }
         _ = coordinator.flush()
         coordinator.autosave?.cancel()
-        uiView.pageOverlayViewProvider = nil
+        // Provider removal can uninstall a focused overlay too. Retain the view until the
+        // representable's teardown transaction has unwound, then finish PDFKit cleanup.
+        DispatchQueue.main.async { [uiView] in uiView.pageOverlayViewProvider = nil }
     }
     @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate, @preconcurrency PDFPageOverlayViewProvider, PKCanvasViewDelegate {
         var parent: PagedScoreView
@@ -254,6 +307,44 @@ struct PagedScoreView: UIViewRepresentable {
         /// display page 1). Rebuilt by `loadDocument` whenever the source URL or page edits change.
         var effectivePages: [EffectivePage] = []
         var observer: NSObjectProtocol?
+        var scaleObserver: NSObjectProtocol?
+        var undoTap: UITapGestureRecognizer?
+        var renameTap: UITapGestureRecognizer?
+        var dictateTap: UITapGestureRecognizer?
+        #if DEBUG
+        private var quickEditTrace: [String] = []
+        private var tracedRecognizers: Set<ObjectIdentifier> = []
+        var quickEditDiagnostic: String { quickEditTrace.joined(separator: "|") }
+        private func traceQuickEdit(_ event: String) {
+            guard ProcessInfo.processInfo.arguments.contains("--uitesting") else { return }
+            quickEditTrace.append(event)
+            if quickEditTrace.count > 24 { quickEditTrace.removeFirst(quickEditTrace.count - 24) }
+        }
+        private func observeGestureActions(in view: UIView) {
+            guard ProcessInfo.processInfo.arguments.contains("--uitesting") else { return }
+            for recognizer in view.gestureRecognizers ?? [] {
+                if tracedRecognizers.insert(ObjectIdentifier(recognizer)).inserted {
+                    recognizer.addTarget(self, action: #selector(observedGestureAction(_:)))
+                }
+            }
+            view.subviews.forEach(observeGestureActions)
+        }
+        @objc private func observedGestureAction(_ recognizer: UIGestureRecognizer) {
+            guard recognizer.state != .changed, let view = pdfView else { return }
+            let point = recognizer.location(in: view)
+            let note = quickEditTarget(at: point, in: view).note != nil
+            let owner = recognizer.view.map { String(describing: type(of: $0)) } ?? "none"
+            var role = "system"
+            if let overlay = recognizer.view as? ScorePageOverlay {
+                if recognizer === overlay.selectionTap { role = "selectionTap" }
+                else if recognizer === overlay.noteEditTap { role = "noteEditTap" }
+                else if recognizer === overlay.noteDictateTap { role = "noteDictateTap" }
+                else if recognizer === overlay.notePan { role = "notePan" }
+                else if recognizer === overlay.selectionDoubleTap { role = "selectionDoubleTap" }
+            }
+            traceQuickEdit("nativeAction \(owner).\(type(of: recognizer)) role=\(role) taps=\((recognizer as? UITapGestureRecognizer)?.numberOfTapsRequired ?? 0) state=\(recognizer.state.rawValue) note=\(note) point=\(point)")
+        }
+        #endif
         weak var pdfView: PDFView?
         var overlays: [Int: ScorePageOverlay] = [:]
         var committed: [Int: Data] = [:]
@@ -265,9 +356,88 @@ struct PagedScoreView: UIViewRepresentable {
         /// during a stroke; serialization and durable writes wait until the tool is idle.
         var activeToolPages: Set<Int> = []
         private var flushing = false
-        let toolPicker = PKToolPicker()
+        private var pendingViewUpdate: PagedScoreView?
+        private var viewUpdateScheduled = false
+        private var viewIsDismantled = false
+        var isApplyingViewUpdate = false
+        private var editGenerations: [Int: UInt64] = [:]
+        private var saveEpoch: UInt64 = 0
+        private var runningIdleEpoch: UInt64?
+        private struct IdleSnapshot {
+            let id = UUID()
+            let page: Int
+            let data: Data
+            let expected: Data?
+            let generation: UInt64
+            let document: URL
+            let layer: InkLayer
+            let markup: ScoreMarkupState
+        }
+        private var idleSnapshots: [Int: IdleSnapshot] = [:]
         init(parent: PagedScoreView) { self.parent = parent }
-        var otherLayersImageCache: [Int: (blobs: [Data], size: CGSize, scale: CGFloat, image: UIImage?)] = [:]
+        var otherLayersDrawingCache: [Int: [Data]] = [:]
+        func enqueueViewUpdate(_ updated: PagedScoreView, view: ZoomableScorePDFView) {
+            guard !viewIsDismantled else { return }
+            pendingViewUpdate = updated
+            guard !viewUpdateScheduled else { return }
+            viewUpdateScheduled = true
+            DispatchQueue.main.async { [weak self, weak view] in
+                guard let self, let view else { return }
+                self.viewUpdateScheduled = false
+                guard !self.viewIsDismantled, let updated = self.pendingViewUpdate else { return }
+                self.pendingViewUpdate = nil
+                // These reads used to occur within SwiftUI's representable observation scope.
+                // Deferred PDF updates need their own tracking, including callback-backed ink
+                // storage and binding values, so color/width/finger mode and remote ink stay live.
+                withObservationTracking {
+                    self.applyViewUpdate(updated, view: view)
+                } onChange: { [weak self, weak view] in
+                    // Observation calls onChange before the mutation. Read the newest values
+                    // next turn, and never overwrite a newer queued SwiftUI configuration.
+                    DispatchQueue.main.async { [weak self, weak view] in
+                        guard let self, let view else { return }
+                        self.enqueueViewUpdate(self.pendingViewUpdate ?? self.parent, view: view)
+                    }
+                }
+            }
+        }
+        func cancelPendingViewUpdate() {
+            viewIsDismantled = true
+            pendingViewUpdate = nil
+        }
+        private func applyViewUpdate(_ updated: PagedScoreView, view: ZoomableScorePDFView) {
+            // PDFKit publishes transient current pages while replacing/reflowing a document.
+            // They must not replace the user's requested page before navigation reaches it.
+            let requestedPage = updated.page
+            let sourceChanged = loadedURL != updated.url || parent.markup !== updated.markup
+                || parent.activeLayer != updated.activeLayer || loadedPageEdits != updated.pageEdits
+            let mode: PDFDisplayMode = updated.twoPages ? .twoUp : .singlePage
+            let book = scoreDisplaysAsBook(twoPages: updated.twoPages, page: requestedPage)
+            let target = view.document?.page(at: max(0, requestedPage - 1))
+            let changesVisiblePages = sourceChanged || view.displayMode != mode
+                || view.displaysAsBook != book || (target != nil && view.currentPage != target)
+            // Changing page layout can uninstall the focused overlay just like go(to:).
+            // No PDF mutation may proceed when its current drawing has not been saved.
+            if changesVisiblePages, !flush() { return }
+            guard adoptParent(updated) else { return }
+            isApplyingViewUpdate = true
+            defer { isApplyingViewUpdate = false }
+            view.prefersWidthFit = parent.focusPageTurns && !parent.twoPages
+            view.prefersShortLandscapeWidthFit = !parent.twoPages && parent.markup.mode != .reading
+            if sourceChanged {
+                clearOverlays()
+                view.document = loadDocument(url: parent.url, pageEdits: parent.pageEdits)
+                loadedURL = parent.url
+                view.refreshScaleRange()
+            }
+            if view.displayMode != mode { view.displayMode = mode; view.refreshScaleRange() }
+            if view.displaysAsBook != book { view.displaysAsBook = book; view.refreshScaleRange() }
+            if let target = view.document?.page(at: max(0, requestedPage - 1)), view.currentPage != target {
+                view.go(to: target)
+                view.refreshScaleRange()
+            }
+            refreshOverlays()
+        }
         /// Flush with the original piece's callbacks before a reused representable changes owners.
         func adoptParent(_ updated: PagedScoreView) -> Bool {
             // A layer switch reuses the exact document-switch path below: flush whatever is pending
@@ -302,13 +472,11 @@ struct PagedScoreView: UIViewRepresentable {
         // discarded their thumbnails, consumed memory, and raced the live PDFDocument on another
         // executor. Picker thumbnails use their own bounded renderer instead.
         func clearOverlays() {
-            for overlay in overlays.values { toolPicker.removeObserver(overlay.canvas) }
-            autosave?.cancel(); activeToolPages.removeAll()
-            overlays.removeAll(); committed.removeAll(); canvasBaseline.removeAll(); dirtyPages.removeAll()
-            otherLayersImageCache.removeAll()
+            cancelIdleSave(); activeToolPages.removeAll()
+            overlays.removeAll(); committed.removeAll(); canvasBaseline.removeAll(); dirtyPages.removeAll(); editGenerations.removeAll()
+            otherLayersDrawingCache.removeAll()
         }
         func connectControls() {
-            toolPicker.stateAutosaveName = "Praelude.ScoreTools"
             let markup = parent.markup
             parent.markup.flushInk = { [weak self, weak markup] in self?.flush() ?? (markup?.pendingInk.isEmpty ?? true) }
             // `parent.page` is a *displayed* page number; `overlays` is keyed by *source* page (see
@@ -325,6 +493,7 @@ struct PagedScoreView: UIViewRepresentable {
             }
             parent.markup.resolveInkConflict = { [weak self] number, keepLocal in
                 guard let self else { return }
+                cancelIdleSave()
                 let overlay = overlays[number]
                 let pending = parent.markup.pendingInk[number]
                 guard overlay != nil || pending != nil else { return }
@@ -382,7 +551,7 @@ struct PagedScoreView: UIViewRepresentable {
             overlay.onCanvasLayout = { [weak self, weak overlay] in
                 Task { @MainActor in
                     guard let self, let overlay, self.overlays[number] === overlay else { return }
-                    self.refreshOtherLayersImage(overlay)
+                    self.refreshOtherLayersDrawing(overlay)
                 }
             }
             let previewPage = effectivePages.indices.contains(displayIndex - 1) ? effectivePages[displayIndex - 1]
@@ -417,7 +586,6 @@ struct PagedScoreView: UIViewRepresentable {
             loading = false
             if !dirtyPages.contains(number) { canvasBaseline[number] = encodedInk(overlay.canvas) }
             overlay.canvas.delegate = self
-            toolPicker.addObserver(overlay.canvas)
             overlays[number] = overlay
             refresh(overlay)
             return overlay
@@ -430,6 +598,7 @@ struct PagedScoreView: UIViewRepresentable {
                     scrollView.panGestureRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
                     scrollView.panGestureRecognizer.require(toFail: overlay.selectionPan)
                     scrollView.panGestureRecognizer.require(toFail: overlay.stampPan)
+                    scrollView.panGestureRecognizer.require(toFail: overlay.notePan)
                     // Let PencilKit claim ink before a parent PDF scroll cancels the stroke.
                     // Pencil-only policy still rejects ordinary reading fingers; pinch is unchanged.
                     scrollView.panGestureRecognizer.require(toFail: overlay.canvas.drawingGestureRecognizer)
@@ -437,17 +606,24 @@ struct PagedScoreView: UIViewRepresentable {
                 view.subviews.forEach(configure)
             }
             configure(pdfView)
+            #if DEBUG
+            observeGestureActions(in: pdfView)
+            #endif
             refresh(overlay)
+            // PDFKit can first attach an overlay after the initial tracked configuration. Arm
+            // tracking for its ink/appearance dependencies once the real page exists too.
+            if let view = pdfView as? ZoomableScorePDFView {
+                enqueueViewUpdate(pendingViewUpdate ?? parent, view: view)
+            }
         }
         func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
             _ = flush()
             guard let overlay = overlayView as? ScorePageOverlay, overlays[overlay.pageNumber] === overlay,
                   !dirtyPages.contains(overlay.pageNumber) else { return }
-            toolPicker.removeObserver(overlay.canvas)
             overlays.removeValue(forKey: overlay.pageNumber); committed.removeValue(forKey: overlay.pageNumber)
             canvasBaseline.removeValue(forKey: overlay.pageNumber)
             activeToolPages.remove(overlay.pageNumber)
-            otherLayersImageCache.removeValue(forKey: overlay.pageNumber)
+            otherLayersDrawingCache.removeValue(forKey: overlay.pageNumber)
         }
         func refreshOverlays() { for overlay in Array(overlays.values) { refresh(overlay) }; updateUndoState() }
         private func refresh(_ overlay: ScorePageOverlay) {
@@ -465,6 +641,8 @@ struct PagedScoreView: UIViewRepresentable {
             overlay.onPlaceStamp = parent.onPlaceStamp; overlay.onPlaceTextBox = parent.onPlaceTextBox
             overlay.onPlaceBreakPoint = parent.onPlaceBreakPoint
             overlay.onEditTextBox = parent.onEditTextBox
+            overlay.onDictateTextBox = parent.onDictateTextBox
+            overlay.onMoveTextBox = parent.onMoveTextBox
             let number = overlay.pageNumber
             let stored = parent.drawingData(number)
             if !overlay.contentReadOnly, !dirtyPages.contains(number), !activeToolPages.contains(number), stored != committed[number] {
@@ -480,60 +658,34 @@ struct PagedScoreView: UIViewRepresentable {
             if parent.markup.tool != overlay.lastAssignedTool, let tool = parent.markup.tool.pkTool {
                 overlay.canvas.tool = tool; overlay.lastAssignedTool = parent.markup.tool
             }
-            refreshOtherLayersImage(overlay)
+            refreshOtherLayersDrawing(overlay)
+            overlay.updateInkResolution(displayScale: pdfView?.scaleFactor ?? 1)
             overlay.refresh()
-            // The custom AnnotationToolbar is now the primary tool/color/width picker (§3b: no stock
-            // component look) and drives `canvas.tool` directly above, so the system floating palette
-            // stays hidden — showing both would let a person change tools somewhere `markup.tool`
-            // never hears about. `becomeFirstResponder` is kept for an inking tool regardless, since
-            // that alone (not picker visibility) is what keeps Apple Pencil's own double-tap/squeeze
-            // shortcuts live on this canvas.
-            // Responder transitions can trigger PencilKit layout/observation synchronously. Never
-            // do them inside SwiftUI's updateUIView, particularly when the active practice dock
-            // changes size to the annotation toolbar. Schedule only one transition per overlay.
-            let wantsResponder = parent.markup.mode == .writing && number == sourcePage(forDisplayIndex: parent.page)
-                && parent.markup.tool.kind.isInkingTool && !overlay.inkReadOnly && !overlay.contentReadOnly
-            if wantsResponder && !overlay.canvas.isFirstResponder && !overlay.responderScheduled {
-                overlay.responderScheduled = true
-                Task { @MainActor [weak self, weak overlay] in
-                    await Task.yield()
-                    guard let self, let overlay else { return }
-                    overlay.responderScheduled = false
-                    guard self.overlays[number] === overlay, overlay.window != nil,
-                          self.parent.markup.mode == .writing, self.sourcePage(forDisplayIndex: self.parent.page) == number,
-                          self.parent.markup.tool.kind.isInkingTool, !overlay.inkReadOnly, !overlay.contentReadOnly else { return }
-                    self.toolPicker.setVisible(false, forFirstResponder: overlay.canvas)
-                    if !overlay.canvas.isFirstResponder { overlay.canvas.becomeFirstResponder() }
-                }
-            }
-
         }
-        /// Regenerates the read-only merged snapshot of every visible-but-inactive ink layer, only
-        /// when that page's relevant content actually changed (a cheap content signature, not a full
-        /// re-render on every SwiftUI update pass).
-        private func refreshOtherLayersImage(_ overlay: ScorePageOverlay) {
-            guard overlay.bounds.width > 0, overlay.bounds.height > 0 else { return }
+        func refreshInkResolution() {
+            guard let pdfView else { return }
+            for overlay in overlays.values { overlay.updateInkResolution(displayScale: pdfView.scaleFactor) }
+        }
+        /// Keep inactive ink as native PencilKit drawing, so zoom rerenders its vectors too.
+        /// The canvas rejects every touch and has no delegate/undo observer; other layers cannot edit.
+        private func refreshOtherLayersDrawing(_ overlay: ScorePageOverlay) {
             let number = overlay.pageNumber
             let blobs = parent.otherLayersInkData(number)
-            let size = overlay.canvas.bounds.size
-            guard size.width > 0, size.height > 0 else { return }
-            // Cap decoded pixels even for an unusually tiny crop with a very large backing canvas.
-            let scale = min(min(3, overlay.window?.screen.scale ?? UIScreen.main.scale), 2400 / max(size.width, size.height))
-            func apply(_ image: UIImage?) { if overlay.otherLayersImage !== image { overlay.otherLayersImage = image } }
-            if let cached = otherLayersImageCache[number], cached.blobs == blobs, cached.size == size, cached.scale == scale {
-                apply(cached.image); return
+            guard otherLayersDrawingCache[number] != blobs else { return }
+            do {
+                let drawing = try InkPerStroke.merge(blobs)
+                overlay.otherLayersCanvas.drawing = drawing
+                otherLayersDrawingCache[number] = blobs
+            } catch {
+                parent.markup.errorMessage = "A hidden ink layer could not be read. Its original marks are preserved."
             }
-            guard !blobs.isEmpty else {
-                otherLayersImageCache[number] = (blobs, size, scale, nil); apply(nil); return
-            }
-            let drawing = (try? InkPerStroke.merge(blobs)) ?? PKDrawing()
-            let image = drawing.strokes.isEmpty ? nil : drawing.image(from: CGRect(origin: .zero, size: size), scale: scale)
-            otherLayersImageCache[number] = (blobs, size, scale, image)
-            apply(image)
         }
         func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
             if let number = overlays.first(where: { $0.value.canvas === canvasView })?.key {
-                activeToolPages.insert(number); autosave?.cancel()
+                activeToolPages.insert(number)
+                // Cancel the idle delay, but let an already prepared older snapshot finish safely.
+                // Its generation cannot clear a newer stroke or replace the live canvas.
+                if runningIdleEpoch == nil { autosave?.cancel() }
             }
             #if DEBUG
             logCanvas("didBeginUsingTool", canvas: canvasView)
@@ -545,6 +697,7 @@ struct PagedScoreView: UIViewRepresentable {
             #endif
             guard !loading, let number = overlays.first(where: { $0.value.canvas === canvasView })?.key else { return }
             dirtyPages.insert(number)
+            editGenerations[number, default: 0] &+= 1
             // Undo/Redo also emits drawing changes, without begin/end tool callbacks.
             if !activeToolPages.contains(number) { scheduleAutosave() }
         }
@@ -557,16 +710,110 @@ struct PagedScoreView: UIViewRepresentable {
             updateUndoState()
             scheduleAutosave()
             // Do not refit the PDF underneath the first Pencil stroke.
-            if parent.markup.mode == .reading && parent.allowsInk { parent.markup.mode = .writing }
+            // Pencil marks are allowed while practicing; completing a stroke never changes modes.
         }
         private func scheduleAutosave() {
+            guard runningIdleEpoch == nil else { return }
             autosave?.cancel()
             autosave = Task { @MainActor [weak self] in
                 do { try await Task.sleep(for: .milliseconds(600)) } catch { return }
                 guard let self, !Task.isCancelled, activeToolPages.isEmpty else { return }
-                _ = flush()
+                _ = await flushIdle()
                 updateUndoState()
             }
+        }
+        /// The idle path may suspend for preparation. Explicit transitions still call flush(),
+        /// cancel that preparation and synchronously checkpoint the latest canvas before proceeding.
+        @discardableResult func flushIdle() async -> Bool {
+            guard let save = parent.saveDrawingAsync else { return flush() }
+            guard !flushing, runningIdleEpoch == nil, activeToolPages.isEmpty,
+                  parent.markup.pendingInkDocument == nil || parent.markup.pendingInkDocument == parent.url,
+                  parent.markup.pendingInkLayer == nil || parent.markup.pendingInkLayer == parent.activeLayer else { return false }
+            let epoch = saveEpoch
+            runningIdleEpoch = epoch
+            var allSaved = true
+            defer {
+                if runningIdleEpoch == epoch {
+                    runningIdleEpoch = nil
+                    // Retry newer strokes, not an unchanged failing checkpoint every 600 ms.
+                    if allSaved, !dirtyPages.isEmpty, activeToolPages.isEmpty { scheduleAutosave() }
+                }
+            }
+            for number in dirtyPages.union(parent.markup.pendingInk.keys).sorted() {
+                guard !Task.isCancelled, epoch == saveEpoch, activeToolPages.isEmpty else { return false }
+                let pending = parent.markup.pendingInk[number]
+                let data: Data, expected: Data?
+                if let canvas = overlays[number]?.canvas, dirtyPages.contains(number) {
+                    data = canvas.drawing.strokes.isEmpty ? Data() : canvas.drawing.dataRepresentation()
+                    expected = committed[number]
+                    if (data.isEmpty ? nil : data) == canvasBaseline[number] {
+                        dirtyPages.remove(number); parent.markup.clearPendingInk(page: number); continue
+                    }
+                } else if let pending { data = pending.data; expected = pending.expected }
+                else { allSaved = false; continue }
+                let snapshot = IdleSnapshot(page: number, data: data, expected: expected,
+                                            generation: editGenerations[number, default: 0], document: parent.url,
+                                            layer: parent.activeLayer, markup: parent.markup)
+                idleSnapshots[number] = snapshot
+                parent.markup.rememberInk(page: number, data: data, expected: expected, document: parent.url, layer: parent.activeLayer)
+                let receipt = await save(number, data, expected)
+                // Once committed, cancellation cannot pretend that write did not happen. A newer
+                // stroke keeps its dirty flag but must inherit the now-durable storage baseline.
+                if let receipt, owns(snapshot) {
+                    if epoch == saveEpoch {
+                        let stored = parent.drawingData(number)
+                        if stored == receipt.data { adoptSaved(snapshot, stored: stored) }
+                        else {
+                            // A different writer may have changed this page before the success
+                            // continuation resumed. Keep local work dirty and require a conflict
+                            // decision instead of blessing unrelated bytes as its saved baseline.
+                            allSaved = false; parent.markup.conflictPage = number
+                        }
+                    } else {
+                        let stored = parent.drawingData(number)
+                        if stored != committed[number], stored == receipt.data { adoptSaved(snapshot, stored: stored) }
+                    }
+                }
+                if idleSnapshots[number]?.id == snapshot.id { idleSnapshots.removeValue(forKey: number) }
+                guard epoch == saveEpoch, !Task.isCancelled else { return false }
+                if receipt == nil { allSaved = false }
+            }
+            return allSaved
+        }
+        private func owns(_ snapshot: IdleSnapshot) -> Bool {
+            parent.url == snapshot.document && parent.activeLayer == snapshot.layer && parent.markup === snapshot.markup
+        }
+        private func adoptSaved(_ snapshot: IdleSnapshot, stored: Data?) {
+            committed[snapshot.page] = stored
+            canvasBaseline[snapshot.page] = snapshot.data.isEmpty ? nil : snapshot.data
+            if editGenerations[snapshot.page, default: 0] == snapshot.generation, !activeToolPages.contains(snapshot.page) {
+                dirtyPages.remove(snapshot.page); parent.markup.clearPendingInk(page: snapshot.page)
+            }
+            if parent.markup.conflictPage == snapshot.page { parent.markup.conflictPage = nil }
+            parent.markup.inkRevision += 1
+        }
+        private func snapshotMatchesStorage(_ snapshot: IdleSnapshot, stored: Data?) -> Bool {
+            let local: Data? = snapshot.data.isEmpty ? nil : snapshot.data
+            if stored == local { return true }
+            // PencilKit's merged encoding can differ bytewise. Compare exact stroke content in
+            // order, including masks and duplicates; a reordered highlighter is a different edit.
+            guard let stored, let local,
+                  let savedDrawing = try? PKDrawing(data: stored), let localDrawing = try? PKDrawing(data: local) else { return false }
+            return savedDrawing.strokes.map(InkPerStroke.fingerprint) == localDrawing.strokes.map(InkPerStroke.fingerprint)
+        }
+        private func reconcileCanceledSnapshot(_ snapshot: IdleSnapshot) {
+            guard owns(snapshot) else { return }
+            let stored = parent.drawingData(snapshot.page)
+            guard stored != committed[snapshot.page] else { return }
+            // A commit can finish just before cancellation. Account for that exact saved drawing,
+            // but never rewind a later synchronous save or accept unrelated remote content.
+            if snapshotMatchesStorage(snapshot, stored: stored) { adoptSaved(snapshot, stored: stored) }
+        }
+        private func cancelIdleSave() {
+            autosave?.cancel(); autosave = nil
+            for snapshot in idleSnapshots.values { reconcileCanceledSnapshot(snapshot) }
+            idleSnapshots.removeAll()
+            saveEpoch &+= 1; runningIdleEpoch = nil
         }
         #if DEBUG
         func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
@@ -583,6 +830,7 @@ struct PagedScoreView: UIViewRepresentable {
         }
         #endif
         @discardableResult func flush() -> Bool {
+            cancelIdleSave()
             guard !flushing,
                   parent.markup.pendingInkDocument == nil || parent.markup.pendingInkDocument == parent.url,
                   parent.markup.pendingInkLayer == nil || parent.markup.pendingInkLayer == parent.activeLayer else { return false }
@@ -683,18 +931,88 @@ struct PagedScoreView: UIViewRepresentable {
         }
         @objc func swiped(_ recognizer: UISwipeGestureRecognizer) {
             guard let view = recognizer.view as? ZoomableScorePDFView,
-                  view.scaleFactor <= view.minScaleFactor * 1.05 else { return }
+                  view.scaleFactor <= view.minScaleFactor * 1.05,
+                  !hasActiveZoomGesture(in: view) else { return }
             parent.onTurnPage(recognizer.direction == .left ? 1 : -1)
+        }
+        func hasActiveZoomGesture(in view: UIView) -> Bool {
+            if let scroll = view as? UIScrollView, scroll.isZooming || scroll.isZoomBouncing { return true }
+            if view.gestureRecognizers?.contains(where: { $0 is UIPinchGestureRecognizer && ($0.state == .began || $0.state == .changed) }) == true { return true }
+            return view.subviews.contains { hasActiveZoomGesture(in: $0) }
+        }
+        private func overlay(at point: CGPoint, in view: PDFView) -> (ScorePageOverlay, CGPoint)? {
+            guard let page = view.page(for: point, nearest: false), let document = view.document,
+                  let number = sourcePage(forDisplayIndex: document.index(for: page) + 1), let overlay = overlays[number] else { return nil }
+            return (overlay, overlay.convert(point, from: view))
+        }
+        func quickEditTarget(at point: CGPoint, in view: PDFView) -> (note: TextBoxAnnotation?, region: UUID?) {
+            guard let (overlay, local) = overlay(at: point, in: view) else { return (nil, nil) }
+            // Every visible note owns this target, including a read-only layer's chip. It must
+            // never fall through to the selected passage underneath and rename that passage.
+            if let note = overlay.note(at: local) { return (note, nil) }
+            guard let region = overlay.passageRegion(at: local), parent.emphasizedIDs.contains(region) else { return (nil, nil) }
+            return (nil, region)
+        }
+        @objc func twoFingerTapped(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended else { return }
+            undoFromTouch()
+        }
+        func undoFromTouch() {
+            guard parent.allowsInk, !parent.focusPageTurns else { return }
+            if parent.markup.mode == .selecting { parent.markup.undoSelection() }
+            else { parent.markup.undoInk() }
+        }
+        @objc func renameTapped(_ recognizer: UITapGestureRecognizer) { quickEdit(recognizer, dictation: false) }
+        @objc func dictateTapped(_ recognizer: UITapGestureRecognizer) { quickEdit(recognizer, dictation: true) }
+        private func quickEdit(_ recognizer: UITapGestureRecognizer, dictation: Bool) {
+            #if DEBUG
+            traceQuickEdit("action dictation=\(dictation) state=\(recognizer.state.rawValue)")
+            #endif
+            guard recognizer.state == .ended, let view = pdfView else { return }
+            let target = quickEditTarget(at: recognizer.location(in: view), in: view)
+            #if DEBUG
+            traceQuickEdit("action target note=\(target.note != nil) region=\(target.region != nil)")
+            #endif
+            if target.note == nil, let region = target.region {
+                if dictation { parent.onDictateRegion(region) } else { parent.onRenameRegion(region) }
+            }
         }
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             guard let view = pdfView else { return true }
+            if gestureRecognizer === undoTap { return true }
             let point = touch.location(in: view)
-            guard let page = view.page(for: point, nearest: false), let document = view.document,
-                  let number = sourcePage(forDisplayIndex: document.index(for: page) + 1), let overlay = overlays[number] else { return true }
-            return !overlay.containsNote(at: overlay.convert(point, from: view))
+            if gestureRecognizer === renameTap || gestureRecognizer === dictateTap {
+                guard !parent.focusPageTurns, parent.markup.mode != .selecting else { return false }
+                let target = quickEditTarget(at: point, in: view)
+                #if DEBUG
+                traceQuickEdit("receive taps=\((gestureRecognizer as? UITapGestureRecognizer)?.numberOfTapsRequired ?? 0) point=\(point) note=\(target.note != nil) region=\(target.region != nil) mode=\(parent.markup.mode)")
+                #endif
+                // Unselected score taps never wait for a double/triple-tap recognizer to time out.
+                // Notes own their local 1/2/3-tap sequence. Only selected passage labels use
+                // these ancestor recognizers, avoiding duplicate or competing note actions.
+                return target.note == nil && target.region != nil
+            }
+            guard let (overlay, local) = overlay(at: point, in: view) else { return true }
+            return !overlay.containsNote(at: local)
         }
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool { parent.markup.mode == .reading }
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer === undoTap { return parent.allowsInk && !parent.focusPageTurns }
+            if gestureRecognizer === renameTap || gestureRecognizer === dictateTap {
+                let begins = !parent.focusPageTurns && parent.markup.mode != .selecting
+                #if DEBUG
+                traceQuickEdit("shouldBegin taps=\((gestureRecognizer as? UITapGestureRecognizer)?.numberOfTapsRequired ?? 0) allowed=\(begins)")
+                #endif
+                return begins
+            }
+            if gestureRecognizer is UISwipeGestureRecognizer {
+                return parent.markup.mode == .reading || (parent.markup.mode == .writing && !parent.markup.fingerDrawing && parent.markup.tool.kind.isInkingTool)
+            }
+            return parent.markup.mode == .reading
+        }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer === undoTap || otherGestureRecognizer === undoTap { return otherGestureRecognizer is UIPinchGestureRecognizer }
+            return true
+        }
 
     }
 }
@@ -770,6 +1088,7 @@ struct ScorePagePicker: View {
     let url: URL
     var pageEdits: [PageEdit] = []
     let currentPage: Int
+    var sourcePageRange: ClosedRange<Int>? = nil
     let onSelect: (Int) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var pages: [EffectivePage] = []
@@ -778,7 +1097,7 @@ struct ScorePagePicker: View {
         NavigationStack {
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 20)], spacing: 24) {
-                    ForEach(pages) { page in
+                    ForEach(pages.filter { page in sourcePageRange == nil || page.sourcePage.map { sourcePageRange!.contains($0) } == true }) { page in
                         Button {
                             onSelect(page.displayOrder); dismiss()
                         } label: {

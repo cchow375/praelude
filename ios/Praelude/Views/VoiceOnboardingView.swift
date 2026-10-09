@@ -28,11 +28,18 @@ struct VoiceOnboardingView: View {
                 Section {
                     Text("Say each word a few times. Praelude counts what it actually hears on this device, in this room.")
                         .foregroundStyle(.secondary)
-                    Button(speech.isListening ? "Stop checking" : "Start checking") {
-                        if speech.isListening { speech.stop() } else { speech.start(ownerID: ownerID, onCommand: heard) }
+                    Button(speech.ownerID == ownerID && (speech.isListening || speech.isPreparing) ? "Stop checking" : "Start checking") {
+                        if speech.ownerID == ownerID { speech.stop(ifOwnedBy: ownerID) }
+                        else { speech.stop(); speech.start(ownerID: ownerID, onCommand: heard) }
                     }.frame(minHeight: 44).fontWeight(.semibold).accessibilityIdentifier("startVoiceCheck")
                     if let lastHeard { Text("Just heard: \(VoiceConfirmationSound.label(for: lastHeard))").font(.caption).foregroundStyle(.secondary) }
-                    if let failure = speech.errorMessage { Text(failure).foregroundStyle(.red) }
+                    Text(speech.status).font(.caption).foregroundStyle(.secondary)
+                    if let failure = speech.errorMessage {
+                        Text(failure).foregroundStyle(.red)
+                        Button("Open permission settings", systemImage: "gear") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                        }
+                    }
                 } footer: {
                     Text("Words outside this list are ignored here, the same as during practice.")
                 }

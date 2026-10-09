@@ -30,6 +30,7 @@ class FakeRunner:
         self.root = root
         self.commands = []
         self.details = copy.deepcopy(DETAILS)
+        self.listed_details = None
         self.existing = existing
         self.version = "1.0.0"
         self.state = state or {"schemaVersion": 1, "activeSet": None, "pieces": []}
@@ -62,7 +63,7 @@ class FakeRunner:
     def device(self, args, failure, timeout=90):
         self.commands.append(args)
         if args[:2] == ["list", "devices"]:
-            return {"devices": [self.details]}
+            return {"devices": [self.listed_details or self.details]}
         if args[1:3] == ["info", "details"]:
             return self.details
         if args[1:3] == ["info", "apps"]:
@@ -366,6 +367,29 @@ class DeviceSafetyTests(unittest.TestCase):
         self.assert_no_install()
         self.assertFalse(any(command[0] == "xcodebuild" or command[1:3] in (["copy", "from"], ["process", "launch"])
                              for command in self.runner.commands))
+
+    def test_explicit_name_refreshes_stale_tunnel_listing_without_install(self):
+        self.runner.listed_details = copy.deepcopy(DETAILS)
+        self.runner.listed_details["connectionProperties"]["tunnelState"] = "disconnected"
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            device.execute("status", "Practice iPad", self.runner, self.root)
+        self.assertIn("Installed: 1.0.0", output.getvalue())
+        self.assert_no_install()
+
+    def test_explicit_probe_still_disconnected_never_builds(self):
+        self.runner.details["connectionProperties"]["tunnelState"] = "disconnected"
+        with self.assertRaisesRegex(device.DeviceError, "unavailable"):
+            device.execute("refresh", "Practice iPad", self.runner, self.root)
+        self.assert_no_install()
+        self.assertFalse(any(command[0] == "xcodebuild" for command in self.runner.commands))
+
+    def test_explicit_probe_rejects_changed_identity(self):
+        self.runner.listed_details = copy.deepcopy(DETAILS)
+        self.runner.listed_details["connectionProperties"]["tunnelState"] = "disconnected"
+        self.runner.details["identifier"] = "another-device"
+        with self.assertRaisesRegex(device.DeviceError, "identity changed"):
+            device.execute("refresh", "Practice iPad", self.runner, self.root)
+        self.assert_no_install()
 
     def test_tool_failures_do_not_echo_signing_output(self):
         failure = __import__("subprocess").CompletedProcess([], 1, b"private profile", b"private Apple account")

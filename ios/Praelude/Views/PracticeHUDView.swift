@@ -111,6 +111,9 @@ struct PracticeHUDView: View {
                         }
                         if let ladderRung { Text("Rung \(ladderRung.rung) of \(ladderRung.total)").font(.subheadline).foregroundStyle(PraeludeColor.inkTertiary) }
                     }
+                    Text(practiceContext).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("expandedPracticeContext")
                 }
                 Spacer(minLength: 8)
                 Button { collapsed = true } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).contentShape(Rectangle()) }
@@ -133,7 +136,7 @@ struct PracticeHUDView: View {
                 // §10a "tempo in one gesture... never a modal" applies even mid-set: drag/±1/±5 must
                 // stay live, not merely a locked, dimmed readout — see "(C) Audit.md".
                 VStack(spacing: 2) {
-                    TempoDial(bpm: Binding(get: { active.currentBPM }, set: onAdjustTempo), numeralSize: 44)
+                    TempoDial(bpm: Binding(get: { active.currentBPM }, set: { onAdjustTempo($0) }), numeralSize: 44)
                     if metronome.groupedCompoundPulse { Text("Dotted-quarter pulse").font(.caption).foregroundStyle(.secondary) }
                 }
             }
@@ -145,16 +148,23 @@ struct PracticeHUDView: View {
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
             : AnyLayout(HStackLayout(spacing: 6))
         return layout {
-            Text(passageTitle).font(.subheadline.weight(.medium))
-                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(passageTitle).font(.subheadline.weight(.medium))
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                Text(dynamicTypeSize.isAccessibilitySize ? practiceContext : compactPracticeContext)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(practiceContext)
+                    .accessibilityIdentifier("activePracticeContext")
+            }.frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 6) {
                 Text("\(active.progressCount)/\(active.requiredCount)").praeludeNumeral(20)
                     .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(PraeludeColor.ink).monospacedDigit()
                     .accessibilityLabel("\(active.progressCount) of \(active.requiredCount) \(active.configuration.basis == .cleanStreak ? "clean" : "plays")")
                     .accessibilityIdentifier("repProgress")
-                TempoDial(bpm: Binding(get: { active.currentBPM }, set: onAdjustTempo), numeralSize: 20, compact: true)
+                TempoDial(bpm: Binding(get: { active.currentBPM }, set: { onAdjustTempo($0) }), numeralSize: 20, compact: true)
                 Button { collapsed = false } label: {
                     Image(systemName: "chevron.up").font(.caption)
                         .frame(width: 44, height: 44).contentShape(Rectangle())
@@ -163,6 +173,30 @@ struct PracticeHUDView: View {
                 .accessibilityLabel("Expand HUD").accessibilityIdentifier("hudExpand")
             }.fixedSize(horizontal: true, vertical: false).layoutPriority(1)
         }.frame(minHeight: 44)
+    }
+
+    private var practiceContext: String {
+        var parts = [active.configuration.hands]
+        if let stage = active.currentStage {
+            parts.append("\(active.stageIndex + 1)/\(active.configuration.stages.count) · \(stage.name)")
+        }
+        if active.effectiveTargetBPM > active.currentBPM { parts.append("Goal \(Int(active.effectiveTargetBPM)) BPM") }
+        return parts.joined(separator: " · ")
+    }
+
+    private var compactPracticeContext: String {
+        let hands: String
+        switch active.configuration.hands {
+        case "Left hand": hands = "L"
+        case "Right hand": hands = "R"
+        case "Both hands": hands = "Both"
+        case "Hands separately": hands = "L/R"
+        default: hands = active.configuration.hands
+        }
+        var parts = [hands]
+        if active.effectiveTargetBPM > active.currentBPM { parts.append("Goal \(Int(active.effectiveTargetBPM))") }
+        if active.currentStage != nil { parts.append("Step \(active.stageIndex + 1)/\(active.configuration.stages.count)") }
+        return parts.joined(separator: " · ")
     }
 
     private var controlsRow: some View {

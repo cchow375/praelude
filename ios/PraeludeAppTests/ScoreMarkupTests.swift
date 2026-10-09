@@ -553,7 +553,7 @@ final class ScoreMarkupTests: XCTestCase {
         coordinator.loading = true; first.canvas.drawing = ink(at: 40); coordinator.loading = false
         coordinator.canvasViewDidBeginUsingTool(first.canvas)
         coordinator.canvasViewDrawingDidChange(first.canvas)
-        coordinator.otherLayersImageCache[1] = ([], CGSize(width: 600, height: 800), 1, nil)
+        coordinator.otherLayersDrawingCache[1] = []
         XCTAssertFalse(coordinator.flush())
         coordinator.pdfView(view, willEndDisplayingOverlayView: first, for: firstPage)
         XCTAssertTrue(coordinator.overlays[1] === first, "Never evict an unsaved page after a failed disk write")
@@ -562,7 +562,7 @@ final class ScoreMarkupTests: XCTestCase {
         coordinator.pdfView(view, willEndDisplayingOverlayView: first, for: firstPage)
         XCTAssertNil(coordinator.overlays[1])
         XCTAssertFalse(coordinator.activeToolPages.contains(1), "Eviction must end activity even when PencilKit omits an end callback")
-        XCTAssertNil(coordinator.otherLayersImageCache[1], "Leaving pages must release flattened layer bitmaps")
+        XCTAssertNil(coordinator.otherLayersDrawingCache[1], "Leaving pages must release cached layer source bytes")
         XCTAssertTrue(coordinator.overlays[2] === second)
         XCTAssertEqual(saved[1], first.canvas.drawing.dataRepresentation())
         XCTAssertEqual(saved[2], secondPageInk)

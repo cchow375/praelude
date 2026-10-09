@@ -8,6 +8,8 @@ import UIKit
 final class SpeechCommandService {
     private(set) var status = "Voice is off"
     private(set) var isListening = false
+    private(set) var isPreparing = false
+    private(set) var isDictating = false
     private(set) var errorMessage: String?
     private(set) var lastTranscript = ""
     /// A score window may stop only the microphone session it started.
@@ -18,7 +20,7 @@ final class SpeechCommandService {
     /// which tears the engine down and re-requests permission/setup on the next `start()`.
     private(set) var isMuted = false
 
-    @ObservationIgnored private let engine = AVAudioEngine()
+    @ObservationIgnored private var engine = AVAudioEngine()
     @ObservationIgnored private let notifications = AudioNotificationBag()
     @ObservationIgnored private var recognizer: SFSpeechRecognizer?
     @ObservationIgnored private var request: SFSpeechAudioBufferRecognitionRequest?
@@ -28,14 +30,19 @@ final class SpeechCommandService {
     @ObservationIgnored private var renewalTask: Task<Void, Never>?
     @ObservationIgnored private var finalTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var onCommand: ((VoiceCommand) -> Void)?
+    @ObservationIgnored private var onTranscript: ((String) -> Void)?
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var wantsListening = false
     @ObservationIgnored private var tapInstalled = false
     @ObservationIgnored private var endingUtterance = false
     @ObservationIgnored private var finalDelivered = false
-    @ObservationIgnored private var audioRequiresRelaunch = false
+    @ObservationIgnored private let speechPermission: @Sendable () async -> SFSpeechRecognizerAuthorizationStatus
+    @ObservationIgnored private let microphonePermission: @Sendable () async -> Bool
 
-    init() {
+    init(speechPermission: @escaping @Sendable () async -> SFSpeechRecognizerAuthorizationStatus = AudioInputPermissions.speechPermission,
+         microphonePermission: @escaping @Sendable () async -> Bool = AudioInputPermissions.microphoneGranted) {
+        self.speechPermission = speechPermission
+        self.microphonePermission = microphonePermission
         observe(AVAudioSession.interruptionNotification) { [weak self] notification in
             guard let raw = notification.interruptionType,
                   AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
@@ -48,34 +55,64 @@ final class SpeechCommandService {
             self?.failIfActive("Microphone or headphones disconnected. Check your audio route and turn voice on again.")
         }
         observe(AVAudioSession.mediaServicesWereResetNotification) { [weak self] _ in
-            self?.audioRequiresRelaunch = true
-            self?.failIfActive("Audio was reset by iOS. Reopen Praelude to use voice again.")
+            self?.failIfActive("Audio was reset by iOS. Tap the microphone to start again.")
+            self?.engine = AVAudioEngine()
+        }
+        observe(.AVAudioEngineConfigurationChange) { [weak self] notification in
+            guard let self, notification.sourceID == ObjectIdentifier(self.engine),
+                  self.isListening, !self.endingUtterance, !self.engine.isRunning else { return }
+            self.fail("The microphone changed. Tap the microphone to start again.")
         }
     }
 
     /// Calling this method is the opt-in. Neither initialization nor app launch asks for a microphone.
     func start(ownerID: UUID? = nil, onCommand: @escaping (VoiceCommand) -> Void) {
         guard !wantsListening else { return }
-        guard !audioRequiresRelaunch else {
-            errorMessage = "Audio was reset by iOS. Reopen Praelude to use voice again."
+        startCapture(ownerID: ownerID, onCommand: onCommand, onTranscript: nil)
+    }
+
+    /// One microphone owner for command listening and short, user-initiated text dictation.
+    /// Partial text is preview-only; the caller receives one final transcript and decides when to save.
+    func startDictation(ownerID: UUID, onTranscript: @escaping (String) -> Void) {
+        stop()
+        startCapture(ownerID: ownerID, onCommand: nil, onTranscript: onTranscript)
+    }
+
+    func finishDictation(ifOwnedBy owner: UUID) {
+        guard ownerID == owner, isDictating, isListening else { return }
+        finishUtterance()
+    }
+
+    private func startCapture(ownerID: UUID?, onCommand: ((VoiceCommand) -> Void)?,
+                              onTranscript: ((String) -> Void)?) {
+        if let issue = AudioInputPermissions.configurationIssue(requiresSpeech: true) {
+            errorMessage = issue
             status = "Voice unavailable"
             return
         }
         wantsListening = true
+        isPreparing = true
+        isDictating = onTranscript != nil
+        lastTranscript = ""
+        // Input nodes cache the route format. A fresh explicit start must use the current route,
+        // including when headphones changed while voice was off or media services restarted.
+        engine = AVAudioEngine()
         self.ownerID = ownerID
         errorMessage = nil
         self.onCommand = onCommand
+        self.onTranscript = onTranscript
         status = "Preparing local voice…"
         let startID = UUID()
         generation = startID
         permissionTask = Task { @MainActor [weak self] in
-            let speechPermission = await Self.requestSpeechPermission()
+            guard let permission = self?.speechPermission else { return }
+            let speechPermission = await permission()
             guard let self, self.wantsListening, self.generation == startID, !Task.isCancelled else { return }
             guard speechPermission == .authorized else {
                 self.fail("Speech permission is off. Allow Speech Recognition for Praelude in Settings to use voice commands.")
                 return
             }
-            let microphoneGranted = await Self.requestMicrophonePermission()
+            let microphoneGranted = await self.microphonePermission()
             guard self.wantsListening, self.generation == startID, !Task.isCancelled else { return }
             guard microphoneGranted else {
                 self.fail("Microphone permission is off. Allow the microphone for Praelude in Settings to use voice commands.")
@@ -108,8 +145,11 @@ final class SpeechCommandService {
         cleanUpUtterance()
         recognizer = nil
         onCommand = nil
+        onTranscript = nil
         ownerID = nil
         isListening = false
+        isPreparing = false
+        isDictating = false
         isMuted = false
         status = "Voice is off"
         AudioSessionCoordinator.shared.release(.speech)
@@ -139,14 +179,16 @@ final class SpeechCommandService {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = true
-        request.taskHint = .confirmation
-        request.contextualStrings = ["clean", "sloppy", "again", "undo", "pause", "resume",
+        request.taskHint = isDictating ? .dictation : .confirmation
+        if isDictating { request.addsPunctuation = true }
+        request.contextualStrings = isDictating ? [] : ["clean", "sloppy", "again", "undo", "pause", "resume",
                                      "shaky", "missed", "start", "stop", "next", "slower", "faster",
                                      "metronome start", "metronome stop", "tempo", "next page", "previous page"]
         self.request = request
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else { throw VoiceError.noMicrophone }
+        guard AVAudioSession.sharedInstance().isInputAvailable,
+              format.sampleRate.isFinite, format.sampleRate > 0, format.channelCount > 0 else { throw VoiceError.noMicrophone }
         // `nonisolated(unsafe)`: AVAudioEngine calls this block synchronously on its own realtime
         // audio thread, never through Swift concurrency. Written as a plain closure inside this
         // `@MainActor` method, it would infer `@MainActor` isolation from context and the compiler
@@ -158,7 +200,7 @@ final class SpeechCommandService {
         nonisolated(unsafe) let tapRequest = request
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in tapRequest.append(buffer) }
         tapInstalled = true
-        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+        recognitionTask = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
             // Move only value types across the callback boundary, never the audio buffer or result object.
             let transcript = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal ?? false
@@ -169,14 +211,16 @@ final class SpeechCommandService {
         }
         engine.prepare()
         try engine.start()
+        isPreparing = false
         isListening = true
-        status = "Listening on this device"
+        status = isDictating ? "Listening for your text…" : (isMuted ? "Muted — listening paused" : "Listening on this device")
         // Renew finite recognizer tasks before the platform's session limit. This is a speech
         // lifecycle timer; the metronome is an independent sample-clock audio engine.
         renewalTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(45))
             guard !Task.isCancelled, let self, self.generation == utteranceID else { return }
-            if self.lastTranscript.isEmpty {
+            if self.isDictating { self.finishUtterance() }
+            else if self.lastTranscript.isEmpty {
                 // Long stretches of playing contain no command. Renew an empty request directly
                 // instead of treating the recognizer's no-speech finalization as a fatal error.
                 do { try self.beginUtterance() }
@@ -203,7 +247,7 @@ final class SpeechCommandService {
                 lastTranscript = transcript
                 endpointTask?.cancel()
                 endpointTask = Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .milliseconds(Self.silenceTimeoutMilliseconds))
+                    try? await Task.sleep(for: .milliseconds(self?.isDictating == true ? 1_600 : Self.silenceTimeoutMilliseconds))
                     guard !Task.isCancelled, self?.generation == id else { return }
                     self?.finishUtterance()
                 }
@@ -211,6 +255,15 @@ final class SpeechCommandService {
         }
         if isFinal {
             finalDelivered = true
+            if isDictating {
+                let text = (transcript ?? lastTranscript).trimmingCharacters(in: .whitespacesAndNewlines)
+                let deliver = onTranscript
+                stop()
+                if text.isEmpty {
+                    errorMessage = "No words were heard. Tap the microphone to try again, or type your text."
+                } else { deliver?(text) }
+                return
+            }
             let command = VoiceCommand.parse(transcript ?? "")
             if isMuted {
                 // Muted: still recognizes (so un-muting is instant), but takes no action and keeps
@@ -239,7 +292,7 @@ final class SpeechCommandService {
         engine.stop()
         removeInputTap()
         request?.endAudio()
-        status = "Finishing command…"
+        status = isDictating ? "Finishing your text…" : "Finishing command…"
         let id = generation
         finalTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(4))
@@ -270,25 +323,12 @@ final class SpeechCommandService {
     private func failIfActive(_ message: String) { if wantsListening { fail(message) } }
     private func fail(_ message: String) { stop(); errorMessage = message; status = "Voice unavailable" }
 
-    private static func requestSpeechPermission() async -> SFSpeechRecognizerAuthorizationStatus {
-        if SFSpeechRecognizer.authorizationStatus() != .notDetermined {
-            return SFSpeechRecognizer.authorizationStatus()
-        }
-        return await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
-        }
-    }
-
-    private static func requestMicrophonePermission() async -> Bool {
-        await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
-        }
-    }
-
     private func observe(_ name: Notification.Name, action: @escaping @MainActor @Sendable (AudioNotificationContext) -> Void) {
-        notifications.tokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { notification in
+        notifications.tokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { @Sendable notification in
             let context = AudioNotificationContext(notification)
-            MainActor.assumeIsolated { action(context) }
+            // The engine posts configuration changes from an internal queue. Never synchronously
+            // stop or tear it down on that callback stack; Apple documents a deadlock risk.
+            Task { @MainActor in action(context) }
         })
     }
 

@@ -181,6 +181,7 @@ struct AppRootView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
     private var usesSidebar: Bool { UIDevice.current.userInterfaceIdiom == .pad && !dynamicTypeSize.isAccessibilitySize }
+    @AppStorage("ios.sidebar.showExtras") private var showSidebarExtras = false
     @State private var destination = Destination.today
     @State private var selectedPiece: UUID?
     @State private var practicingWarmup = false
@@ -212,16 +213,26 @@ struct AppRootView: View {
     @State private var confirmRestore = false
     @State private var error: String?
     @State private var pendingInviteCode: String?
+    private func sidebarDestination(_ item: Destination) -> some View {
+        Button { navigateFromScore { destination = item; selectedPiece = nil } } label: {
+            Label(item.rawValue, systemImage: item.symbol).frame(minHeight: 44)
+        }
+        .listRowBackground(destination == item && selectedPiece == nil ? PraeludeColor.inkFillQuiet : Color.clear)
+    }
+
     var body: some View {
         Group {
             if usesSidebar {
                 NavigationSplitView(columnVisibility: $sidebarVisibility) {
                     List {
-                        ForEach(Destination.allCases.filter { $0 != .more }) { item in
-                            Button {
-                                navigateFromScore { destination = item; selectedPiece = nil }
-                            } label: { Label(item.rawValue, systemImage: item.symbol).frame(minHeight: 32) }
-                            .listRowBackground(destination == item && selectedPiece == nil ? PraeludeColor.inkFillQuiet : Color.clear)
+                        Section("Practice") {
+                            ForEach([Destination.today, .pieces, .warmups]) { sidebarDestination($0) }
+                        }
+                        Section("Review") {
+                            ForEach([Destination.progress, .history, .notebook]) { sidebarDestination($0) }
+                        }
+                        DisclosureGroup("More", isExpanded: $showSidebarExtras) {
+                            ForEach([Destination.calendar, .friends, .insights, .rewards]) { sidebarDestination($0) }
                         }
                         if !store.realPieces.isEmpty {
                             Section("On your music stand") {
@@ -231,6 +242,13 @@ struct AppRootView: View {
                                             Text(piece.title).foregroundStyle(.primary).lineLimit(2)
                                             if !piece.composer.isEmpty { Text(piece.composer).font(.caption).foregroundStyle(.secondary) }
                                         }.frame(minHeight: 44)
+                                    }
+                                    ForEach(piece.scoreSections.sorted { $0.startPage < $1.startPage }) { movement in
+                                        Button { openPiece(piece.id, startPage: movement.startPage) } label: {
+                                            Label(movement.title, systemImage: "music.note")
+                                                .font(.subheadline).foregroundStyle(.secondary)
+                                                .frame(minHeight: 44).lineLimit(2)
+                                        }
                                     }
                                 }
                             }

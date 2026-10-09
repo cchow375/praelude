@@ -131,15 +131,20 @@ private struct WatchMarkShape: Shape {
 /// A sheet for creating/editing one free-text annotation (§7 "text boxes"), matching
 /// `PassageEditorView`'s existing sheet-editor pattern rather than an in-place WYSIWYG editor.
 struct TextBoxEditorView: View {
+    @Environment(SpeechCommandService.self) private var speech
+    @State private var ownerID = UUID()
+    @State private var dictationPrefix = ""
     @State private var text: String
     @State private var errorMessage: String?
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
+    let startDictation: Bool
     let onSave: (String) -> Bool
     let onDelete: (() -> Bool)?
 
-    init(text: String, onSave: @escaping (String) -> Bool, onDelete: (() -> Bool)? = nil) {
-        _text = State(initialValue: text); self.onSave = onSave; self.onDelete = onDelete
+    init(text: String, startDictation: Bool = false, onSave: @escaping (String) -> Bool, onDelete: (() -> Bool)? = nil) {
+        _text = State(initialValue: text); self.startDictation = startDictation
+        self.onSave = onSave; self.onDelete = onDelete
     }
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     var body: some View {
@@ -150,6 +155,17 @@ struct TextBoxEditorView: View {
                     TextEditor(text: $text).frame(minHeight: 120).focused($focused)
                         .accessibilityIdentifier("textAnnotationEditor")
                 }
+                Section {
+                    Button(action: toggleDictation) {
+                        Label(isCapturing ? "Finish dictating" : "Dictate note", systemImage: isCapturing ? "stop.circle" : "mic")
+                            .frame(minHeight: 44)
+                    }.accessibilityIdentifier("dictateTextAnnotation")
+                    if speech.ownerID == ownerID {
+                        Text(speech.lastTranscript.isEmpty ? speech.status : speech.lastTranscript)
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    if let failure = speech.errorMessage { ErrorMessage(message: failure) }
+                } footer: { Text("Speak, review your words, then Save. You can also use the keyboard microphone.") }
                 if let onDelete {
                     Section { Button("Delete note", role: .destructive) { if onDelete() { dismiss() } else { errorMessage = "Could not delete this note. It is still saved. Try again." } } }
                 }
@@ -158,11 +174,32 @@ struct TextBoxEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { if onSave(trimmed) { dismiss() } else { errorMessage = "Could not save this note. Your text is still here. Try again." } }.disabled(trimmed.isEmpty)
+                    Button("Save") { if onSave(trimmed) { dismiss() } else { errorMessage = "Could not save this note. Your text is still here. Try again." } }.disabled(trimmed.isEmpty || isCapturing)
                         .accessibilityIdentifier("saveTextAnnotation")
                 }
             }
-            .onAppear { focused = true }
-        }.presentationDetents([.medium])
+            .task {
+                if startDictation { beginDictation() } else { focused = true }
+            }
+            .onDisappear { speech.stop(ifOwnedBy: ownerID) }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(isCapturing)
+    }
+
+    private var isCapturing: Bool { speech.ownerID == ownerID && (speech.isPreparing || speech.isListening) }
+    private func toggleDictation() {
+        if isCapturing {
+            if speech.isPreparing { speech.stop(ifOwnedBy: ownerID) }
+            else { speech.finishDictation(ifOwnedBy: ownerID) }
+        } else { beginDictation() }
+    }
+    private func beginDictation() {
+        focused = false
+        dictationPrefix = trimmed
+        speech.startDictation(ownerID: ownerID) { finalText in
+            text = dictationPrefix.isEmpty ? finalText : dictationPrefix + " " + finalText
+        }
     }
 }

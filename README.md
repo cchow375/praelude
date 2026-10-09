@@ -1,8 +1,10 @@
 # Praelude
 
-Native iPhone/iPad development candidate: [iOS build, usage and acceptance](ios/README.md).
+Native iPhone/iPad source is **2.0.0/build8/schema5, DEVELOPMENT CANDIDATE**; the physical iPad remains on build7. See [iOS build and usage](ios/README.md) and the [45-item usability review with scoped test evidence](docs/qa/ios/2.0.0/build8/usability-review.md). Build8 installation and physical acceptance remain pending.
 It requires full Xcode with an iOS SDK and compatible simulator runtime; the Mac bootstrap
 does not install these. The guide covers native build/tests and physical-device signing.
+
+**Delivery checkpoint:** the first two signed device Release attempts stopped before compilation with Xcode `No Accounts` / `No Profiles`; Xcode settings confirmed it was signed out. The user now confirms sign-in, and the final signed Release build is running. Its signing/profile validation and guarded installation remain pending. No credentials were obtained or new account/certificate created; the prior profile backup is archived. Build7 remains installed and unchanged.
 
 Praelude is a native piano practice and repertoire tracker for macOS, built with Tauri v2,
 Rust, React and TypeScript. The pianist supplies every Clean, Sloppy or Again verdict;

@@ -1,5 +1,24 @@
 # Praelude Mobile roadmap
 
+## October 9 — build8 usability and reliability lane (DEVELOPMENT CANDIDATE)
+
+Native source is 2.0.0/build8/schema5; the connected personal iPad is confirmed on build7/schema5 today. The installed Mac stays v11.1.0/schema21. Christian's reported freezes, lag, inaccessible practice controls and microphone crashes remain the acceptance target, regardless of earlier build7 tests.
+
+- Implemented for review: exact and tap tempo, visible goal/hands setup, clear technique chains, practice during annotation/selection, movable/minimizable palette, native ink zoom/layers, lighter highlighter and finer pen widths, two-finger Undo, passage/note rename and dictation, note repositioning, direct movement entries and safe warmup close/finish.
+- Implemented for review: background idle-save preparation with revision/ink conflict checks and coordinator generations; no redundant PDF-page writes or historical-session reprojection for unchanged practice records. Explicit transition saves and atomic publication remain synchronous.
+- Implemented for review: validated movement practice snapshots in the existing ledger, and speech/microphone permission, route and lifecycle guards. No new PDF copies, invented reps or schema migration.
+- Diagnosed and repaired in source: six physical build7 watchdog reports and the CPU report share the focused-overlay removal cycle at synchronous `PDFView.go(to:)` inside SwiftUI update. Deferred/coalesced navigation and explicit state observation retain checkpoint gates; see `docs/qa/ios/2.0.0/build8/crash-analysis.md`. This does not attribute the separate microphone report.
+- Verification: 406 core, 2,211 service assertions and 57 Python helper tests pass; UI6 full native runs 242 with 1 live-account skip and 0 failures. UI6 movement entry/validation/steppers/list/grid/page targeting passes. UI7 exact 72→88 goal, Left hand, Start/Clean/Undo and largest-text portrait/landscape pass. UI5 continuity, all three markup cases, two-finger Undo/Redo and rename pass.
+- Latest checkpoints: Phone1 full native242 tests/1 live-account skip/0 failures; three of four UI cases pass, with accessibility selection Done failing on the prior source. Repaired iPad UI12 runs243 native/1 skip/0 failures and both actual UI cases pass: sticky drag/double-tap/edit/relaunch and accessibility portrait/landscape. UI12 omitted rename because its selector was wrong; Phone2 actual rename now passes52.388s. Phone2 reaches selection Done in both orientations, then fails landscape annotation with a3-pixel tool viewport. A30% footer cap only for short writing windows,13-point palette header title and improved Cancel/Done spacing pass source review; reading/selection retain60% and tool-body accessibility text remains. Phone3 now passes actual accessibility portrait/landscape in 71.631 seconds, with four independently accepted screenshots. UI13 then records 244 native tests/1 live-account skip/2 assertion failures in one note-frame case; actual triple tap fails at its missing accessibility target after earlier sticky steps pass. The subsequent public-API frame/traversal repair, including hidden-parent guards, passes independent source review and test-build9. UI14 passes the complete actual sticky create/hold-drag/double-tap-edit/relaunch/triple-tap/permission-denied recovery flow in 71.060 seconds. Its native suite executes 245 tests with 1 live-account skip and the same 2 zoom-frame assertion failures in one case; all other native cases pass, including PDF accessibility publication and hidden-wrapper guards. The aggregate does not pass. UI15 repeats the complete actual sticky triple-tap/recovery flow successfully in 59.539 seconds. Native245/1 live-account skip still has two frame assertions failing in one case, now with a zero frame. A detached test fixture is suspected; the test now asynchronously mounts a real UIWindowScene/window and asserts overlay.window identity before applying the transform. Only the test fixture changed after the UI15 production source. The final strict native run now passes245 tests/1 live-account skip/0 failures in16.881s; mounted-scene/window identity and crop/zoom assertions pass. Earlier failures remain in the 45-item QA report.
+
+- Pending: device Release/signing, guarded same-bundle installation with all-file pre/post comparison, launch/readback, then physical Pencil/audio/interruption/large-score and sustained practice acceptance. The exact named-device on-demand tunnel probe has three new regressions in the 57-test deployment-helper suite.
+
+**Delivery checkpoint:** the first two signed device Release attempts stopped before compilation with Xcode `No Accounts` / `No Profiles`; Xcode settings confirmed it was signed out. The user now confirms sign-in, and the final signed Release build is running. Its signing/profile validation and guarded installation remain pending. No credentials were obtained or new account/certificate created; the prior profile backup is archived. Build7 remains installed and unchanged.
+
+### Next steps
+
+Finish the outstanding UI/Release and independent-review gates, resolve observed regressions, and install only through the guarded refresh. Keep physical acceptance open until the actual flows are exercised. A week of teacher use has not occurred. Continue separate desktop-sync and two-device work only within their existing scope; Assistant remains on hold.
+
 ## October7 — build7 installed on the personal iPad
 
 **October 7 user confirmation:** Christian confirms the update reached the iPad. This confirms installation; sustained Pencil, audio, freeze recovery, refresh rate and real two-device behavior still require physical acceptance. The complete implementation, verification and deployment handoff is `docs/qa/ios/2.0.0/build7/session-handoff.md` (source `3e03330`, installation record `2227817`).
@@ -11,9 +30,9 @@ Actual signed device Release passes strict signature, app/profile/team agreement
 **Next steps:** use the installed build7 for real practice to verify sustained Pencil/eraser/Undo/layer/page transitions and responsiveness. Renew with the same app/team before the actual profile expiry.
 
 
-## October6 — iOS stability and responsiveness candidate
+## Historical October 6 — build7 stability and responsiveness candidate
 
-**Mobile current source: 2.0.0/build7, schema5, DEVELOPMENT CANDIDATE. Personal iPad now has build7 (October7); device running-process and schema5 readback are confirmed.** Christian reports freezes requiring force quit, lagging/disappearing ink and crowded controls. This repair preserves the native format, score source geometry and user-supplied practice verdicts.
+**Historical build7 source: 2.0.0/build7, schema5, DEVELOPMENT CANDIDATE at that boundary. Personal iPad now has build7 (October7); device running-process and schema5 readback are confirmed.** Christian reports freezes requiring force quit, lagging/disappearing ink and crowded controls. This repair preserves the native format, score source geometry and user-supplied practice verdicts.
 
 Native testing reproduced a stamp-switch freeze in UIKit responder teardown. The canvas stays enabled; overlay hit routing handles selection/stamps/text/read-only states without disabling the focused canvas.
 

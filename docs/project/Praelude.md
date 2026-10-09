@@ -1,5 +1,21 @@
 # Praelude — the project in one page
 
+## Current state — October 9, 2026
+
+Praelude is a piano practice and repetition tracker: the pianist supplies every verdict; the app keeps time, counts, remembers targets and runs the metronome. It never grades acoustic piano audio. The installed Mac remains v11.1.0/schema21. The personal iPad is confirmed on native 2.0.0/build7/schema5 today; build8/schema5 is a DEVELOPMENT CANDIDATE and is not installed.
+
+Christian reports that build7 is still impractical: confirming marks can freeze, drawing and page navigation lag, tempo goals are hard to reach, and microphone use can crash. Build8 puts exact/tap tempo, tempo goals and hands choices in immediate reach; keeps practice controls available while marking/selecting music; adds a movable, collapsible palette, two-finger Undo, direct passage/note rename and dictation, repositionable notes, native zoomed ink, movement entries with directly editable, validated page ranges and explicit warmup exits. All six annotation tools stay visible; BPM and distinct Start/Goal spoken labels identify tempo controls; numeric editing selects the old value and preserves invalid page drafts until corrected. The working acceptance ledger is `docs/qa/ios/2.0.0/build8/usability-review.md` in the repository.
+
+Movement practice shares the original PDF and records a validated, immutable movement title/source-page-range snapshot. It creates no duplicate passage or invented practice. Existing native schema5, backup and sync contracts remain; continuous Mac-to-native sync still needs a desktop adapter. Idle annotation saves prepare stroke data and JSON in the background, validate the current revision before atomic publication, and preserve newer unsaved drawing. Explicit transitions and atomic disk writes remain synchronous. Speech callback isolation and microphone lifecycle guards are implemented, with physical results still unproven.
+
+Six physical build7 watchdog reports (three each from October 7 and October 9) and a 90-second CPU report identify the same SwiftUI responder/AttributeGraph cycle: synchronous `PDFView.go(to:)` in `PagedScoreView.updateUIView` removes a focused overlay while SwiftUI is already updating. Matching-dSYM symbolication establishes this path; it does not attribute every reported freeze or the separate microphone complaint. Build8 defers and coalesces PDF reconfiguration until that update unwinds, explicitly observes the state its deferred coordinator reads, and retains failed-checkpoint guards. Detailed evidence is in `docs/qa/ios/2.0.0/build8/crash-analysis.md`.
+
+Verification checkpoints: 406 core tests, 2,211 deterministic service assertions and 57 Python helper tests pass. The final native run executes 245 tests with 1 live-account skip and 0 failures in 16.881 seconds; the mounted-scene fixture proves window identity before its strict crop/zoom checks. UI15 passes the complete actual sticky create/hold-drag/double-tap-edit/relaunch/triple-tap/permission-denied recovery flow in 59.539 seconds on the same final production source. Phone3 passes accessibility portrait/landscape in 71.631 seconds, with four independently accepted screenshots. Earlier scoped passes cover exact 72→88 BPM goals, hands, grading/Undo, movement editing/navigation, warmup Finish, score continuity, markup and two-finger Undo/Redo. Source review and scoped layout review pass; source is frozen. The 45-item QA report preserves UI13–15 native frame failures, earlier UI failures, stale-runner evidence and the test-fixture correction instead of replacing them with a blanket pass. Build8 is not installed; physical acceptance and a week-long teacher trial remain unproved. The exact named-device connection helper has 57 passing tests, including three new regressions. Build8 installation, complete-file preservation and launch/readback must be recorded separately from physical Pencil, audio, large-score and week-long usability acceptance. No perfect/zero-bug claim is justified. Assistant remains on hold.
+
+**Delivery checkpoint:** the first two signed device Release attempts stopped before compilation with Xcode `No Accounts` / `No Profiles`; Xcode settings confirmed it was signed out. The user now confirms sign-in, and the final signed Release build is running. Its signing/profile validation and guarded installation remain pending. No credentials were obtained or new account/certificate created; the prior profile backup is archived. Build7 remains installed and unchanged.
+
+**Next steps:** complete the critical regression/Release gates and crash analysis; then make the authorized guarded same-bundle update, preserving every owned file; then verify sustained real practice. Earlier build7 evidence below is historical and does not close the new feedback.
+
 ## October7 — build7 installed on the personal iPad
 
 **October 7 user confirmation:** Christian confirms the update reached the iPad. This confirms installation; sustained Pencil, audio, freeze recovery, refresh rate and real two-device behavior still require physical acceptance. The complete implementation, verification and deployment handoff is `docs/qa/ios/2.0.0/build7/session-handoff.md` (source `3e03330`, installation record `2227817`).
@@ -11,9 +27,9 @@ Actual signed device Release passes strict signature, app/profile/team agreement
 **Next steps:** use the installed build7 for real practice to verify sustained Pencil/eraser/Undo/layer/page transitions and responsiveness. Renew with the same app/team before the actual profile expiry.
 
 
-## October6 — iOS stability and responsiveness candidate
+## Historical October 6 — build7 stability and responsiveness candidate
 
-**Mobile current source: 2.0.0/build7, schema5, DEVELOPMENT CANDIDATE. Personal iPad now has build7 (October7); device running-process and schema5 readback are confirmed.** Christian reports freezes requiring force quit, lagging/disappearing ink and crowded controls. This repair preserves the native format, score source geometry and user-supplied practice verdicts.
+**Historical build7 source: 2.0.0/build7, schema5, DEVELOPMENT CANDIDATE at that boundary. Personal iPad now has build7 (October7); device running-process and schema5 readback are confirmed.** Christian reports freezes requiring force quit, lagging/disappearing ink and crowded controls. This repair preserves the native format, score source geometry and user-supplied practice verdicts.
 
 Native testing reproduced a stamp-switch freeze in UIKit responder teardown. The canvas stays enabled; overlay hit routing handles selection/stamps/text/read-only states without disabling the focused canvas.
 
@@ -30,7 +46,7 @@ Ink matching and session validation/projection use indexes; reward catch-up batc
 **Next steps:** verify sustained real Pencil/practice behavior on the installed build7 after the completed guarded update and schema readback. Verify sustained physical Pencil/eraser/layer/page transitions during practice, large actual scores, interruptions and real-account second-device continuity.
 
 
-**Last updated: 2026-10-07. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
+**Last updated: 2026-10-09. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
 
 **Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
 

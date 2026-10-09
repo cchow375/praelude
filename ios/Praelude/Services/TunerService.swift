@@ -8,17 +8,20 @@ import UIKit
 @MainActor @Observable
 final class TunerService {
     private(set) var isListening = false
+    private(set) var isPreparing = false
     private(set) var frequencyHz: Double?
     private(set) var errorMessage: String?
     /// Concert-pitch reading of `frequencyHz` (never transposed — `Tuning.writtenPitch` is applied
     /// by the caller/view for a chosen instrument, the same measured cents either way).
     var concertReading: Tuning.NamedPitch? { frequencyHz.flatMap { Tuning.nearestPitch(forFrequency: $0) } }
 
-    @ObservationIgnored private let engine = AVAudioEngine()
+    @ObservationIgnored private var engine = AVAudioEngine()
     @ObservationIgnored private let detectionGate = InFlightWorkGate()
     @ObservationIgnored private let notifications = AudioNotificationBag()
     @ObservationIgnored private var smoother = TunerSmoother()
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var permissionTask: Task<Void, Never>?
+    @ObservationIgnored private var tapInstalled = false
 
     init() {
         observeAudioNotification(AVAudioSession.interruptionNotification, into: notifications) { [weak self] notification in
@@ -30,32 +33,60 @@ final class TunerService {
             guard let raw = notification.routeReason, AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable else { return }
             self?.stopWithReason("Audio input disconnected. Check your microphone, then tap Listen.")
         }
+        observeAudioNotification(AVAudioSession.mediaServicesWereResetNotification, into: notifications) { [weak self] _ in
+            self?.stopWithReason("Audio was reset. Tap Listen to start again.")
+            self?.engine = AVAudioEngine()
+        }
+        observeAudioNotification(.AVAudioEngineConfigurationChange, into: notifications) { [weak self] notification in
+            guard let self, notification.sourceID == ObjectIdentifier(self.engine), self.isListening,
+                  !self.engine.isRunning else { return }
+            self.stopWithReason("The microphone changed. Tap Listen to start again.")
+        }
     }
 
     func start() {
-        guard !isListening else { return }
+        guard !isListening, !isPreparing else { return }
+        if let issue = AudioInputPermissions.configurationIssue(requiresSpeech: false) {
+            errorMessage = issue
+            return
+        }
         errorMessage = nil
+        isPreparing = true
         smoother.reset()
         frequencyHz = nil
         generation += 1
         let thisGeneration = generation
+        permissionTask = Task { @MainActor [weak self] in
+            let allowed = await AudioInputPermissions.microphoneGranted()
+            guard let self, !Task.isCancelled, self.generation == thisGeneration, self.isPreparing else { return }
+            self.isPreparing = false
+            guard allowed else {
+                self.errorMessage = "Allow the microphone for Praelude in Settings to use the tuner."
+                return
+            }
+            self.beginListening(generation: thisGeneration)
+        }
+    }
+
+    private func beginListening(generation thisGeneration: Int) {
+        engine = AVAudioEngine()
         do {
             try AudioSessionCoordinator.shared.acquire(.tuner)
             let input = engine.inputNode
-            let format = input.inputFormat(forBus: 0)
-            guard format.sampleRate > 0, format.channelCount > 0 else { throw TunerError.noInput }
-            input.removeTap(onBus: 0)
+            let format = input.outputFormat(forBus: 0)
+            guard AVAudioSession.sharedInstance().isInputAvailable,
+                  format.sampleRate.isFinite, format.sampleRate > 0, format.channelCount > 0 else { throw TunerError.noInput }
             // The tap block itself must be `nonisolated`: AVAudioEngine invokes it synchronously on
             // its own realtime audio thread, never hopping through Swift concurrency first. A plain
             // closure written inside this `@MainActor` method infers `@MainActor` isolation from its
             // lexical context (installTap's block parameter carries no isolation of its own), which
             // makes the compiler insert a synchronous "am I on the main actor?" check at the very top
             // of the closure — and since the audio thread never is, that check traps on the first
-            // buffer instead of hopping. `weakSelf` is `nonisolated(unsafe)` so the closure can carry
-            // it across into the `@Sendable` block below without requiring `TunerService: Sendable`;
+            // buffer instead of hopping. The main-actor-isolated service reference is Sendable; the tap captures it weakly,
+            // and never reads its state on the audio thread.
             // every actual read/write of `self`'s state still happens back on the main actor via
             // `MainActor.run`, same as before.
-            nonisolated(unsafe) let weakSelf = self
+            let weakSelf = self
             // A slower device must not queue one CPU-heavy detector per microphone buffer. Keep
             // at most one window in flight; dropped windows are replaced by fresh live input.
             let detectionGate = self.detectionGate
@@ -69,27 +100,37 @@ final class TunerService {
                     await MainActor.run { weakSelf?.ingest(pitch: pitch, generation: thisGeneration) }
                 }
             }
+            tapInstalled = true
             try engine.start()
             isListening = true
         } catch {
-            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            removeInputTap()
             AudioSessionCoordinator.shared.release(.tuner)
             errorMessage = "The tuner could not start: \(error.localizedDescription)"
         }
     }
 
     func stop() {
-        guard isListening else { return }
         isListening = false
+        isPreparing = false
+        permissionTask?.cancel()
+        permissionTask = nil
         generation += 1 // Any in-flight detection Task for the old session is now stale and ignored.
-        engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        removeInputTap()
         AudioSessionCoordinator.shared.release(.tuner)
         frequencyHz = nil
         smoother.reset()
     }
 
-    func toggle() { isListening ? stop() : start() }
+    func toggle() { isListening || isPreparing ? stop() : start() }
+
+    private func removeInputTap() {
+        guard tapInstalled else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        tapInstalled = false
+    }
 
     /// Called back on the main actor once per input buffer; `generation` guards against a stale
     /// detection landing after `stop()`/a restart already moved on.
@@ -99,7 +140,7 @@ final class TunerService {
     }
 
     private func stopWithReason(_ message: String) {
-        let wasListening = isListening
+        let wasListening = isListening || isPreparing
         stop()
         if wasListening { errorMessage = message }
     }

@@ -87,8 +87,16 @@ struct SetComposerView: View {
                 }
 
                 Section {
-                    Stepper(value: $startBPM, in: 20...300, step: 1) {
-                        LabeledContent("Starting tempo", value: "\(Int(startBPM)) bpm")
+                    HStack {
+                        Text("Starting tempo")
+                        Spacer()
+                        TempoDial(bpm: $startBPM, numeralSize: 28, compact: true,
+                                  accessibilityTitle: "Starting tempo", accessibilityID: "composerStartTempo")
+                    }
+                    HStack {
+                        Text("Hands")
+                        Spacer()
+                        PracticeHandsControl(hands: $hands)
                     }
                     Toggle("Metronome", isOn: $useMetronome).praeludeToggleHaptic(useMetronome)
                 } footer: {
@@ -121,8 +129,11 @@ struct SetComposerView: View {
                     Section {
                         Toggle("Tempo ladder", isOn: $useLadder).praeludeToggleHaptic(useLadder)
                         if useLadder {
-                            Stepper(value: $targetBPM, in: startBPM...300, step: 1) {
-                                LabeledContent("Target tempo", value: "\(Int(targetBPM)) bpm")
+                            HStack {
+                                Text("Target tempo")
+                                Spacer()
+                                TempoDial(bpm: Binding(get: { targetBPM }, set: { targetBPM = max(startBPM, $0) }), numeralSize: 28, compact: true,
+                                          accessibilityTitle: "Target tempo", accessibilityID: "composerTargetTempo")
                             }
                             Picker("Increase by", selection: $percentageStep) {
                                 Text("BPM").tag(false)
@@ -135,7 +146,7 @@ struct SetComposerView: View {
                         NavigationLink {
                             VariantEditorView(stages: $stages)
                         } label: {
-                            LabeledContent("Variants", value: stages.isEmpty ? "None" : "\(stages.count) stages")
+                            LabeledContent("Techniques", value: stages.isEmpty ? "Choose" : "\(stages.count) stages")
                         }
                     } footer: {
                         if useLadder {
@@ -238,13 +249,26 @@ struct VariantEditorView: View {
         Form {
             Section {
                 if stages.isEmpty {
-                    Text("No variants yet. Add the order you want to practice.")
+                    Text("Choose a technique below, then play its stages in order.")
                         .foregroundStyle(.secondary)
                 }
                 ForEach($stages) { $stage in
                     VStack(alignment: .leading, spacing: 4) {
-                        TextField("Variant name", text: $stage.name)
-                            .font(.headline)
+                        HStack {
+                            Text("\((stages.firstIndex(where: { $0.id == stage.id }) ?? 0) + 1)")
+                                .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                                .frame(width: 24)
+                            TextField("Stage name", text: $stage.name).font(.headline)
+                            Menu {
+                                Button("Move earlier", systemImage: "arrow.up") { moveStage(stage.id, by: -1) }
+                                    .disabled(stages.first?.id == stage.id)
+                                Button("Move later", systemImage: "arrow.down") { moveStage(stage.id, by: 1) }
+                                    .disabled(stages.last?.id == stage.id)
+                                Button("Remove stage", systemImage: "trash", role: .destructive) { stages.removeAll { $0.id == stage.id } }
+                            } label: {
+                                Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle())
+                            }.accessibilityLabel("Options for \(stage.name)")
+                        }
                         Stepper(value: $stage.targetCount, in: 1...100) {
                             Text("\(stage.targetCount) consecutive Clean")
                                 .font(.subheadline).foregroundStyle(.secondary)
@@ -257,14 +281,16 @@ struct VariantEditorView: View {
             } header: {
                 Text("In order")
             } footer: {
-                Text("Each stage has its own clean target. Use Edit to reorder or remove stages. Applying a routine replaces this draft chain.")
+                Text("Finish each clean target to continue to the next stage. Stage options reorder or remove it; Edit also supports dragging.")
             }
 
             Section {
+                Stepper("\(target) Clean per new stage", value: $target, in: 1...100)
                 ForEach(PracticeTechnique.allCases) { technique in
                     Button {
                         stages.append(contentsOf: technique.stages(targetCount: target))
-                        savedMessage = nil
+                        savedMessage = "Added \(technique.title)"
+                        PraeludeHaptic.toggle()
                     } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Label(technique.title, systemImage: "plus.circle")
@@ -275,7 +301,7 @@ struct VariantEditorView: View {
                         .accessibilityIdentifier("technique_\(technique.id)")
                 }
             } header: { Text("Try a technique") } footer: {
-                Text("Choose what fits this passage. A choice adds an editable chain using the clean target below. It does not change tempo, hands or the score automatically.")
+                Text("Choose what fits this passage. A choice adds an editable chain using the clean target you choose. It does not change tempo, hands or the score automatically.")
             }
             if store.state.routines.contains(where: { $0.deletedAt == nil }) {
                 Section("Saved routines") {
@@ -326,6 +352,17 @@ struct VariantEditorView: View {
             if let errorMessage { Section { ErrorMessage(message: errorMessage) } }
         }
         .navigationTitle("Practice techniques")
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !stages.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(stages.count) stages · \(stages.reduce(0) { $0 + $1.targetCount }) clean repetitions per tempo")
+                        .font(.subheadline.weight(.semibold))
+                    Text(stages.map(\.name).joined(separator: " → "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(12).praeludeScoreChrome()
+                    .accessibilityIdentifier("techniqueChainSummary")
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { EditButton() } }
         .alert("Save routine", isPresented: $savingRoutine) {
@@ -336,6 +373,11 @@ struct VariantEditorView: View {
         } message: {
             Text("Give this ordered set of variants a name.")
         }
+    }
+
+    private func moveStage(_ id: UUID, by offset: Int) {
+        guard let index = stages.firstIndex(where: { $0.id == id }), stages.indices.contains(index + offset) else { return }
+        stages.swapAt(index, index + offset)
     }
 
     private func saveRoutine() {

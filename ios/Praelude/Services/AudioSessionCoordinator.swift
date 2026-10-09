@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Speech
 
 /// One owner for the process audio session. Starting speech must not deactivate the click.
 @MainActor
@@ -8,7 +9,7 @@ final class AudioSessionCoordinator {
     /// `.tuner` and `.recording` both need microphone input, exactly like `.speech`; `.drone` and
     /// `.reward` are playback-only, like `.metronome`/`.feedback`. Any mix of these may be active
     /// together — a drone or the metronome must keep playing while the tuner listens or a take records.
-    enum Client: Hashable { case metronome, speech, feedback, reward, tuner, drone, recording }
+    enum Client: Hashable { case metronome, speech, feedback, reward, tuner, drone, recording, recordingPlayback }
 
     private var clients: Set<Client> = []
     private var configurationObservers: [(willChange: () -> Void, didChange: () -> Void)] = []
@@ -42,15 +43,11 @@ final class AudioSessionCoordinator {
         let options: AVAudioSession.CategoryOptions = needsInput
             ? [.defaultToSpeaker, .mixWithOthers, .allowBluetoothHFP]
             : [.mixWithOthers]
-        // §9: "works with metronome playing, click never misheard" — `.voiceChat` turns on the
-        // system's own echo cancellation/noise suppression for the input, which is what lets the mic
-        // pick out a spoken word while the click (or another instrument) sounds at the same time.
-        // Only chosen when speech is the *sole* input-needing client: that processing also reshapes
-        // the captured signal, which would corrupt a tuner's pitch read or a recorded take — a
-        // concurrent metronome/drone/reward is fine (playback-only), but `.tuner`/`.recording` keep
-        // the flat `.default` mode even if speech also happens to be running.
-        let voiceOptimized = proposed.contains(.speech) && !proposed.contains(.tuner) && !proposed.contains(.recording)
-        let mode: AVAudioSession.Mode = voiceOptimized ? .voiceChat : .default
+        // Keep input mode stable across speech, tuner and take recording. Changing .voiceChat to
+        // .default while another input engine has a tap can invalidate its hardware format. The
+        // .voiceChat label alone also does not enable AVAudioEngine voice processing, so it must
+        // not be advertised as echo cancellation or guaranteed command isolation from the click.
+        let mode: AVAudioSession.Mode = .default
         let changesFormat = session.category != category || session.categoryOptions != options || session.mode != mode
         if changesFormat { configurationObservers.forEach { $0.willChange() } }
         defer { if changesFormat { configurationObservers.forEach { $0.didChange() } } }
@@ -67,16 +64,16 @@ final class AudioNotificationBag: @unchecked Sendable {
     deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
 }
 
-/// Shared `NotificationCenter` wiring for the audio services (`MetronomeService` keeps its own
-/// copy, predating this helper): registers on `.main`, copies the notification into a `Sendable`
-/// context, then re-enters the caller's `@MainActor` closure via `assumeIsolated` (valid because
-/// the observer itself always fires on `.main`).
+/// Copy notification values on the posting thread, then return immediately. An audio engine
+/// can post while the main actor is waiting for its configuration work; delivering through
+/// NotificationCenter's `.main` queue can make those two threads wait for each other.
+/// The asynchronous main-queue handoff also keeps serial interruption notifications ordered.
 @MainActor
 func observeAudioNotification(_ name: Notification.Name, into bag: AudioNotificationBag,
                                action: @escaping @MainActor @Sendable (AudioNotificationContext) -> Void) {
-    bag.tokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { notification in
+    bag.tokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { @Sendable notification in
         let context = AudioNotificationContext(notification)
-        MainActor.assumeIsolated { action(context) }
+        DispatchQueue.main.async { action(context) }
     })
 }
 
@@ -94,5 +91,38 @@ struct AudioNotificationContext: Sendable {
         interruptionOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
         routeReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
         sourceID = notification.object.map { ObjectIdentifier($0 as AnyObject) }
+    }
+}
+
+/// Permission completions arrive on system queues. These helpers are nonisolated, and their
+/// explicit @Sendable callbacks cannot inherit a UI actor and trap on a background queue.
+enum AudioInputPermissions {
+    static func configurationIssue(requiresSpeech: Bool, info: [String: Any]? = Bundle.main.infoDictionary) -> String? {
+        let keys = requiresSpeech ? ["NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription"]
+            : ["NSMicrophoneUsageDescription"]
+        guard keys.allSatisfy({ (info?[$0] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }) else {
+            return "Microphone access is unavailable in this installation. Your score and touch controls still work."
+        }
+        return nil
+    }
+
+    static func speechPermission() async -> SFSpeechRecognizerAuthorizationStatus {
+        let existing = SFSpeechRecognizer.authorizationStatus()
+        guard existing == .notDetermined else { return existing }
+        return await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { @Sendable status in continuation.resume(returning: status) }
+        }
+    }
+
+    static func microphoneGranted() async -> Bool {
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted: return true
+        case .denied: return false
+        case .undetermined:
+            return await withCheckedContinuation { continuation in
+                AVAudioApplication.requestRecordPermission { @Sendable granted in continuation.resume(returning: granted) }
+            }
+        @unknown default: return false
+        }
     }
 }

@@ -115,8 +115,13 @@ final class FullPDFHitRoutingTests: XCTestCase {
                       "The full hosting-window route must reach the same selection overlay")
 
         markup.finish(); markup.mode = .writing; markup.fingerDrawing = true
-        try await Task.sleep(for: .milliseconds(100))
-        host.view.layoutIfNeeded(); loadedPDF.layoutIfNeeded()
+        // updateUIView now queues PDF work outside SwiftUI's update transaction. Drive the
+        // native layout and await that actual mode change before inspecting touch routing.
+        for _ in 0..<100 {
+            host.view.setNeedsLayout(); host.view.layoutIfNeeded(); loadedPDF.layoutIfNeeded()
+            if pageOverlay.canvas.drawingPolicy == .anyInput { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
         XCTAssertEqual(pageOverlay.canvas.drawingPolicy, .anyInput)
         XCTAssertTrue(pageOverlay.canvas.drawingGestureRecognizer.isEnabled)
         XCTAssertTrue(pinch.isEnabled, "Ink routing must not disable the PDF's two-finger zoom")

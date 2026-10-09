@@ -20,16 +20,27 @@ struct AnnotationToolbar: View {
     }
 
     private func toolRow(compact: Bool) -> some View {
-        HStack(spacing: 8) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(AnnotationToolKind.allCases) { kind in
-                            toolButton(kind, compact: compact)
-                        }
-                    }
-                }
-                .accessibilityIdentifier("annotationTools")
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                toolButtons(compact: compact)
                 Spacer(minLength: 4)
+                editingControls
+            }.fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 4) {
+                ScrollView(.horizontal) { toolButtons(compact: compact) }
+                HStack { Spacer(minLength: 0); editingControls }
+            }
+        }
+    }
+
+    private func toolButtons(compact: Bool) -> some View {
+        HStack(spacing: 4) {
+            ForEach(AnnotationToolKind.allCases) { kind in toolButton(kind, compact: compact) }
+        }.accessibilityElement(children: .contain).accessibilityIdentifier("annotationTools")
+    }
+
+    private var editingControls: some View {
+        HStack(spacing: 4) {
                 Toggle(isOn: $markup.fingerDrawing) {
                     Image(systemName: "hand.draw").font(.system(size: 20)).frame(width: 24, height: 32)
                 }.fixedSize().frame(minHeight: 44)
@@ -62,7 +73,7 @@ struct AnnotationToolbar: View {
                 Image(systemName: symbolName(kind)).font(.system(size: 18))
                 if !compact { Text(kind.label).font(.caption2).fixedSize() }
             }
-            .frame(minWidth: 44, minHeight: 44).padding(.horizontal, 4)
+            .frame(minWidth: 44, minHeight: 44)
             .background(selected ? PraeludeColor.inkFillPressed : PraeludeColor.inkFillQuiet, in: RoundedRectangle(cornerRadius: PraeludeRadius.control))
         }
         .buttonStyle(.plain).foregroundStyle(PraeludeColor.ink)

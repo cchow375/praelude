@@ -34,12 +34,22 @@ final class ScoreWorkflowUITests: XCTestCase {
         app.buttons["annotateScore"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["annotationTool_pen"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.switches["fingerDrawing"].exists)
-        shot("build5-score-annotation")
+        XCTAssertTrue(app.buttons["verdict_clean"].isHittable, "Practice must remain usable while annotating")
+        app.buttons["verdict_clean"].press(forDuration: 0.15)
+        let scoreFrame = app.otherElements["scorePDF"].frame
+        app.buttons["toggleAnnotationPalette"].tap()
+        XCTAssertFalse(app.buttons["annotationTool_pen"].exists)
+        XCTAssertEqual(app.otherElements["scorePDF"].frame, scoreFrame, "Minimizing tools must not move the notation")
+        XCTAssertTrue(app.buttons["verdict_clean"].isHittable)
+        app.buttons["toggleAnnotationPalette"].tap()
+        shot("build8-score-annotation-during-practice")
         app.buttons["finishScoreMarkup"].press(forDuration: 0.15)
+        let closed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !app.buttons["toggleAnnotationPalette"].exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 8), .completed, app.debugDescription)
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 10), app.debugDescription)
         app.buttons["verdict_clean"].press(forDuration: 0.15)
         if app.buttons["hudExpand"].exists { app.buttons["hudExpand"].press(forDuration: 0.15) }
-        XCTAssertTrue(app.staticTexts["2 of 5 clean"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["3 of 5 clean"].waitForExistence(timeout: 10), app.debugDescription)
         app.buttons["closeScore"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["resumePractice"].waitForExistence(timeout: 10), app.debugDescription)
         shot("build5-library-return")
@@ -109,19 +119,32 @@ final class ScoreWorkflowUITests: XCTestCase {
             }
             let controls = app.descendants(matching: .any).matching(identifier: "annotationControls").firstMatch
             let done = app.buttons["finishScoreMarkup"]
-            for _ in 0..<8 {
-                if done.exists, done.isHittable, controls.frame.intersection(app.frame).contains(done.frame) { break }
-                controls.swipeUp()
-            }
             XCTAssertTrue(done.isHittable && controls.frame.intersection(app.frame).contains(done.frame), app.debugDescription)
-            XCTAssertTrue(app.frame.contains(controls.frame), "The annotation tray must stay completely within the window")
+            XCTAssertTrue(app.frame.contains(controls.frame), "The palette must stay completely within the window")
             XCTAssertGreaterThanOrEqual(done.frame.height, 43.99)
-            XCTAssertLessThanOrEqual(controls.frame.height, app.frame.width > 600 ? 200 : 240,
-                                     "The ordinary pen tray must fit its controls instead of reserving blank space")
+            XCTAssertLessThanOrEqual(controls.frame.height, score.frame.height + 0.01,
+                                     "Tools must fit the score area and leave the practice dock reachable")
+            let beforeCollapse = score.frame
+            app.buttons["toggleAnnotationPalette"].tap()
+            let collapsed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controls.frame.height <= 44.01 }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [collapsed], timeout: 5), .completed, app.debugDescription)
+            XCTAssertEqual(score.frame, beforeCollapse, "Collapsing must preserve the score viewport")
+            XCTAssertTrue(done.isHittable && app.frame.contains(done.frame))
+            let handle = app.images["moveAnnotationPalette"]
+            let fallbackHandle = app.descendants(matching: .any).matching(identifier: "moveAnnotationPalette").firstMatch
+            let draggable = handle.exists ? handle : fallbackHandle
+            XCTAssertTrue(draggable.isHittable)
+            let handlePoint = draggable.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            handlePoint.press(forDuration: 0.15, thenDragTo: handlePoint.withOffset(CGVector(dx: -30, dy: 20)))
+            XCTAssertTrue(app.frame.contains(controls.frame), "Dragging clamps the palette inside the window")
+            XCTAssertEqual(score.frame, beforeCollapse, "Moving tools must preserve the score viewport")
+            app.buttons["toggleAnnotationPalette"].tap()
             shot("build7-annotation-\(orientation.rawValue)")
         }
         app.buttons["finishScoreMarkup"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 8), app.debugDescription)
+        let closed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !app.buttons["toggleAnnotationPalette"].exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 8), .completed, app.debugDescription)
+        XCTAssertTrue(app.buttons["armStartSet"].isHittable)
         XCUIDevice.shared.orientation = .portrait
     }
 }

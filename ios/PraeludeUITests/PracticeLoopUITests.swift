@@ -248,7 +248,7 @@ final class PracticeLoopUITests: XCTestCase {
         // Whole-piece practice (no passage chosen yet) is armed immediately on opening the score,
         // and is never cold-gated — its tempo dial is interactive right away.
         XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 15), app.debugDescription)
-        let tempo = app.staticTexts["tempoDialValue"]
+        let tempo = app.descendants(matching: .any).matching(identifier: "tempoDialValue").element
         XCTAssertTrue(tempo.waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertEqual(tempoBPM(tempo), 60, app.debugDescription)
         let start = tempo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -316,7 +316,7 @@ final class PracticeLoopUITests: XCTestCase {
         app.buttons["coldGrade_clean"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
         ensureExpanded(app)
-        let tempo = app.staticTexts["tempoDialValue"]
+        let tempo = app.descendants(matching: .any).matching(identifier: "tempoDialValue").element
         XCTAssertTrue(tempo.waitForExistence(timeout: 15), app.debugDescription)
         let before = tempoBPM(tempo)
         XCTAssertNotNil(before, app.debugDescription)
@@ -457,7 +457,7 @@ final class PracticeLoopUITests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(button.frame.height, 44 - 0.01, identifier)
                 XCTAssertTrue(dock.frame.insetBy(dx: -1, dy: -1).contains(button.frame), identifier)
             }
-            let tempo = app.staticTexts["tempoDialValue"]
+            let tempo = app.descendants(matching: .any).matching(identifier: "tempoDialValue").element
             XCTAssertTrue(tempo.isHittable, app.debugDescription)
             XCTAssertGreaterThanOrEqual(tempo.frame.width, 44 - 0.01)
             XCTAssertGreaterThanOrEqual(tempo.frame.height, 44 - 0.01)

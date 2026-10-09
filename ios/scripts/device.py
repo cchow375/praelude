@@ -379,6 +379,18 @@ def execute(action: str, name: str | None, runner: Runner, ios_root: Path = IOS_
                   f"{connection.get('tunnelState', 'unavailable')} — "
                   f"Developer Mode: {properties.get('developerModeStatus', 'unknown')}")
         return
+    # CoreDevice can report a paired wired device as disconnected until a direct
+    # details request opens its on-demand tunnel. Probe only the explicitly named
+    # unique device; never substitute another destination or trust cached readiness.
+    matches = [item for item in devices if device_name(item) == name] if name else []
+    if len(matches) == 1 and matches[0].get("identifier") and matches[0].get(
+            "connectionProperties", {}).get("tunnelState") != "connected":
+        candidate = matches[0]
+        live = runner.device(["device", "info", "details", "--device", candidate["identifier"]],
+                             "Could not connect to the named device. Connect and unlock it.")
+        if live.get("identifier") != candidate["identifier"]:
+            raise DeviceError("Device identity changed during connection. No update attempted.")
+        devices = [live if item is candidate else item for item in devices]
     selected = select_device(devices, name)
     identifier = selected["identifier"]
     details = runner.device(["device", "info", "details", "--device", identifier],

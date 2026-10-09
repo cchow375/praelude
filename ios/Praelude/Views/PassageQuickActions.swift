@@ -13,8 +13,8 @@ private struct PassageQuickActionsModifier: ViewModifier {
     let pageCount: Int
     var onEditBoxes: (Passage) -> Void
     @State private var recoloring = false
-    @State private var renaming = false
-    @State private var renameText = ""
+    @State private var renaming: Passage?
+    @State private var recolorTarget: Passage?
     @State private var editingDetails: Passage?
     @State private var splitting: Passage?
     @State private var merging: Passage?
@@ -25,8 +25,8 @@ private struct PassageQuickActionsModifier: ViewModifier {
         content
             .confirmationDialog(target?.title ?? "Passage", isPresented: Binding(get: { target != nil && !recoloring }, set: { if !$0 { target = nil } }),
                                 titleVisibility: .visible, presenting: target) { passage in
-                Button("Rename") { renameText = passage.title; renaming = true }
-                Button("Recolor") { recoloring = true }
+                Button("Rename") { renaming = passage; target = nil }
+                Button("Recolor") { recolorTarget = passage; recoloring = true; target = nil }
                 Button("Edit boxes") { onEditBoxes(passage); target = nil }
                 Button("Edit details") { editingDetails = passage; target = nil }
                 if passage.regions.count > 1 { Button("Split off boxes…") { splitting = passage; target = nil } }
@@ -34,15 +34,13 @@ private struct PassageQuickActionsModifier: ViewModifier {
                 Button("Delete passage", role: .destructive) { pendingDelete = passage; target = nil }
                 Button("Cancel", role: .cancel) { target = nil }
             }
-            .confirmationDialog("Recolor", isPresented: $recoloring, titleVisibility: .visible, presenting: target) { passage in
+            .confirmationDialog("Recolor", isPresented: $recoloring, titleVisibility: .visible, presenting: recolorTarget) { passage in
                 Button("No color") { recolor(passage, to: nil) }
                 ForEach(AnnotationColor.allCases) { color in Button(color.label) { recolor(passage, to: color) } }
                 Button("Cancel", role: .cancel) { recoloring = false; target = nil }
             }
-            .alert("Rename passage", isPresented: $renaming) {
-                TextField("Name", text: $renameText)
-                Button("Cancel", role: .cancel) { target = nil }
-                Button("Save") { if let passage = target { rename(passage, to: renameText) }; target = nil }
+            .sheet(item: $renaming) { passage in
+                PassageRenameView(passage: passage, onSaved: { renaming = nil })
             }
             .confirmationDialog("Delete passage?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
                                 titleVisibility: .visible, presenting: pendingDelete) { passage in
@@ -72,12 +70,7 @@ private struct PassageQuickActionsModifier: ViewModifier {
         do { try store.savePassage(edited, replacing: passage) } catch { errorMessage = error.localizedDescription }
         recoloring = false; target = nil
     }
-    private func rename(_ passage: Passage, to title: String) {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        var edited = passage; edited.title = trimmed; edited.updatedAt = Date()
-        do { try store.savePassage(edited, replacing: passage) } catch { errorMessage = error.localizedDescription }
-    }
+
 }
 
 extension View {

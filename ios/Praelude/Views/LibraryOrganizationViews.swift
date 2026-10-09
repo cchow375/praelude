@@ -290,7 +290,8 @@ private struct AddSetlistItemView: View {
     @State private var search = ""
     private var candidates: [Piece] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return store.pieces.filter { query.isEmpty || $0.title.localizedStandardContains(query) || $0.composer.localizedStandardContains(query) }
+        return store.realPieces.filter { query.isEmpty || $0.title.localizedStandardContains(query) || $0.composer.localizedStandardContains(query)
+                || $0.scoreSections.contains { $0.title.localizedStandardContains(query) } }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
     var body: some View {
@@ -306,8 +307,21 @@ private struct AddSetlistItemView: View {
                 // piece's row on Today/the sidebar, which can still be present (elsewhere in the
                 // view hierarchy) while this sheet is up.
                 .accessibilityIdentifier("addSetlistItem")
+                ForEach(piece.scoreSections.sorted { $0.startPage < $1.startPage }) { section in
+                    Button {
+                        onAdd(SetlistItem(pieceID: piece.id, movementLabel: section.title,
+                                          startPage: section.startPage, endPage: section.endPage))
+                        dismiss()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(section.title).foregroundStyle(.primary)
+                            Text(piece.title).font(.caption).foregroundStyle(.secondary)
+                        }.frame(minHeight: 44)
+                    }
+                    .accessibilityIdentifier("addSetlistMovement_\(section.id)")
+                }
             }
-            .searchable(text: $search, prompt: "Title or composer")
+            .searchable(text: $search, prompt: "Title, movement or composer")
             .navigationTitle("Add piece").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }.presentationDetents([.large])

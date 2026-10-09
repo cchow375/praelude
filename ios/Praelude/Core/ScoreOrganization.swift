@@ -27,6 +27,17 @@ public struct ScoreMeasureAnchor: Identifiable, Codable, Equatable, Sendable {
 }
 
 public enum ScoreOrganization {
+    /// A set may target a whole reviewed movement without creating a saved passage or page boxes.
+    /// Its existing snapshot field carries the name and complete source range through history,
+    /// backups and sync, even if the movement is renamed or removed later. Passage rules use only
+    /// passageID, which stays nil for these sets.
+    public static func practiceSnapshot(for section: ScoreSection, pieceID: UUID, at date: Date) -> Passage {
+        let range = section.startPage == section.endPage ? "source page \(section.startPage)"
+            : "source pages \(section.startPage)–\(section.endPage)"
+        return Passage(id: section.id, pieceID: pieceID, title: "\(section.title) · \(range)",
+                       page: section.startPage, createdAt: date, updatedAt: date)
+    }
+
     public static func section(for sourcePage: Int, in piece: Piece) -> ScoreSection? {
         piece.scoreSections.first { $0.startPage <= sourcePage && sourcePage <= $0.endPage }
     }

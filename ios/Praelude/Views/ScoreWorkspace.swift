@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import PencilKit
 
 private enum ScoreSheet: String, Identifiable {
-    case setup, passages, metronome, pages, voice, passageDetails, share, heatmap, bookmarks, links, pageTools, sections, measureMap
+    case setup, passages, metronome, pages, voice, passageDetails, share, heatmap, bookmarks, links, pageTools, sections, measureMap, gestures
     var id: String { rawValue }
 }
 
@@ -15,6 +15,15 @@ final class ScoreInkCache {
     private var byteCount = 0
     private let budget: Int
     init(budget: Int = 16 * 1024 * 1024) { self.budget = budget }
+
+    static func signature(_ rows: [InkStroke]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(rows.count)
+        for row in rows {
+            hasher.combine(row.id); hasher.combine(row.updatedAt); hasher.combine(row.fingerprint ?? row.data)
+        }
+        return hasher.finalize()
+    }
 
     static func mergedData(_ rows: [InkStroke]) -> Data? {
         guard !rows.isEmpty else { return nil }
@@ -88,6 +97,7 @@ struct ScoreWorkspace: View {
     @State private var voiceOwnerID = UUID()
     @State private var arm = PracticeArmController()
     @State private var page = 1
+    @State private var scopedSectionID: UUID?
     @State private var localMarkup = ScoreMarkupState()
     private var markup: ScoreMarkupState { sharedMarkup ?? localMarkup }
     @State private var drawAfterDismiss: Passage?
@@ -117,10 +127,19 @@ struct ScoreWorkspace: View {
     @State private var exporting = false
     @State private var exportTask: Task<Void, Never>?
     @State private var editingTextBox: TextBoxAnnotation?
+    @State private var dictateTextBox = false
+    @State private var renamingPassage: Passage?
+    @State private var dictatePassageName = false
     /// §8: a long press landing on a saved passage's outline while reading (not performance mode,
     /// which uses the same gesture to exit) — drives `.passageQuickActions` below.
     @State private var longPressedPassage: Passage?
     private var piece: Piece? { store.state.pieces.first { $0.id == pieceID } }
+    private var scopedSection: ScoreSection? { piece?.scoreSections.first { $0.id == scopedSectionID } }
+    private var scopedPages: ClosedRange<Int>? { scopedSection.map { $0.startPage...$0.endPage } }
+    private var scopedDisplayPages: [Int] {
+        guard let scopedPages else { return Array(1...max(1, effectivePageCount)) }
+        return effectivePages.filter { $0.sourcePage.map(scopedPages.contains) == true }.map(\.displayOrder)
+    }
     private var active: ActiveSet? { store.activeSet?.configuration.pieceID == pieceID ? store.activeSet : nil }
     private var scoreURL: URL? { piece.flatMap { NativeLibraryFiles(store: store).scoreURL(for: $0) } }
     // §8: `deletePassage` archives (tombstones) rather than erasing, so every list must filter it out.
@@ -128,7 +147,7 @@ struct ScoreWorkspace: View {
     private var visibleRegions: [PassageRegion] {
         let snapshot = active?.configuration.passageSnapshot?.regions ?? []
         let snapshotIDs = Set(snapshot.map(\.id))
-        return savedPassages.flatMap(\.regions).filter { !snapshotIDs.contains($0.id) } + snapshot
+        return savedPassages.flatMap(\.regions).filter { !snapshotIDs.contains($0.id) && (scopedPages?.contains($0.page) ?? true) } + snapshot
     }
     private var emphasizedIDs: Set<UUID> { Set((active?.configuration.passageSnapshot ?? selectedPassage)?.regions.map(\.id) ?? []) }
     /// §7 page tools: this piece's own page edits. Empty for the overwhelmingly common piece that
@@ -188,12 +207,7 @@ struct ScoreWorkspace: View {
     @State private var mergedInkCache = ScoreInkCache()
     private func mergedInkData(_ page: Int) -> Data? {
         let rows = store.inkStrokes(pieceID: pieceID, page: page, layer: markup.activeLayer)
-        var hasher = Hasher()
-        hasher.combine(rows.count)
-        for row in rows {
-            hasher.combine(row.id); hasher.combine(row.updatedAt); hasher.combine(row.fingerprint ?? row.data)
-        }
-        let signature = hasher.finalize()
+        let signature = ScoreInkCache.signature(rows)
         let key = "\(pieceID)|\(page)|\(markup.activeLayer.rawValue)"
         if let cached = mergedInkCache.entry(for: key), cached.signature == signature { return cached.data }
         let data = ScoreInkCache.mergedData(rows)
@@ -214,10 +228,6 @@ struct ScoreWorkspace: View {
         Group {
             if let piece {
                 GeometryReader { geometry in
-                    // A bottom safe-area inset can extend its scrolling viewport through the
-                    // home-indicator region. Exclude both inset allowances before halving so
-                    // the visible tray, including that extension, stays within half the workspace.
-                    let annotationFooterHeight = min(360, max(0, geometry.size.height - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom) * 0.5)
                     ZStack {
                         if let scoreURL, FileManager.default.fileExists(atPath: scoreURL.path) {
                             // Pinned paper-white, not the paper/stage token: the score stays paper in both appearances.
@@ -232,6 +242,11 @@ struct ScoreWorkspace: View {
                             } actions: {
                                 Button("Add score PDF") { importing = true }.buttonStyle(.praeludeQuiet).frame(maxWidth: 220)
                             }
+                        }
+                    }
+                    .overlay {
+                        if markup.mode == .writing && !performanceMode {
+                            AnnotationPalette(markup: markup, onDone: returnToPractice, onRemoveStamp: removeSelectedStamp)
                         }
                     }
                     .safeAreaInset(edge: .top, spacing: 0) {
@@ -250,42 +265,26 @@ struct ScoreWorkspace: View {
                         }
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if markup.mode == .selecting {
-                            selectionTools
-                        } else if markup.mode == .writing {
-                            // Long stamp trays and accessibility labels must remain reachable without
-                            // consuming the entire score in landscape or a narrow multitasking window.
-                            ViewThatFits(in: .vertical) {
-                                writingTools.fixedSize(horizontal: false, vertical: true)
-                                ScrollView { writingTools.fixedSize(horizontal: false, vertical: true) }
-                                    .frame(height: annotationFooterHeight)
-                            }
-                            .frame(maxHeight: annotationFooterHeight)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityElement(children: .contain)
-                            .accessibilityIdentifier("annotationControls")
-                        } else if markup.mode == .reading && focusMode && !performanceMode {
-                            // "Focus on score" must still leave Stop/Undo/the metronome toggle and a
-                            // verdict fallback one tap away (§3d) — only true performance mode ("the
-                            // only surviving interaction is turning pages") hides the dock entirely.
-                            // Collapsing the HUD first (its own, separately reachable control) is how
-                            // a player recovers the vertical space this used to free by hiding
-                            // everything — see "(C) Audit.md".
-                            if active != nil { withFeedback { practiceDock } }
-                        } else if markup.mode == .reading && !focusMode {
-                            if dynamicTypeSize.isAccessibilitySize {
-                                withFeedback {
-                                    ScrollView {
-                                        practiceDock.fixedSize(horizontal: false, vertical: true)
+                        if !performanceMode && (!focusMode || active != nil) {
+                            withFeedback {
+                                if dynamicTypeSize.isAccessibilitySize || geometry.size.height < 420 {
+                                    VStack(spacing: 0) {
+                                        if markup.mode == .selecting { selectionTools }
+                                        ScrollView {
+                                            practiceDock.fixedSize(horizontal: false, vertical: true)
+                                        }
+                                        .accessibilityIdentifier("accessiblePracticeControls")
                                     }
-                                    .frame(height: min(520, geometry.size.height * 0.6))
-                                    .accessibilityIdentifier("accessiblePracticeControls")
-                                }
-                            } else { withFeedback { practiceDock } }
+                                    // In a short drawing workspace, reserve enough score height
+                                    // for the fixed palette header and a usable scrolling tool row.
+                                    .frame(height: min(520, geometry.size.height *
+                                        (markup.mode == .writing && geometry.size.height < 420 ? 0.3 : 0.6)))
+                                } else { scoreFooter }
+                            }
                         }
                     }
                 }
-                .navigationTitle(piece.title).navigationBarTitleDisplayMode(.inline)
+                .navigationTitle(scopedSection?.title ?? piece.title).navigationBarTitleDisplayMode(.inline)
                 .navigationBarBackButtonHidden(true)
                 .toolbar(focusMode || performanceMode ? .hidden : .visible, for: .navigationBar)
                 .toolbar {
@@ -294,6 +293,9 @@ struct ScoreWorkspace: View {
                             .accessibilityLabel("Close score").accessibilityIdentifier("closeScore")
                     }
                     ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button { if markup.flushInk() { sheet = .sections } } label: {
+                            Image(systemName: "list.bullet.rectangle").frame(width: 44, height: 44).contentShape(Rectangle())
+                        }.accessibilityLabel("Movements & pieces").accessibilityIdentifier("openScoreSections")
                         Button { sheet = .metronome } label: { PraeludeIcon(glyph: .metronome, size: 22).frame(width: 44, height: 44).contentShape(Rectangle()) }
                             .accessibilityLabel("Metronome").accessibilityIdentifier("openMetronome")
                         Menu {
@@ -304,6 +306,9 @@ struct ScoreWorkspace: View {
                                 Toggle("Two pages", isOn: $twoPages).praeludeToggleHaptic(twoPages)
                                 if twoPages { Toggle("Half-page turns", isOn: $halfPageTurns).praeludeToggleHaptic(halfPageTurns) }
                                 if supportsMultipleWindows { Button("Open score in new window", systemImage: "rectangle.on.rectangle") { openWindow(value: pieceID) } }
+                            }
+                            if scopedSection != nil {
+                                Button("Show whole score", systemImage: "doc") { scopedSectionID = nil }
                             }
                             Button("Passages", systemImage: "bookmark") { sheet = .passages }
                             Button("Draw a passage", systemImage: "rectangle.dashed") { beginSelection(nil) }
@@ -320,11 +325,12 @@ struct ScoreWorkspace: View {
                                 Button("Passage details", systemImage: "slider.horizontal.3") { sheet = .passageDetails }
                                 Button("Practice whole piece", systemImage: "doc") { self.selectedPassage = nil }
                             }
-                            Button(speech.isListening ? "Turn voice off" : "Hands-free commands", systemImage: speech.isListening ? "mic.slash" : "mic") {
-                                if speech.isListening { speech.stop() } else { sheet = .voice }
+                            Button((speech.isListening || speech.isPreparing) ? "Turn voice off" : "Hands-free commands", systemImage: (speech.isListening || speech.isPreparing) ? "mic.slash" : "mic") {
+                                if speech.isListening || speech.isPreparing { speech.stop() } else { sheet = .voice }
                             }
                             Button("Practice results on score", systemImage: "square.grid.3x3.fill") { sheet = .heatmap }
                                 .disabled(scoreURL == nil)
+                            Button("Score gestures", systemImage: "hand.tap") { sheet = .gestures }
                             Toggle("Turn passage page after each verdict", isOn: preference(\.autoTurnPassageAfterVerdict))
                             Button("Replace score PDF", systemImage: "doc.badge.plus") { importing = true }
                             Button(exporting ? "Preparing annotated score…" : "Share annotated score", systemImage: "square.and.arrow.up", action: exportAnnotatedScore)
@@ -365,7 +371,7 @@ struct ScoreWorkspace: View {
                                          initialConfiguration: arm.configuration,
                                          onConfigured: { arm.applyConfigurationOverride($0) }, onStarted: { refreshAudio() })
             case .passages: PassagePickerView(pieceID: pieceID, currentPage: sourcePage(forDisplayPage: page) ?? 0,
-                                              selectedPassageID: selectedPassage?.id, onSelect: selectPassage,
+                                              selectedPassageID: selectedPassage?.id, sourcePageRange: scopedPages, onSelect: selectPassage,
                                               onDraw: { passage in drawAfterDismiss = passage ?? newPassage() })
             case .passageDetails:
                 if let selectedPassage {
@@ -376,7 +382,7 @@ struct ScoreWorkspace: View {
                     }
                 }
             case .metronome: MetronomeView()
-            case .pages: if let scoreURL { ScorePagePicker(url: scoreURL, pageEdits: effectivePageEdits, currentPage: page, onSelect: { if markup.flushInk() { page = $0; savePage($0) } }) }
+            case .pages: if let scoreURL { ScorePagePicker(url: scoreURL, pageEdits: effectivePageEdits, currentPage: page, sourcePageRange: scopedPages, onSelect: { if markup.flushInk() { page = $0; savePage($0) } }) }
             case .voice: voiceSheet
             case .share: if let sharingURL { ScoreShareView(url: sharingURL) }
             case .heatmap: if let scoreURL { ScoreHeatmapView(pieceID: pieceID, url: scoreURL, startPage: page) }
@@ -384,9 +390,12 @@ struct ScoreWorkspace: View {
             case .links: ScoreLinksView(pieceID: pieceID, pageCount: max(1, effectivePageCount), currentPage: page)
             case .pageTools: PageToolsView(pieceID: pieceID, pageCount: max(1, piece?.pageCount ?? 1))
             case .sections: ScoreSectionsView(pieceID: pieceID, onOpenPage: { source in
-                if markup.flushInk() { page = displayPage(forSourcePage: source); savePage(page) }
+                if markup.flushInk() {
+                    openScoreSection(at: source)
+                }
             })
             case .measureMap: ScoreMeasureMapView(pieceID: pieceID, currentPage: sourcePage(forDisplayPage: page) ?? 1)
+            case .gestures: gestureGuide
             }
         }
         .confirmationDialog("Switch practice passage?", isPresented: Binding(get: { pendingPracticePassage != nil }, set: { if !$0 { pendingPracticePassage = nil } }), titleVisibility: .visible, presenting: pendingPracticePassage) { passage in
@@ -424,7 +433,7 @@ struct ScoreWorkspace: View {
         }
         .sheet(item: $editingTextBox) { box in
             let isSaved = store.state.textAnnotations.contains { $0.id == box.id }
-            TextBoxEditorView(text: box.text, onSave: { text in
+            TextBoxEditorView(text: box.text, startDictation: dictateTextBox, onSave: { text in
                 do {
                     try store.saveTextAnnotation(TextBoxAnnotation(id: box.id, pieceID: box.pieceID, page: box.page, region: box.region,
                                                                   text: text, layer: box.layer, createdAt: box.createdAt))
@@ -435,13 +444,17 @@ struct ScoreWorkspace: View {
                 catch { self.error = error.localizedDescription; return false }
             } : nil)
         }
+        .sheet(item: $renamingPassage) { passage in
+            PassageRenameView(passage: passage, startDictation: dictatePassageName)
+        }
         .confirmationDialog("End this practice session?", isPresented: $ending, titleVisibility: .visible) {
             Button("End practice", role: .destructive) { perform { try endSessionAndShare(); metronome.stop(); speech.stop() } }
             Button("Cancel", role: .cancel) {}
         } message: { Text("Your repetitions and time stay saved. Unfinished work remains in your history.") }
         .alert("Couldn’t complete that", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
         .onAppear {
-            page = min(max(1, initialPage ?? piece?.lastPage ?? 1), max(1, effectivePageCount))
+            if let initialPage { scopedSectionID = piece?.scoreSections.first { $0.startPage == initialPage }?.id }
+            page = min(max(1, initialPage.map(displayPage(forSourcePage:)) ?? piece?.lastPage ?? 1), max(1, effectivePageCount))
             if initialPage != nil { savePage(page); onInitialPageConsumed() }
             markup.showPassageBoxes = showPassageBoxes
             markup.onConfirmSelection = saveSelection
@@ -459,8 +472,12 @@ struct ScoreWorkspace: View {
             markup.onConfirmSelection = saveSelection
             markup.showPassageBoxes = showPassageBoxes
             if markup.flushInk() { markup.finish() }
-            page = piece?.lastPage ?? 1; selectedPassage = nil; jumpBackStack = []; speech.stop(ifOwnedBy: voiceOwnerID); arm.clearArm()
+            page = piece?.lastPage ?? 1; scopedSectionID = nil; selectedPassage = nil; jumpBackStack = []; speech.stop(ifOwnedBy: voiceOwnerID); arm.clearArm()
             offerBreakPointTap = false; markup.breakPointArmed = false
+        }
+        .onChange(of: initialPage) { _, source in
+            guard let source, markup.flushInk() else { return }
+            openScoreSection(at: source); onInitialPageConsumed()
         }
         .onChange(of: showPassageBoxes) { _, value in markup.showPassageBoxes = value }
         .onChange(of: scenePhase) { _, phase in if phase != .active { _ = markup.flushInk() } }
@@ -501,8 +518,13 @@ struct ScoreWorkspace: View {
                        regions: visibleRegions, regionColors: passageColors, emphasizedIDs: emphasizedIDs, practicedIDs: practicedIDs,
                        pageEdits: effectivePageEdits, scoreLinks: effectiveScoreLinks, onLinkActivated: activateLink,
                        stamps: visibleStamps, textBoxes: visibleTextBoxes, otherLayersInkData: otherLayersInk,
-                       drawingData: mergedInkData, saveDrawing: persistInk, onRegionSelected: onRegionSelected,
-                       onPlaceStamp: placeStamp, onPlaceTextBox: placeTextBox, onPlaceBreakPoint: placeBreakPointTap, onEditTextBox: { editingTextBox = $0 },
+                       drawingData: mergedInkData, saveDrawing: persistInk, saveDrawingAsync: persistInkPrepared, onRegionSelected: onRegionSelected,
+                       onPlaceStamp: placeStamp, onPlaceTextBox: placeTextBox, onPlaceBreakPoint: placeBreakPointTap,
+                       onEditTextBox: { dictateTextBox = false; editingTextBox = $0 },
+                       onRenameRegion: { editPassageName(regionID: $0, dictate: false) },
+                       onDictateRegion: { editPassageName(regionID: $0, dictate: true) },
+                       onMoveTextBox: moveTextBox,
+                       onDictateTextBox: { dictateTextBox = true; editingTextBox = $0 },
                        onTurnPage: turnPage, onLongPress: handleLongPress, onPageChanged: savePage)
             .accessibilityIdentifier("scorePDF")
     }
@@ -519,12 +541,27 @@ struct ScoreWorkspace: View {
             pageControls(compact: true)
         }.padding(.horizontal, 12).praeludeScoreChrome()
     }
-    private var writingTools: some View {
-        VStack(spacing: 2) {
-            AnnotationToolbar(markup: markup, simplifiedLabels: verticalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize,
-                              onRemoveSelectedStamp: removeSelectedStamp)
-            scoreModeControls
-        }.padding(.horizontal, 12).praeludeScoreChrome()
+    private var scoreFooter: some View {
+        VStack(spacing: 0) {
+            if markup.mode == .selecting { selectionTools }
+            practiceDock
+        }
+    }
+    private func editPassageName(regionID: UUID, dictate: Bool) {
+        guard let passage = savedPassages.first(where: { $0.regions.contains { $0.id == regionID } }), markup.flushInk() else { return }
+        dictatePassageName = dictate
+        renamingPassage = passage
+    }
+    private func moveTextBox(_ box: TextBoxAnnotation, _ region: NormalizedRect) -> Bool {
+        do {
+            guard let current = store.state.textAnnotations.first(where: { $0.id == box.id }),
+                  current == box else { error = "This note changed elsewhere. Reopen it before moving it."; return false }
+            var moved = current
+            moved.region = region
+            moved.updatedAt = Date()
+            try store.saveTextAnnotation(moved)
+            return true
+        } catch { self.error = error.localizedDescription; return false }
     }
     private var scoreModeControls: some View {
         HStack(spacing: 4) {
@@ -535,8 +572,7 @@ struct ScoreWorkspace: View {
             Button { returnToPractice() } label: {
                 Image(systemName: markup.mode == .writing ? "checkmark" : "play.rectangle").frame(width: 44, height: 44).contentShape(Rectangle())
                     .background(markup.mode == .reading ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 9))
-            }.accessibilityLabel(markup.mode == .writing ? "Done" : "Practice mode")
-                .accessibilityIdentifier(markup.mode == .writing ? "finishScoreMarkup" : "scorePracticeMode")
+            }.accessibilityLabel("Practice mode").accessibilityIdentifier("scorePracticeMode")
             Button { beginSelection(nil) } label: {
                 Image(systemName: "rectangle.dashed").frame(width: 44, height: 44).contentShape(Rectangle())
             }.accessibilityLabel("Draw passage").accessibilityIdentifier("drawPassageOnScore")
@@ -581,31 +617,49 @@ struct ScoreWorkspace: View {
                 Text("Drag a box. Double-tap the score or tap Done to save.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
-            HStack(spacing: 6) {
-                Button { markup.undoSelection() } label: {
-                    Image(systemName: "arrow.uturn.backward").font(.system(size: 20))
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    selectionEditButtons
+                    Spacer(minLength: 0)
+                    selectionCompletionButtons.fixedSize(horizontal: true, vertical: false)
                 }
-                .disabled(!markup.canUndoSelection).accessibilityLabel("Undo")
-                .accessibilityIdentifier("undoBox")
-                Button { markup.redoSelection() } label: {
-                    Image(systemName: "arrow.uturn.forward").font(.system(size: 20))
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                VStack(spacing: 2) {
+                    HStack { selectionEditButtons; Spacer(minLength: 0) }
+                    HStack { Spacer(minLength: 0); selectionCompletionButtons }
                 }
-                .disabled(!markup.canRedoSelection).accessibilityLabel("Redo")
-                .accessibilityIdentifier("redoBox")
-                Spacer(minLength: 0)
-                Button { markup.removeSelected() } label: {
-                    Image(systemName: "trash").font(.system(size: 20))
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                }
-                .disabled(markup.selectedRegionID == nil).accessibilityLabel("Remove selected box")
-                .accessibilityIdentifier("removeBox")
-                Button("Cancel") { confirmDiscardSelection = true }.frame(minWidth: 44, minHeight: 44)
-                Button("Done") { saveSelection() }.fontWeight(.semibold).frame(minWidth: 52, minHeight: 44)
-                    .disabled(markup.regions.isEmpty).accessibilityIdentifier("finishScoreMarkup")
             }
         }.padding(.horizontal, 12).padding(.top, 2).praeludeScoreChrome()
+    }
+    private var selectionEditButtons: some View {
+        HStack(spacing: 6) {
+            Button { markup.undoSelection() } label: {
+                Image(systemName: "arrow.uturn.backward").font(.system(size: 20))
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .disabled(!markup.canUndoSelection).accessibilityLabel("Undo")
+            .accessibilityIdentifier("undoBox")
+            Button { markup.redoSelection() } label: {
+                Image(systemName: "arrow.uturn.forward").font(.system(size: 20))
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .disabled(!markup.canRedoSelection).accessibilityLabel("Redo")
+            .accessibilityIdentifier("redoBox")
+            Button { markup.removeSelected() } label: {
+                Image(systemName: "trash").font(.system(size: 20))
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .disabled(markup.selectedRegionID == nil).accessibilityLabel("Remove selected box")
+            .accessibilityIdentifier("removeBox")
+        }.fixedSize()
+    }
+    private var selectionCompletionButtons: some View {
+        HStack(spacing: 12) {
+            Button("Cancel") { confirmDiscardSelection = true }
+                .padding(.horizontal, 6).frame(minWidth: 44, minHeight: 44)
+            Button("Done") { saveSelection() }.fontWeight(.semibold)
+                .padding(.horizontal, 6).frame(minWidth: 52, minHeight: 44)
+                .disabled(markup.regions.isEmpty).accessibilityIdentifier("finishScoreMarkup")
+        }
     }
     private func newPassage() -> Passage {
         let count = savedPassages.count + 1
@@ -651,8 +705,54 @@ struct ScoreWorkspace: View {
             let existingRows = store.inkStrokes(pieceID: pieceID, page: page, layer: markup.activeLayer)
             let strokes = data.isEmpty ? [] : InkPerStroke.split(try PKDrawing(data: data), reusing: existingRows)
             try store.replaceInk(pieceID: pieceID, page: page, layer: markup.activeLayer, strokes: strokes)
+            _ = try savedInkData(page: page, layer: markup.activeLayer, data: data, strokes: strokes,
+                                 rows: store.inkStrokes(pieceID: pieceID, page: page, layer: markup.activeLayer))
             return true
         } catch { markup.errorMessage = "Ink could not be saved. \(error.localizedDescription)"; return false }
+    }
+    private func savedInkData(page: Int, layer: InkLayer, data: Data, strokes: [PracticeStore.InkStrokeInput], rows: [InkStroke]) throws -> Data? {
+        // Do not assume edits retain saved draw order: a lasso edit can tombstone an old row
+        // and insert its replacement later. The receipt must describe the actual saved order.
+        let sameOrder = rows.count == strokes.count &&
+            zip(rows, strokes).allSatisfy { ($0.0.fingerprint ?? $0.0.data) == ($0.1.fingerprint ?? $0.1.data) }
+        let saved = rows.isEmpty ? nil : (sameOrder ? data : try InkPerStroke.merge(rows.map(\.data)).dataRepresentation())
+        // A newer writer may already have replaced this receipt. Never evict that writer's
+        // cache entry with our older rows, but still return the baseline this operation committed.
+        guard store.inkStrokes(pieceID: pieceID, page: page, layer: layer) == rows else { return saved }
+        let key = "\(pieceID)|\(page)|\(layer.rawValue)"
+        let visible = (max(1, self.page - 2)...(self.page + 2)).compactMap(sourcePage(forDisplayPage:))
+        var protected = Set(visible.map { "\(pieceID)|\($0)|\(markup.activeLayer.rawValue)" })
+        let pendingLayer = markup.pendingInkLayer ?? markup.activeLayer
+        protected.formUnion(markup.pendingInk.keys.map { "\(pieceID)|\($0)|\(pendingLayer.rawValue)" })
+        mergedInkCache.insert(key: key, signature: ScoreInkCache.signature(rows), data: saved, protectedKeys: protected)
+        return saved
+    }
+    private func persistInkPrepared(_ page: Int, _ data: Data, _ expected: Data?) async -> ScoreInkSaveReceipt? {
+        let layer = markup.activeLayer
+        do {
+            try Task.checkCancellation()
+            guard mergedInkData(page) == expected else { markup.conflictPage = page; return nil }
+            let rows = store.inkStrokes(pieceID: pieceID, page: page, layer: layer)
+            let split = Task.detached(priority: .utility) {
+                try Task.checkCancellation()
+                return data.isEmpty ? [] : InkPerStroke.split(try PKDrawing(data: data), reusing: rows)
+            }
+            let strokes = try await withTaskCancellationHandler {
+                try await split.value
+            } onCancel: { split.cancel() }
+            try Task.checkCancellation()
+            let savedRows = try await store.replaceInkPreparedAsync(pieceID: pieceID, page: page, layer: layer, strokes: strokes, expectedRows: rows)
+            // A completed store call has already committed. Always return success and publish
+            // its cache baseline; a newer Pencil edit must stay dirty in the coordinator.
+            return ScoreInkSaveReceipt(data: try savedInkData(page: page, layer: layer, data: data, strokes: strokes, rows: savedRows))
+        } catch is CancellationError { return nil }
+        catch {
+            if !Task.isCancelled {
+                if markup.activeLayer == layer && mergedInkData(page) != expected { markup.conflictPage = page }
+                else { markup.errorMessage = "Ink could not be saved. \(error.localizedDescription)" }
+            }
+            return nil
+        }
     }
     private func placeStamp(_ page: Int, _ position: NormalizedRect) -> Bool {
         guard let armed = markup.armedStamp else { return false }
@@ -663,6 +763,7 @@ struct ScoreWorkspace: View {
         } catch { self.error = error.localizedDescription; return false }
     }
     private func placeTextBox(_ page: Int, _ position: NormalizedRect) {
+        dictateTextBox = false
         editingTextBox = TextBoxAnnotation(pieceID: pieceID, page: page, region: position, text: "", layer: markup.activeLayer)
     }
     /// §11 R8: "after Sloppy, optional tap where it broke." `active`'s own passage (not
@@ -778,7 +879,7 @@ struct ScoreWorkspace: View {
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }.accessibilityElement(children: .combine)
             }
-            scoreModeControls
+            if markup.mode != .selecting { scoreModeControls }
         }
         .padding(.horizontal, sizeClass == .regular ? 16 : 8).padding(.vertical, compactScoreControls ? 2 : 14)
         .frame(maxWidth: .infinity)
@@ -815,7 +916,7 @@ struct ScoreWorkspace: View {
         }
     }
     private func rearm() {
-        arm.arm(pieceID: pieceID, passage: selectedPassage, store: store)
+        arm.arm(pieceID: pieceID, passage: selectedPassage, store: store, scoreSection: scopedSection)
     }
     private func rearmIfIdle() {
         guard store.activeSet == nil || store.activeSet?.isComplete == true else { return }
@@ -851,17 +952,45 @@ struct ScoreWorkspace: View {
     private func pageControls(compact: Bool) -> some View {
         HStack(spacing: compact ? 8 : 4) {
             Button { turnPage(-1) } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
-                .disabled(page <= 1).accessibilityLabel("Previous page").keyboardShortcut(.leftArrow, modifiers: [])
+                .disabled(page <= (scopedDisplayPages.first ?? 1)).accessibilityLabel("Previous page").keyboardShortcut(.leftArrow, modifiers: [])
             Button { sheet = .pages } label: { Text(pageIndicatorText).font(.subheadline.monospacedDigit()).fixedSize(horizontal: true, vertical: false).frame(minWidth: 54, minHeight: 44) }
                 .accessibilityLabel(pageIndicatorDescription).accessibilityIdentifier("pageIndicator")
             Button { turnPage(1) } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }
-                .disabled(page >= max(1, effectivePageCount)).accessibilityLabel("Next page").keyboardShortcut(.rightArrow, modifiers: [])
+                .disabled(page >= (scopedDisplayPages.last ?? max(1, effectivePageCount))).accessibilityLabel("Next page").keyboardShortcut(.rightArrow, modifiers: [])
         }
     }
     @ViewBuilder private var jumpBackButton: some View {
         if let backPage = jumpBackStack.last {
             Button { jumpBack() } label: { Image(systemName: "arrow.uturn.backward").frame(width: 44, height: 44) }
                 .accessibilityLabel("Jump back to page \(backPage)").accessibilityIdentifier("jumpBack")
+        }
+    }
+    private var gestureGuide: some View {
+        NavigationStack {
+            List {
+                Section("Practice from the score") {
+                    Label("Tap a passage to prepare it", systemImage: "hand.tap")
+                    Label("Double-tap a selected passage to rename it", systemImage: "character.cursor.ibeam")
+                    Label("Triple-tap a selected passage to dictate its name", systemImage: "mic")
+                    Label("Hold a passage for more actions", systemImage: "hand.tap.fill")
+                    Label("Tap the tempo number to type a BPM", systemImage: "number")
+                    Label("Slide the tempo up or down to adjust it", systemImage: "arrow.up.arrow.down")
+                }
+                Section("Mark your music") {
+                    Label("Pencil writes; fingers move and zoom the score", systemImage: "pencil.tip")
+                    Label("Two-finger tap undoes the last ink change", systemImage: "arrow.uturn.backward")
+                    Label("Drag the palette handle to move your tools", systemImage: "line.3.horizontal")
+                    Label("Minimize the tools to keep more music visible", systemImage: "minus")
+                    Label("Hold and drag a sticky note to move it", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                    Label("Double-tap a note to edit; triple-tap to dictate", systemImage: "text.bubble")
+                }
+                Section {
+                    Text("The practice buttons stay available while you draw. Undo, passage actions and text editing also have visible button alternatives.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Score gestures").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { sheet = nil } } }
         }
     }
     private var voiceSheet: some View {
@@ -885,8 +1014,8 @@ struct ScoreWorkspace: View {
                 }
                 if let failure = speech.errorMessage { Section { Text(failure).foregroundStyle(.red) } }
                 Section {
-                    Button(speech.isListening ? "Stop listening" : "Enable hands-free") {
-                        if speech.isListening { speech.stop() }
+                    Button((speech.isListening || speech.isPreparing) ? "Stop listening" : "Enable hands-free") {
+                        if speech.isListening || speech.isPreparing { speech.stop() }
                         else if voiceCheckedOnce { speech.start(ownerID: voiceOwnerID, onCommand: handleVoice) }
                         else {
                             // First-ever enable: the natural moment to actually check recognition in
@@ -910,13 +1039,29 @@ struct ScoreWorkspace: View {
                 }) { VoiceOnboardingView() }
         }.presentationDetents([.large])
     }
+    private func openScoreSection(at source: Int) {
+        scopedSectionID = piece?.scoreSections.first { $0.startPage == source }?.id
+        if active == nil || active?.isComplete == true {
+            if let selectedPassage, let scopedPages,
+               !(selectedPassage.regions.isEmpty ? [selectedPassage.page] : selectedPassage.regions.map(\.page)).allSatisfy(scopedPages.contains) {
+                self.selectedPassage = nil
+                arm.clearArm()
+            }
+            rearmIfIdle()
+        }
+        page = displayPage(forSourcePage: source); savePage(page)
+    }
     private func turnPage(_ direction: Int) {
         guard markup.flushInk() else { return }
         let step = (twoPages && sizeClass == .regular && !halfPageTurns) ? 2 : 1
-        page = min(max(1, effectivePageCount), max(1, page + direction * step))
+        page = ScorePageNavigation.advance(page, by: direction * step, among: scopedDisplayPages)
         savePage(page)
     }
-    private func savePage(_ page: Int) { perform { try store.updateLastPage(pieceID: pieceID, page: page) } }
+    private func savePage(_ requestedPage: Int) {
+        let accepted = ScorePageNavigation.nearest(requestedPage, among: scopedDisplayPages)
+        if page != accepted { page = accepted }
+        perform { try store.updateLastPage(pieceID: pieceID, page: accepted) }
+    }
     /// §7 links: jumps to a repeat/D.S./coda target, remembering where we came from so the jump-back
     /// button (or menu item) can return there.
     private func activateLink(_ link: ScoreLink) {

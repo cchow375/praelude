@@ -1,6 +1,12 @@
 import Observation
 import Foundation
 
+private enum PracticeDraftTarget: Hashable {
+    case piece(UUID)
+    case passage(UUID)
+    case section(pieceID: UUID, sectionID: UUID)
+}
+
 /// Owns the practice loop's "arm -> start" state machine (§10a: tap a passage, then Start, in ≤2
 /// taps total, with rule defaults filled) so both a touch and a voice "Start"/"Clean"/"Shaky"/
 /// "Missed" funnel through the same methods, and §10c/§11's post-set next-step line and dismissible
@@ -11,6 +17,7 @@ import Foundation
 final class PracticeArmController {
     private(set) var pieceID: UUID?
     private(set) var passage: Passage?
+    private(set) var scoreSection: ScoreSection?
     var configuration: PracticeConfiguration?
     /// §9/R3: a cold-eligible passage's first `start(grade:...)` call stops here instead of starting,
     /// so the arm view can ask for Clean/Shaky/Missed before the set actually begins.
@@ -28,7 +35,7 @@ final class PracticeArmController {
     private var pendingTempo: [UUID: Double] = [:]
     private var pendingStages: [UUID: [VariantStage]] = [:]
     private var pendingHands: [UUID: String] = [:]
-    private var chosenConfigurations: [UUID: PracticeConfiguration] = [:]
+    private var chosenConfigurations: [PracticeDraftTarget: PracticeConfiguration] = [:]
     private(set) var errorMessage: String?
 
     /// §11 R1/R2/R6-R13: every other rule that fired for the just-ended set's passage, as dismissible
@@ -46,30 +53,35 @@ final class PracticeArmController {
     /// that is what keeps the whole flow at exactly "tap passage, then Start or say Start" (≤2 taps
     /// total, §10a): a cold-eligible passage's *second* tap/word is already the grade, in place of a
     /// plain Start, never an extra third step.
-    func arm(pieceID: UUID, passage: Passage?, store: PracticeStore) {
+    func arm(pieceID: UUID, passage: Passage?, store: PracticeStore, scoreSection: ScoreSection? = nil) {
         // "Moving on to arm something else" (see this method's own doc comment above) means the
         // target actually changes — a re-arm of the *same* piece/passage (how every idle rearm after
         // a set ends, including a manual Stop, reaches this) must not wipe out a next-step/suggestions
         // `computeAfterSet` just populated for it. `NextStepAndSuggestionsView` only ever renders while
         // idle (no active set for this piece) anyway, so anything preserved here that turns out stale
         // is always overwritten by the *next* `computeAfterSet` before it would be shown again.
-        let isSameTarget = self.pieceID == pieceID && self.passage?.id == passage?.id
+        let scoreSection = passage == nil ? scoreSection : nil
+        let isSameTarget = self.pieceID == pieceID && self.passage?.id == passage?.id && self.scoreSection?.id == scoreSection?.id
         self.pieceID = pieceID
         self.passage = passage
+        self.scoreSection = scoreSection
         if !isSameTarget { suggestions = []; nextStep = nil }
         // Mid-set context (unlike `nextStep`/`suggestions` above, which are meant for the idle screen
         // right after a set): always stale once anything is armed again, same-target or not.
         lastColdGradeDecision = nil
         guard let passage else {
             let tempo = store.pieces.first { $0.id == pieceID }?.defaultPracticeBPM ?? 60
-            configuration = chosenConfigurations[pieceID] ?? PracticeConfiguration(pieceID: pieceID, focus: "Pulse", startBPM: tempo, targetBPM: tempo)
+            let key: PracticeDraftTarget = scoreSection.map { .section(pieceID: pieceID, sectionID: $0.id) } ?? .piece(pieceID)
+            var draft = chosenConfigurations[key] ?? PracticeConfiguration(pieceID: pieceID, focus: "Pulse", startBPM: tempo, targetBPM: tempo)
+            draft.passageSnapshot = scoreSection.map { ScoreOrganization.practiceSnapshot(for: $0, pieceID: pieceID, at: Date()) }
+            configuration = draft
             awaitingColdGrade = false
             return
         }
         let context = RuleContext(state: store.state, now: Date())
         var draft = PracticeRulesEngine.defaultConfiguration(for: passage.id, context: context)
             ?? PracticeConfiguration(pieceID: pieceID, passageID: passage.id, focus: passage.focus)
-        if let chosen = chosenConfigurations[passage.id] { draft = chosen }
+        if let chosen = chosenConfigurations[.passage(passage.id)] { draft = chosen }
         if let tempo = pendingTempo[passage.id] { draft.startBPM = tempo; draft.targetBPM = max(draft.targetBPM, tempo) }
         if let stages = pendingStages[passage.id] { draft.stages = stages }
         if let hands = pendingHands[passage.id] { draft.hands = hands }
@@ -78,7 +90,7 @@ final class PracticeArmController {
     }
 
     func clearArm() {
-        pieceID = nil; passage = nil; configuration = nil; awaitingColdGrade = false
+        pieceID = nil; passage = nil; scoreSection = nil; configuration = nil; awaitingColdGrade = false
     }
 
     /// §9: lets the player start practicing without formally grading today's first attempt — a
@@ -115,7 +127,7 @@ final class PracticeArmController {
             }
             return true
         }
-        try store.startSet(configuration)
+        try store.startSet(configuration, scoreSectionID: scoreSection?.id)
         applyConfigurationOverride(configuration)
         awaitingColdGrade = false
         return true
@@ -127,9 +139,17 @@ final class PracticeArmController {
         var value = value
         if value.basis == .totalPlays { value.targetBPM = value.startBPM; value.stages = [] }
         value.tempoChanges = []
-        let key = value.passageID ?? value.pieceID
+        let isCurrentTarget = pieceID == value.pieceID && passage?.id == value.passageID
+        if isCurrentTarget, value.passageID == nil {
+            value.passageSnapshot = scoreSection.map { ScoreOrganization.practiceSnapshot(for: $0, pieceID: value.pieceID, at: Date()) }
+        }
+        let key: PracticeDraftTarget
+        if let passageID = value.passageID { key = .passage(passageID) }
+        else if isCurrentTarget, let scoreSection { key = .section(pieceID: value.pieceID, sectionID: scoreSection.id) }
+        else { key = .piece(value.pieceID) }
         chosenConfigurations[key] = value
-        pendingTempo[key] = nil; pendingStages[key] = nil; pendingHands[key] = nil
+        let pendingKey = value.passageID ?? value.pieceID
+        pendingTempo[pendingKey] = nil; pendingStages[pendingKey] = nil; pendingHands[pendingKey] = nil
         if pieceID == value.pieceID, passage?.id == value.passageID { configuration = value }
     }
 

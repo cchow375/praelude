@@ -13,8 +13,8 @@
 <key>LSRequiresIPhoneOS</key><true/>
 <key>CADisableMinimumFrameDurationOnPhone</key><true/>
 <key>NSCameraUsageDescription</key><string>Scan pages of a paper score into a PDF, or a friend's invite QR code. Praelude keeps the scan on this device until you add it to your library or act on the invite.</string>
-<key>NSMicrophoneUsageDescription</key><string>Use spoken practice commands when you turn on hands-free mode. Praelude never grades your playing.</string>
-<key>NSSpeechRecognitionUsageDescription</key><string>Recognize your practice commands on this device. Your voice supplies the verdict; Praelude counts the repetitions.</string>
+<key>NSMicrophoneUsageDescription</key><string>Use your microphone when you choose voice commands, dictate passage names or notes, tune an instrument, or record a take. Praelude never grades your playing.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>Recognize your practice commands, passage names and notes on this device when you tap the microphone. Speech never grades your playing.</string>
 <key>NSContactsUsageDescription</key><string>Match your contacts against other Praelude musicians. Numbers and emails are hashed on this device before anything is sent.</string>
 <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><true/></dict>
 <key>UIBackgroundModes</key><array><string>audio</string></array>

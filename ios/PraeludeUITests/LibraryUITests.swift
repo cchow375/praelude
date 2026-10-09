@@ -145,4 +145,66 @@ final class LibraryUITests: XCTestCase {
         // arm panel (§10a), not a separate "start set" tap — see `PraeludeUITests.openScore`.
         XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 10), app.debugDescription)
     }
+
+    @MainActor func testMovementAppearsAsDirectLibraryEntryAndOpensItsOwnFirstPage() {
+        let app = launch()
+        goToLibrary(app)
+        if app.buttons["List view"].exists { app.buttons["List view"].tap() }
+        let movements = app.buttons["Movements in Practice study"]
+        XCTAssertTrue(movements.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(movements.isEnabled)
+        movements.tap()
+        let addMovement = app.buttons["Add movement or piece"]
+        XCTAssertTrue(addMovement.waitForExistence(timeout: 5), app.debugDescription)
+        addMovement.tap()
+        let name = app.textFields["movementName"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5), app.debugDescription)
+        name.tap(); name.typeText("II. Adagio")
+        let firstPage = app.textFields["movementFirstPage"]
+        XCTAssertGreaterThanOrEqual(firstPage.frame.height, 44)
+        XCTAssertTrue(firstPage.isHittable, app.debugDescription)
+        let firstStepper = app.steppers["movementFirstPageStepper"]
+        XCTAssertTrue(firstStepper.exists && firstStepper.isHittable, app.debugDescription)
+        let save = app.navigationBars["Movement"].buttons["Save"]
+        firstPage.tap()
+        firstPage.typeText(XCUIKeyboardKey.delete.rawValue)
+        let emptyValue = firstPage.value as? String ?? ""
+        XCTAssertTrue(emptyValue.isEmpty || emptyValue == firstPage.placeholderValue, app.debugDescription)
+        XCTAssertFalse(save.isEnabled, app.debugDescription)
+        firstPage.typeText("0")
+        XCTAssertEqual(firstPage.value as? String, "0", app.debugDescription)
+        XCTAssertFalse(save.isEnabled, app.debugDescription)
+        firstPage.typeText(XCUIKeyboardKey.delete.rawValue + "2")
+        XCTAssertEqual(firstPage.value as? String, "2", app.debugDescription)
+        firstStepper.buttons["movementFirstPageStepper-Increment"].tap()
+        XCTAssertEqual(firstPage.value as? String, "3", app.debugDescription)
+        firstStepper.buttons["movementFirstPageStepper-Decrement"].tap()
+        XCTAssertEqual(firstPage.value as? String, "2", app.debugDescription)
+        let lastPage = app.textFields["movementLastPage"]
+        XCTAssertGreaterThanOrEqual(lastPage.frame.height, 44)
+        lastPage.tap(); lastPage.typeText("0")
+        XCTAssertEqual(lastPage.value as? String, "0", app.debugDescription)
+        XCTAssertFalse(save.isEnabled, app.debugDescription)
+        lastPage.typeText(XCUIKeyboardKey.delete.rawValue + "4")
+        XCTAssertEqual(lastPage.value as? String, "4", app.debugDescription)
+        XCTAssertTrue(save.isEnabled, app.debugDescription)
+        save.tap()
+        XCTAssertTrue(app.navigationBars["Movements & pieces"].waitForExistence(timeout: 5), app.debugDescription)
+        app.navigationBars["Movements & pieces"].buttons["Done"].tap()
+        collapseSidebarIfShown(app)
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "movementRow_")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "A movement must be directly visible in Pieces, without opening a menu.\n" + app.debugDescription)
+        XCTAssertTrue(row.label.contains("II. Adagio"), app.debugDescription)
+        screenshot("library-direct-movement-list")
+        app.buttons["Grid view"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "Movement entries must also appear in the cover grid")
+        screenshot("library-direct-movement-grid")
+        row.tap()
+        let indicator = app.buttons["pageIndicator"]
+        XCTAssertTrue(indicator.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(indicator.label.contains("PDF page 2"), indicator.label)
+        XCTAssertTrue(indicator.label.contains("page 1 of 3"), indicator.label)
+        screenshot("library-direct-movement")
+    }
+
 }

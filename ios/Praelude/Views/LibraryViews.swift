@@ -5,13 +5,14 @@ import UIKit
 /// One enum-driven `.sheet` for the whole screen (matching `ScoreWorkspace`'s `ScoreSheet`
 /// convention) rather than several independent `isPresented`/`item` sheets stacked on one view.
 private enum LibrarySheet: Identifiable {
-    case folders, tags, setlists, pieceDetails(Piece)
+    case folders, tags, setlists, pieceDetails(Piece), movements(Piece)
     var id: String {
         switch self {
         case .folders: return "folders"
         case .tags: return "tags"
         case .setlists: return "setlists"
         case .pieceDetails(let piece): return "details-\(piece.id)"
+        case .movements(let piece): return "movements-\(piece.id)"
         }
     }
 }
@@ -44,7 +45,8 @@ struct LibraryView: View {
             piece.status == collection
                 && (folderFilter == nil || piece.folderIDs.contains(folderFilter!))
                 && (tagFilter == nil || piece.tagIDs.contains(tagFilter!))
-                && (query.isEmpty || piece.title.localizedStandardContains(query) || piece.composer.localizedStandardContains(query))
+                && (query.isEmpty || piece.title.localizedStandardContains(query) || piece.composer.localizedStandardContains(query)
+                    || piece.scoreSections.contains { $0.title.localizedStandardContains(query) })
         }.sorted { left, right in
             switch sort {
             case .recent:
@@ -67,7 +69,7 @@ struct LibraryView: View {
             if showGrid { gridBody } else { listBody }
         }
         .navigationTitle("Pieces")
-        .searchable(text: $search, prompt: "Title or composer")
+        .searchable(text: $search, prompt: "Title, movement or composer")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(showGrid ? "List view" : "Grid view", systemImage: showGrid ? "list.bullet" : "square.grid.2x2") {
@@ -98,6 +100,8 @@ struct LibraryView: View {
             switch which {
             case .pieceDetails(let piece):
                 NavigationStack { PieceDetailsView(piece: piece) }
+            case .movements(let piece):
+                ScoreSectionsView(pieceID: piece.id, onOpenPage: { onOpenPieceAtPage(piece.id, $0) })
             case .folders:
                 LibraryLabelPickerView(title: "Folders", allTitle: "All folders", all: store.state.folders,
                                        count: { folder in store.pieces.filter { $0.folderIDs.contains(folder.id) }.count },
@@ -139,11 +143,21 @@ struct LibraryView: View {
             } else {
                 Section {
                     ForEach(visiblePieces) { piece in
-                        Button { onOpenPiece(piece.id) } label: {
-                            LibraryPieceRow(piece: piece, lastPractice: practiced[piece.id])
+                        HStack(spacing: 4) {
+                            Button { onOpenPiece(piece.id) } label: {
+                                LibraryPieceRow(piece: piece, lastPractice: practiced[piece.id])
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("pieceRow")
+                            Button { sheet = .movements(piece) } label: {
+                                Image(systemName: "rectangle.split.1x2").frame(width: 44, height: 44)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Movements in \(piece.title)")
+                            .accessibilityHint("Separate a score into directly selectable movements or pieces")
+                            .accessibilityIdentifier("manageMovements_\(piece.id)")
+                            .disabled(piece.pageCount < 1)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("pieceRow")
                         .contextMenu {
                             Button("Open score", systemImage: "music.note") { onOpenPiece(piece.id) }
                             Button("Edit details", systemImage: "pencil") { sheet = .pieceDetails(piece) }
@@ -157,6 +171,17 @@ struct LibraryView: View {
                             .tint(PraeludeColor.ink)
                             Button("Details", systemImage: "pencil") { sheet = .pieceDetails(piece) }
                                 .tint(PraeludeColor.inkSecondary)
+                        }
+                        ForEach(visibleSections(in: piece)) { section in
+                            Button { onOpenPieceAtPage(piece.id, section.startPage) } label: {
+                                LibraryPieceRow(piece: piece, section: section)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("movementRow_\(section.id)")
+                            .contextMenu {
+                                Button("Open movement", systemImage: "music.note") { onOpenPieceAtPage(piece.id, section.startPage) }
+                                Button("Edit movements", systemImage: "pencil") { sheet = .movements(piece) }
+                            }
                         }
                     }
                 } footer: {
@@ -187,8 +212,20 @@ struct LibraryView: View {
                                 .contextMenu {
                                     Button("Open score", systemImage: "music.note") { onOpenPiece(piece.id) }
                                     Button("Edit details", systemImage: "pencil") { sheet = .pieceDetails(piece) }
+                                    Button("Movements and pieces", systemImage: "rectangle.split.1x2") { sheet = .movements(piece) }
                                     statusMenuItems(for: piece)
                                 }
+                            ForEach(visibleSections(in: piece)) { section in
+                                Button { onOpenPieceAtPage(piece.id, section.startPage) } label: {
+                                    LibraryPieceGridCell(piece: piece, section: section)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("movementRow_\(section.id)")
+                                .contextMenu {
+                                    Button("Open movement", systemImage: "music.note") { onOpenPieceAtPage(piece.id, section.startPage) }
+                                    Button("Edit movements", systemImage: "pencil") { sheet = .movements(piece) }
+                                }
+                            }
                         }
                     }
                 }
@@ -251,6 +288,13 @@ struct LibraryView: View {
         }
     }
 
+    private func visibleSections(in piece: Piece) -> [ScoreSection] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parentMatches = query.isEmpty || piece.title.localizedStandardContains(query) || piece.composer.localizedStandardContains(query)
+        return piece.scoreSections.filter { parentMatches || $0.title.localizedStandardContains(query) }
+            .sorted { $0.startPage < $1.startPage }
+    }
+
     private var latestPracticeDates: [UUID: Date] {
         store.sessions.reduce(into: [:]) { dates, session in
             dates[session.pieceID] = max(dates[session.pieceID] ?? .distantPast, session.startedAt)
@@ -307,20 +351,27 @@ private enum LibrarySort: String, CaseIterable, Identifiable {
 
 struct LibraryPieceRow: View {
     let piece: Piece
+    var section: ScoreSection? = nil
     var lastPractice: Date? = nil
 
     var body: some View {
         HStack(spacing: 14) {
             PieceCoverView(piece: piece)
             VStack(alignment: .leading, spacing: 4) {
-                Text(piece.title).font(.headline).foregroundStyle(.primary)
+                Text(section?.title ?? piece.title).font(.headline).foregroundStyle(.primary)
                     .lineLimit(2)
-                if !piece.composer.isEmpty {
+                if let section {
+                    Text(piece.title).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    Text("\(section.endPage - section.startPage + 1) pages · Opens at movement page 1")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if !piece.composer.isEmpty {
                     Text(piece.composer).font(.subheadline).foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
-                HStack(spacing: 5) {
-                    if piece.pageCount > 0 {
+                if section == nil { HStack(spacing: 5) {
+                    if !piece.scoreSections.isEmpty {
+                        Text("\(piece.scoreSections.count) \(piece.scoreSections.count == 1 ? "movement" : "movements") · Complete score")
+                    } else if piece.pageCount > 0 {
                         Text("\(piece.pageCount) \(piece.pageCount == 1 ? "page" : "pages")")
                     } else {
                         Text("No score attached")
@@ -330,7 +381,7 @@ struct LibraryPieceRow: View {
                         Text(lastPractice, format: .dateTime.month(.abbreviated).day())
                     }
                 }
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(.secondary) }
             }
             Spacer(minLength: 4)
             Image(systemName: "chevron.right")
@@ -346,12 +397,14 @@ struct LibraryPieceRow: View {
 /// §7 cover grid: the same piece a `LibraryPieceRow` shows, as a cover-forward card instead of a row.
 struct LibraryPieceGridCell: View {
     let piece: Piece
+    var section: ScoreSection? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             PieceCoverView(piece: piece, size: 132).frame(maxWidth: .infinity, alignment: .center)
             VStack(alignment: .leading, spacing: 2) {
-                Text(piece.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
-                if !piece.composer.isEmpty { Text(piece.composer).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                Text(section?.title ?? piece.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
+                if section != nil { Text(piece.title).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                else if !piece.composer.isEmpty { Text(piece.composer).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             }
         }
         .accessibilityElement(children: .combine)

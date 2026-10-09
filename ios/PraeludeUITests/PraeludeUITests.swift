@@ -259,7 +259,7 @@ final class PraeludeUITests: XCTestCase {
             XCTFail("Closing mid-set must leave a visible resumable set, not discard it.\n" + app.debugDescription)
             return
         }
-        // Compact navigation keeps Rewards in More; the iPad sidebar lists it directly.
+        // Both layouts keep Rewards in More; iPad uses a collapsible sidebar group.
         let more = app.tabBars.buttons["More"]
         if more.exists, more.isHittable {
             XCTAssertLessThanOrEqual(resume.frame.maxY, app.tabBars.firstMatch.frame.minY + 1,
@@ -267,6 +267,9 @@ final class PraeludeUITests: XCTestCase {
             more.press(forDuration: 0.15)
             XCTAssertTrue(app.navigationBars["More"].waitForExistence(timeout: 5), app.debugDescription)
         }
+        let sidebarMore = app.buttons["More"]
+        if !app.tabBars.buttons["More"].exists, !app.buttons["Rewards"].exists,
+           sidebarMore.exists, sidebarMore.isHittable { sidebarMore.tap() }
         let rewards = app.buttons["Rewards"]
         for _ in 0..<6 {
             if rewards.exists, rewards.isHittable, app.frame.contains(rewards.frame) { break }
@@ -326,6 +329,9 @@ final class PraeludeUITests: XCTestCase {
             let frame = $0.frame
             return frame.width > 1 && frame.height > 1 && app.frame.contains(frame) && $0.isHittable
         }) else { XCTFail("Navigation must preserve the visible resume strip.\n" + app.debugDescription); return }
+        let sidebarMore = app.buttons["More"]
+        if !app.tabBars.buttons["More"].exists, !app.buttons["Rewards"].exists,
+           sidebarMore.exists, sidebarMore.isHittable { sidebarMore.tap() }
         let rewards = app.buttons["Rewards"]
         var viewport = CGRect.zero
         for _ in 0..<8 {

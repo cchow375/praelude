@@ -8,22 +8,27 @@ struct PassagePickerView: View {
     @State private var pendingDelete: Passage?
     @State private var errorMessage: String?
     @State private var renamingPassage: Passage?
-    @State private var renameText = ""
     @State private var splittingPassage: Passage?
     @State private var mergingPassage: Passage?
     @State private var search = ""
     let pieceID: UUID
     let currentPage: Int
     var selectedPassageID: UUID? = nil
+    var sourcePageRange: ClosedRange<Int>? = nil
     let onSelect: (Passage) -> Void
     var onDraw: (Passage?) -> Void = { _ in }
     private var piece: Piece? { store.pieces.first { $0.id == pieceID } }
     // §8: `deletePassage` archives (tombstones) rather than erasing, so every list must filter it out.
     private var passages: [Passage] {
         store.state.passages.filter {
-            $0.pieceID == pieceID && !$0.archived && $0.deletedAt == nil && (search.isEmpty ||
+            $0.pieceID == pieceID && !$0.archived && $0.deletedAt == nil && isInVisibleSection($0) && (search.isEmpty ||
                 ($0.title + " " + ScoreOrganization.locationLabel(for: $0, in: piece) + " " + $0.focus).localizedCaseInsensitiveContains(search))
         }
+    }
+    private func isInVisibleSection(_ passage: Passage) -> Bool {
+        guard let sourcePageRange else { return true }
+        let pages = passage.regions.isEmpty ? [passage.page] : passage.regions.map(\.page)
+        return pages.allSatisfy { sourcePageRange.contains($0) }
     }
     var body: some View {
         NavigationStack {
@@ -69,10 +74,8 @@ struct PassagePickerView: View {
             .sheet(item: $mergingPassage) { passage in
                 NavigationStack { PassageMergeView(passage: passage, candidates: passages.filter { $0.id != passage.id && $0.pieceID == passage.pieceID }, onDone: { mergingPassage = nil }) }
             }
-            .alert("Rename passage", isPresented: Binding(get: { renamingPassage != nil }, set: { if !$0 { renamingPassage = nil } })) {
-                TextField("Name", text: $renameText)
-                Button("Cancel", role: .cancel) { renamingPassage = nil }
-                Button("Save") { rename(renamingPassage, to: renameText); renamingPassage = nil }
+            .sheet(item: $renamingPassage) { passage in
+                PassageRenameView(passage: passage, onSaved: { renamingPassage = nil })
             }
             .confirmationDialog("Delete passage?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible, presenting: pendingDelete) { passage in
                 Button("Delete passage", role: .destructive) {
@@ -84,10 +87,11 @@ struct PassagePickerView: View {
     }
     private func passageRows(_ values: [Passage]) -> some View {
         ForEach(values) { passage in
-            Button { onSelect(passage); dismiss() } label: {
-                HStack(spacing: 14) {
+            HStack(spacing: 4) {
+                Button { onSelect(passage); dismiss() } label: {
+                HStack(spacing: 10) {
                     if let piece, let url = NativeLibraryFiles(store: store).scoreURL(for: piece) {
-                        PassagePreview(url: url, passage: passage).frame(width: 96, height: 76)
+                        PassagePreview(url: url, passage: passage).frame(width: 72, height: 58)
                     }
                     VStack(alignment: .leading, spacing: 5) {
                         HStack(spacing: 6) {
@@ -101,9 +105,15 @@ struct PassagePickerView: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     if selectedPassageID == passage.id { Image(systemName: "checkmark").foregroundStyle(.primary) }
                 }.padding(.vertical, 6).contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityIdentifier("savedPassage_\(passage.id)")
+                }.buttonStyle(.plain).accessibilityIdentifier("savedPassage_\(passage.id)")
+                Button { renamingPassage = passage } label: {
+                    Image(systemName: "pencil").frame(width: 44, height: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain).foregroundStyle(.secondary)
+                    .accessibilityLabel("Rename \(passage.title)")
+                    .accessibilityIdentifier("renamePassage_\(passage.id)")
+            }
                     .contextMenu {
-                        Button("Rename", systemImage: "pencil") { renameText = passage.title; renamingPassage = passage }
+                        Button("Rename", systemImage: "pencil") { renamingPassage = passage }
                         Menu("Recolor", systemImage: "paintpalette") {
                             Button("No color") { recolor(passage, to: nil) }
                             ForEach(AnnotationColor.allCases) { color in Button(color.label) { recolor(passage, to: color) } }
@@ -115,6 +125,9 @@ struct PassagePickerView: View {
                             Button("Merge with…", systemImage: "square.stack") { mergingPassage = passage }
                         }
                         Button("Delete passage", systemImage: "trash", role: .destructive) { pendingDelete = passage }
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                        Button("Rename", systemImage: "pencil") { renamingPassage = passage }.tint(PraeludeColor.ink)
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button("Delete", systemImage: "trash", role: .destructive) { pendingDelete = passage }
@@ -128,14 +141,7 @@ struct PassagePickerView: View {
         var edited = passage; edited.color = color?.rawValue; edited.updatedAt = Date()
         do { try store.savePassage(edited, replacing: passage) } catch { errorMessage = error.localizedDescription }
     }
-    private func rename(_ passage: Passage?, to title: String) {
-        guard var passage else { return }
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let baseline = passage
-        passage.title = trimmed; passage.updatedAt = Date()
-        do { try store.savePassage(passage, replacing: baseline) } catch { errorMessage = error.localizedDescription }
-    }
+
 }
 
 /// §8 "split": choose which of a passage's boxes move into a brand-new passage. The chooser lists

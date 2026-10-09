@@ -18,8 +18,8 @@ import Observation
     public var activeSet: ActiveSet? { state.activeSet }
     public var preferences: Preferences { state.preferences }
     public var recordings: [AudioRecording] { state.recordings }
-    public static let maximumDrawingBytes = 8 * 1024 * 1024
-    public static let maximumTotalDrawingBytes = 32 * 1024 * 1024
+    nonisolated public static let maximumDrawingBytes = 8 * 1024 * 1024
+    nonisolated public static let maximumTotalDrawingBytes = 32 * 1024 * 1024
 
     public init(directory: URL, now: @escaping () -> Date = Date.init,
                 writeData: @escaping (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) },
@@ -174,6 +174,10 @@ import Observation
         }
     }
     public func updateLastPage(pieceID: UUID, page: Int) throws {
+        // PDFKit can notify both a requested turn and its completed layout. Rewriting the entire
+        // ledger for that second notification adds a pause to navigation and advances its sync
+        // clock even though the reader has not moved.
+        if !isReadOnly, state.pieces.first(where: { $0.id == pieceID })?.lastPage == page { return }
         let date = now()
         try transaction { next in
             guard let index = next.pieces.firstIndex(where: { $0.id == pieceID }) else { throw PracticeError.invalid("Piece not found.") }
@@ -229,66 +233,119 @@ import Observation
     public func replaceInk(pieceID: UUID, page: Int, layer: InkLayer, strokes: [InkStrokeInput]) throws {
         let date = now()
         try transaction { next in
-            guard let piece = next.pieces.first(where: { $0.id == pieceID }), piece.pdfFileName != nil,
-                  page >= 1, page <= piece.pageCount else { throw PracticeError.invalid("Choose an existing score page before saving ink.") }
-            for stroke in strokes {
-                guard !stroke.data.isEmpty, stroke.data.count <= Self.maximumDrawingBytes else {
-                    throw PracticeError.invalid("This page has reached the supported 8 MB of ink.")
-                }
+            try Self.mergeInk(pieceID: pieceID, page: page, layer: layer, strokes: strokes, at: date, into: &next)
+        }
+    }
+
+    /// Idle autosave prepares immutable values away from the UI. No worker ever writes the
+    /// library file: revision and original ink are checked again on this actor before a single
+    /// atomic write and publication. Explicit transitions retain the synchronous save above.
+    @discardableResult public func replaceInkPreparedAsync(pieceID: UUID, page: Int, layer: InkLayer,
+                                        strokes: [InkStrokeInput], expectedRows: [InkStroke]) async throws -> [InkStroke] {
+        for _ in 0..<4 {
+            try Task.checkCancellation()
+            guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+            guard inkStrokes(pieceID: pieceID, page: page, layer: layer) == expectedRows else {
+                throw PracticeError.conflict("The saved drawing changed while preparing this annotation.")
             }
-            // Ordinal = position in the caller's own array, before any filtering below, so splitting
-            // the same drawing the same way on two devices assigns the same ordinal — and therefore
-            // the same stable id (see `InkStroke.stableID`) — to the same stroke on both.
-            let ordinalsByKey = Dictionary(grouping: strokes.indices, by: { strokes[$0].fingerprint ?? strokes[$0].data })
-            var consumedByKey: [Data: Int] = [:]
-            var matchedOrdinals: Set<Int> = []
-            var storedIndexByID = Dictionary(next.inkStrokes.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
-            for index in next.inkStrokes.indices
-            where next.inkStrokes[index].pieceID == pieceID && next.inkStrokes[index].page == page
-                && next.inkStrokes[index].layer == layer && next.inkStrokes[index].deletedAt == nil {
-                let existingKey = next.inkStrokes[index].fingerprint ?? next.inkStrokes[index].data
-                let consumed = consumedByKey[existingKey, default: 0]
-                if let ordinals = ordinalsByKey[existingKey], consumed < ordinals.count {
-                    matchedOrdinals.insert(ordinals[consumed])
-                    consumedByKey[existingKey] = consumed + 1
-                } else {
-                    next.inkStrokes[index].deletedAt = date; next.inkStrokes[index].updatedAt = date
+            let baseline = state
+            let date = now()
+            let preparation = Task.detached(priority: .utility) {
+                try Task.checkCancellation()
+                var next = baseline
+                try Self.mergeInk(pieceID: pieceID, page: page, layer: layer, strokes: strokes, at: date, into: &next)
+                if next == baseline { return (next, Data?.none) }
+                next.revision = baseline.revision + 1
+                try Self.validate(next, trustedPrevious: baseline)
+                try Task.checkCancellation()
+                let data = try Self.encoder().encode(next)
+                guard data.count <= 64 * 1024 * 1024 else {
+                    throw PracticeError.invalid("The practice library has reached its supported 64 MB size. Export a backup before continuing.")
                 }
+                return (next, Optional(data))
             }
-            for (ordinal, input) in strokes.enumerated() where !matchedOrdinals.contains(ordinal) {
-                let key = input.fingerprint ?? input.data
-                let id = InkStroke.stableID(pieceID: pieceID, page: page, layer: layer, data: key, ordinal: ordinal)
-                // The exact same (page, layer, content, ordinal) combination can recur after its row
-                // was already tombstoned above — Redo after Undo, Undo of an erase, or Undo of a lasso
-                // move that restores a stroke's original transform all put identical content back at
-                // its original position. `stableID` is a pure function of those inputs, so it
-                // recomputes the *same id* the earlier (now-deleted) row already has. Resurrecting
-                // that row in place — instead of unconditionally appending a second row with the same
-                // id — is what keeps this a no-op for real content that never left, and what stops
-                // `validate`'s uniqueness check from rejecting the whole page the moment restored
-                // content collides with its own tombstone.
-                if let resurrect = storedIndexByID[id] {
-                    next.inkStrokes[resurrect].data = input.data
-                    next.inkStrokes[resurrect].fingerprint = input.fingerprint
-                    next.inkStrokes[resurrect].deletedAt = nil
-                    next.inkStrokes[resurrect].updatedAt = date.addingTimeInterval(Double(ordinal) * 0.000_001)
-                    continue
-                }
-                // Several new rows can land in the same flush (e.g. splitting a legacy multi-stroke
-                // page blob into per-stroke rows for the first time). A shared `date` would make their
-                // draw order (see `inkStrokes`' `createdAt` sort) depend on however `Set`/dictionary
-                // iteration happens to break the tie — not deterministic, and not necessarily the
-                // z-order the strokes were actually drawn in. Spacing new rows a microsecond apart by
-                // their ordinal (their position in the caller's full current array) keeps that order
-                // exact without changing the model: two strokes overlapping (e.g. a highlighter under
-                // a correction) always redraw in their original relative order, on every device that
-                // performs the same split. Real previously-kept rows are never touched here, so this
-                // never perturbs an already-stable `createdAt`.
-                let stamp = date.addingTimeInterval(Double(ordinal) * 0.000_001)
-                storedIndexByID[id] = next.inkStrokes.count
-                next.inkStrokes.append(InkStroke(id: id, pieceID: pieceID, page: page, layer: layer, data: input.data,
-                                                 fingerprint: input.fingerprint, createdAt: stamp, updatedAt: stamp))
+            let (next, data) = try await withTaskCancellationHandler {
+                try await preparation.value
+            } onCancel: { preparation.cancel() }
+            try Task.checkCancellation()
+            guard state.revision == baseline.revision else { continue }
+            // No suspension is permitted between this CAS and publishing the matching snapshot.
+            guard !isReadOnly, inkStrokes(pieceID: pieceID, page: page, layer: layer) == expectedRows else {
+                throw PracticeError.conflict("The saved drawing changed while preparing this annotation.")
             }
+            do {
+                if let data { try writeData(data, fileURL); state = next }
+                errorMessage = nil
+                // Capture the exact committed row order before any actor suspension. The caller
+                // can distinguish this save from a later writer without assuming requested stroke
+                // order survives the content-preserving merge of existing and edited rows.
+                return inkStrokes(pieceID: pieceID, page: page, layer: layer)
+            } catch { errorMessage = error.localizedDescription; throw error }
+        }
+        throw PracticeError.conflict("The library is busy saving other changes. Your drawing remains open; try saving again.")
+    }
+
+    nonisolated private static func mergeInk(pieceID: UUID, page: Int, layer: InkLayer,
+                                             strokes: [InkStrokeInput], at date: Date, into next: inout LibraryState) throws {
+        guard let piece = next.pieces.first(where: { $0.id == pieceID }), piece.pdfFileName != nil,
+              page >= 1, page <= piece.pageCount else { throw PracticeError.invalid("Choose an existing score page before saving ink.") }
+        for stroke in strokes {
+            guard !stroke.data.isEmpty, stroke.data.count <= Self.maximumDrawingBytes else {
+                throw PracticeError.invalid("This page has reached the supported 8 MB of ink.")
+            }
+        }
+        // Ordinal = position in the caller's own array, before any filtering below, so splitting
+        // the same drawing the same way on two devices assigns the same ordinal — and therefore
+        // the same stable id (see `InkStroke.stableID`) — to the same stroke on both.
+        let ordinalsByKey = Dictionary(grouping: strokes.indices, by: { strokes[$0].fingerprint ?? strokes[$0].data })
+        var consumedByKey: [Data: Int] = [:]
+        var matchedOrdinals: Set<Int> = []
+        var storedIndexByID = Dictionary(next.inkStrokes.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
+        for index in next.inkStrokes.indices
+        where next.inkStrokes[index].pieceID == pieceID && next.inkStrokes[index].page == page
+            && next.inkStrokes[index].layer == layer && next.inkStrokes[index].deletedAt == nil {
+            let existingKey = next.inkStrokes[index].fingerprint ?? next.inkStrokes[index].data
+            let consumed = consumedByKey[existingKey, default: 0]
+            if let ordinals = ordinalsByKey[existingKey], consumed < ordinals.count {
+                matchedOrdinals.insert(ordinals[consumed])
+                consumedByKey[existingKey] = consumed + 1
+            } else {
+                next.inkStrokes[index].deletedAt = date; next.inkStrokes[index].updatedAt = date
+            }
+        }
+        for (ordinal, input) in strokes.enumerated() where !matchedOrdinals.contains(ordinal) {
+            let key = input.fingerprint ?? input.data
+            let id = InkStroke.stableID(pieceID: pieceID, page: page, layer: layer, data: key, ordinal: ordinal)
+            // The exact same (page, layer, content, ordinal) combination can recur after its row
+            // was already tombstoned above — Redo after Undo, Undo of an erase, or Undo of a lasso
+            // move that restores a stroke's original transform all put identical content back at
+            // its original position. `stableID` is a pure function of those inputs, so it
+            // recomputes the *same id* the earlier (now-deleted) row already has. Resurrecting
+            // that row in place — instead of unconditionally appending a second row with the same
+            // id — is what keeps this a no-op for real content that never left, and what stops
+            // `validate`'s uniqueness check from rejecting the whole page the moment restored
+            // content collides with its own tombstone.
+            if let resurrect = storedIndexByID[id] {
+                next.inkStrokes[resurrect].data = input.data
+                next.inkStrokes[resurrect].fingerprint = input.fingerprint
+                next.inkStrokes[resurrect].deletedAt = nil
+                next.inkStrokes[resurrect].updatedAt = date.addingTimeInterval(Double(ordinal) * 0.000_001)
+                continue
+            }
+            // Several new rows can land in the same flush (e.g. splitting a legacy multi-stroke
+            // page blob into per-stroke rows for the first time). A shared `date` would make their
+            // draw order (see `inkStrokes`' `createdAt` sort) depend on however `Set`/dictionary
+            // iteration happens to break the tie — not deterministic, and not necessarily the
+            // z-order the strokes were actually drawn in. Spacing new rows a microsecond apart by
+            // their ordinal (their position in the caller's full current array) keeps that order
+            // exact without changing the model: two strokes overlapping (e.g. a highlighter under
+            // a correction) always redraw in their original relative order, on every device that
+            // performs the same split. Real previously-kept rows are never touched here, so this
+            // never perturbs an already-stable `createdAt`.
+            let stamp = date.addingTimeInterval(Double(ordinal) * 0.000_001)
+            storedIndexByID[id] = next.inkStrokes.count
+            next.inkStrokes.append(InkStroke(id: id, pieceID: pieceID, page: page, layer: layer, data: input.data,
+                                             fingerprint: input.fingerprint, createdAt: stamp, updatedAt: stamp))
         }
     }
     /// Whole-page compatibility view of `.mine`-layer ink for today's single-editor call sites
@@ -731,9 +788,9 @@ import Observation
         return merged
     }
 
-    public func startSet(_ configuration: PracticeConfiguration) throws {
+    public func startSet(_ configuration: PracticeConfiguration, scoreSectionID: UUID? = nil) throws {
         let date = now()
-        try transaction { next in try Self.beginSet(configuration, in: &next, at: date) }
+        try transaction { next in try Self.beginSet(configuration, scoreSectionID: scoreSectionID, in: &next, at: date) }
     }
 
     /// The first verdict, learning schedule and new set are one durable mutation. A failed write
@@ -766,10 +823,21 @@ import Observation
         return result
     }
 
-    private static func beginSet(_ configuration: PracticeConfiguration, in next: inout LibraryState, at date: Date) throws {
+    private static func beginSet(_ configuration: PracticeConfiguration, scoreSectionID: UUID? = nil, in next: inout LibraryState, at date: Date) throws {
         var configuration = configuration
         configuration.tempoChanges = [] // A new set gets its own tempo-event boundaries.
-        configuration.passageSnapshot = configuration.passageID.flatMap { id in next.passages.first { $0.id == id && $0.pieceID == configuration.pieceID } }
+        if let scoreSectionID {
+            guard configuration.passageID == nil,
+                  let piece = next.pieces.first(where: { $0.id == configuration.pieceID && $0.deletedAt == nil }),
+                  let section = piece.scoreSections.first(where: { $0.id == scoreSectionID }) else {
+                throw PracticeError.conflict("This movement is no longer available. Choose a movement or passage again.")
+            }
+            configuration.passageSnapshot = ScoreOrganization.practiceSnapshot(for: section, pieceID: piece.id, at: date)
+        } else {
+            // Only the explicit, validated section path can create a boxless movement snapshot.
+            // Ordinary callers cannot inject a snapshot unrelated to their saved passage.
+            configuration.passageSnapshot = configuration.passageID.flatMap { id in next.passages.first { $0.id == id && $0.pieceID == configuration.pieceID } }
+        }
         try PracticeEngine.validate(configuration)
         if let active = next.activeSet {
             guard active.status == .completed else { throw PracticeError.conflict("Pause or finish your current set before starting another.") }
@@ -1257,10 +1325,14 @@ import Observation
         var next = state
         do {
             try change(&next)
-            Self.projectSessions(&next)
+            // Score/ink/preference changes cannot affect the practice projection. Re-sorting all
+            // historical attempts on every annotation checkpoint needlessly occupies the UI actor.
+            if next.history != state.history || next.activeSet != state.activeSet || next.sessions != state.sessions {
+                Self.projectSessions(&next)
+            }
             guard next != state else { errorMessage = nil; return }
             next.revision = state.revision + 1
-            try Self.validate(next)
+            try Self.validate(next, trustedPrevious: state)
             let data = try Self.encoder().encode(next)
             guard data.count <= 64 * 1024 * 1024 else { throw PracticeError.invalid("The practice library has reached its supported 64 MB size. Export a backup before continuing.") }
             try writeData(data, fileURL)
@@ -1276,7 +1348,7 @@ import Observation
         set.activeSeconds += min(60, max(0, date.timeIntervalSince(last)))
         set.lastCheckpoint = date
     }
-    private static func projectSessions(_ state: inout LibraryState) {
+    nonisolated private static func projectSessions(_ state: inout LibraryState) {
         let sets = state.history + [state.activeSet].compactMap { $0 }
         let setsBySession = Dictionary(grouping: sets, by: \.sessionID)
         for index in state.sessions.indices {
@@ -1286,7 +1358,7 @@ import Observation
             state.sessions[index].completedSets = own.filter { $0.status == .completed }.count
         }
     }
-    private static func encoder() -> JSONEncoder {
+    nonisolated private static func encoder() -> JSONEncoder {
         // Foundation's native reference-date encoding preserves Date's exact Double value.
         // Millisecond conversion introduced rounding drift in snapshot round-trip tests.
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .deferredToDate
@@ -1294,7 +1366,13 @@ import Observation
     }
     private static func decoder() -> JSONDecoder { let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .deferredToDate; return decoder }
 
-    public static func validate(_ state: LibraryState) throws {
+    nonisolated public static func validate(_ state: LibraryState) throws {
+        try validate(state, trustedPrevious: nil)
+    }
+
+    /// Only an already-loaded, fully validated store snapshot may provide the baseline. External
+    /// input, backups, migration and sync validation always enter the exhaustive public method.
+    nonisolated private static func validate(_ state: LibraryState, trustedPrevious: LibraryState?) throws {
         func require(_ condition: Bool, _ message: String) throws { if !condition { throw PracticeError.invalid(message) } }
         func unique<T: Hashable>(_ values: [T]) -> Bool { Set(values).count == values.count }
         func text(_ value: String, maximum: Int = 500, blank: Bool = false) -> Bool {
@@ -1390,42 +1468,49 @@ import Observation
                         && state.milestoneEvents.isEmpty && state.notebookEntries.isEmpty,
                         "A library declares an older format but contains newer fields.")
         }
-        try require(unique(sets.map(\.id)) && unique(sets.flatMap(\.attempts).map(\.id)), "Practice events contain duplicate identifiers.")
-        try require(state.history.allSatisfy { $0.status == .ended || $0.status == .completed }, "History contains an unfinished set.")
-        try require(state.activeSet?.status != .ended, "An ended set cannot be active.")
-        for set in sets {
-            try require(state.schemaVersion >= 4 || set.configuration.tempoChanges.isEmpty,
-                        "Durable tempo changes require the newer practice library format.")
-            try PracticeEngine.validate(set.configuration)
-            try require(pieceIDs.contains(set.configuration.pieceID) && sessionIDs.contains(set.sessionID), "A practice set references a missing piece or session.")
-            if let passageID = set.configuration.passageID {
-                try require(passagesByID[passageID]?.pieceID == set.configuration.pieceID, "A practice set references a missing passage.")
+        let unchangedPractice = trustedPrevious.map { previous in
+            previous.schemaVersion == state.schemaVersion && previous.pieces == state.pieces &&
+            previous.passages == state.passages && previous.history == state.history &&
+            previous.activeSet == state.activeSet && previous.sessions == state.sessions
+        } ?? false
+        if !unchangedPractice {
+            try require(unique(sets.map(\.id)) && unique(sets.flatMap(\.attempts).map(\.id)), "Practice events contain duplicate identifiers.")
+            try require(state.history.allSatisfy { $0.status == .ended || $0.status == .completed }, "History contains an unfinished set.")
+            try require(state.activeSet?.status != .ended, "An ended set cannot be active.")
+            for set in sets {
+                try require(state.schemaVersion >= 4 || set.configuration.tempoChanges.isEmpty,
+                            "Durable tempo changes require the newer practice library format.")
+                try PracticeEngine.validate(set.configuration)
+                try require(pieceIDs.contains(set.configuration.pieceID) && sessionIDs.contains(set.sessionID), "A practice set references a missing piece or session.")
+                if let passageID = set.configuration.passageID {
+                    try require(passagesByID[passageID]?.pieceID == set.configuration.pieceID, "A practice set references a missing passage.")
+                }
+                if let snapshot = set.configuration.passageSnapshot {
+                    try require(snapshot.pieceID == set.configuration.pieceID && (set.configuration.passageID == nil || snapshot.id == set.configuration.passageID), "A practice set contains an unrelated passage snapshot.")
+                    try validatePassage(snapshot)
+                }
+                try require(date(set.startedAt) && set.endedAt.map(date) != false && set.lastCheckpoint.map(date) != false && set.activeSeconds.isFinite && (0...maximumFocusedSeconds).contains(set.activeSeconds), "A practice set contains invalid timing.")
+                try require((set.status == .running) == (set.lastCheckpoint != nil), "A practice set has inconsistent pause state.")
+                try require((set.status == .completed || set.status == .ended) == (set.endedAt != nil), "A practice set has inconsistent completion timing.")
+                try require(set.attempts.count <= 100000 && unique(set.configuration.stages.map(\.id)), "A practice set contains too many attempts or duplicate variant identifiers.")
+                try require(set.configuration.tempoChanges.allSatisfy { $0.afterAttemptCount <= set.attempts.count }, "A tempo change lies beyond the saved attempt log.")
+                for attempt in set.attempts {
+                    try require(date(attempt.date) && attempt.undoneAt.map(date) != false && attempt.bpm.isFinite && (20...300).contains(attempt.bpm) && (0...max(0, set.configuration.stages.count - 1)).contains(attempt.stageIndex), "A practice event has invalid timing, tempo, or variant attribution.")
+                }
+                let projection = PracticeEngine.project(set)
+                try require(projection.currentBPM == set.currentBPM && projection.streak == set.streak && projection.totalPlays == set.totalPlays && projection.stageIndex == set.stageIndex && projection.completedStages == set.completedStages && (projection.status == .completed) == (set.status == .completed), "A practice set does not match its saved human verdicts.")
             }
-            if let snapshot = set.configuration.passageSnapshot {
-                try require(snapshot.pieceID == set.configuration.pieceID && (set.configuration.passageID == nil || snapshot.id == set.configuration.passageID), "A practice set contains an unrelated passage snapshot.")
-                try validatePassage(snapshot)
+            try require(state.sessions.filter { $0.endedAt == nil }.count <= 1, "The library contains multiple open sessions.")
+            for session in state.sessions {
+                try require(pieceIDs.contains(session.pieceID) && text(session.focus) && date(session.startedAt) && session.endedAt.map(date) != false && session.activeSeconds.isFinite && (0...maximumFocusedSeconds).contains(session.activeSeconds) && session.completedSets >= 0, "A session has invalid references or timing.")
+                try require((setsBySession[session.id] ?? []).allSatisfy { $0.configuration.pieceID == session.pieceID }, "A session mixes practice attributed to different pieces.")
             }
-            try require(date(set.startedAt) && set.endedAt.map(date) != false && set.lastCheckpoint.map(date) != false && set.activeSeconds.isFinite && (0...maximumFocusedSeconds).contains(set.activeSeconds), "A practice set contains invalid timing.")
-            try require((set.status == .running) == (set.lastCheckpoint != nil), "A practice set has inconsistent pause state.")
-            try require((set.status == .completed || set.status == .ended) == (set.endedAt != nil), "A practice set has inconsistent completion timing.")
-            try require(set.attempts.count <= 100000 && unique(set.configuration.stages.map(\.id)), "A practice set contains too many attempts or duplicate variant identifiers.")
-            try require(set.configuration.tempoChanges.allSatisfy { $0.afterAttemptCount <= set.attempts.count }, "A tempo change lies beyond the saved attempt log.")
-            for attempt in set.attempts {
-                try require(date(attempt.date) && attempt.undoneAt.map(date) != false && attempt.bpm.isFinite && (20...300).contains(attempt.bpm) && (0...max(0, set.configuration.stages.count - 1)).contains(attempt.stageIndex), "A practice event has invalid timing, tempo, or variant attribution.")
+            if let active = state.activeSet {
+                try require(state.sessions.contains { $0.id == active.sessionID && $0.endedAt == nil }, "An active set belongs to a closed session.")
             }
-            let projection = PracticeEngine.project(set)
-            try require(projection.currentBPM == set.currentBPM && projection.streak == set.streak && projection.totalPlays == set.totalPlays && projection.stageIndex == set.stageIndex && projection.completedStages == set.completedStages && (projection.status == .completed) == (set.status == .completed), "A practice set does not match its saved human verdicts.")
+            var projected = state; projectSessions(&projected)
+            try require(projected.sessions == state.sessions, "Session totals do not match the saved practice ledger.")
         }
-        try require(state.sessions.filter { $0.endedAt == nil }.count <= 1, "The library contains multiple open sessions.")
-        for session in state.sessions {
-            try require(pieceIDs.contains(session.pieceID) && text(session.focus) && date(session.startedAt) && session.endedAt.map(date) != false && session.activeSeconds.isFinite && (0...maximumFocusedSeconds).contains(session.activeSeconds) && session.completedSets >= 0, "A session has invalid references or timing.")
-            try require((setsBySession[session.id] ?? []).allSatisfy { $0.configuration.pieceID == session.pieceID }, "A session mixes practice attributed to different pieces.")
-        }
-        if let active = state.activeSet {
-            try require(state.sessions.contains { $0.id == active.sessionID && $0.endedAt == nil }, "An active set belongs to a closed session.")
-        }
-        var projected = state; projectSessions(&projected)
-        try require(projected.sessions == state.sessions, "Session totals do not match the saved practice ledger.")
         for goal in state.goals {
             try require(text(goal.title) && (goal.deletedAt != nil || goal.pieceID == nil || pieceIDs.contains(goal.pieceID!)) && goal.dueDate.map(date) != false && date(goal.createdAt) && date(goal.updatedAt) && goal.deletedAt.map(date) != false, "A goal contains invalid text or references.")
         }
