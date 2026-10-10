@@ -1,8 +1,10 @@
 # Build10 — selection consistency across PDF page sizes
 
-Updated October10, 2026. Build10 is a development candidate with production source frozen and final scoped checks passing. Installed native app
-remains2.0.0/build9/schema5, source `2de2444`; Macv11.1.0/schema21 is unchanged.
-Scoped verification is recorded below. Signed Release and independent signature/profile checks pass; installation and physical acceptance remain pending.
+Updated October10, 2026. Native2.0.0/build10/schema5 is installed from
+`b22d4bf3e25ff7309ff55ad3b700d5bb5f2713ea`, tag `ios-v2.0.0-build10-candidate`.
+Scoped checks, signed Release and independent exact-file installation preservation pass.
+Build10 is observed running and independent complete post-launch retention passes. Actual cross-score
+selection/Cancel acceptance remains pending. Macv11.1.0/schema21 is unchanged.
 
 ## Report and retained acceptance
 
@@ -12,7 +14,7 @@ failure: Prokofiev passage creation appears plain without corner dots and lags b
 handles are smooth. Selection must remain usable across pieces. This is B146; the earlier named
 acceptance is retained without generalizing it to every PDF.
 
-The user separately reports that selection Cancel does not work (B147). The candidate makes explicit Cancel
+The user separately reports that selection Cancel does not work (B147). The installed repair makes explicit Cancel
 discard only the draft immediately and return to the score; saved baseline passages must
 remain unchanged. Navigating away keeps its separate confirmation guard.
 
@@ -55,7 +57,9 @@ move handling is repaired, but this round does not expand resize behavior.
 | Phone1 large-page pixel review |Root visual review sees visible handles and unclipped Cancel/Done. This screenshot review does not substitute for the saved-edit UI test. |
 | Independent iPad and phone visual review |PASS for all4 ordinary/oversized screenshots: visible consistent handles/borders; Cancel/Done unclipped. Screenshots linked below. |
 | Signed Release |PASS: independent strict signature, app/profile/team/device/signer trust, Release exclusions and matching app/dSYM. Profile expires October16 at23:56:11 UTC. |
-| Guarded install / preservation |Pending; build9 remains installed. |
+| Guarded install / preservation |PASS: helper and independent complete pre/post audit verify13 owned files/13,350,814 bytes identical by filename, size and SHA-256. Preserved schema5/revision2198:6 pieces/57 passages/54 historical sets/35 sessions/317 attempts/270 ink rows (213 active)/2 stamps/2 notes; no active set. |
+| Actual post-helper artifact |PASS independent strict signature and app/dSYM checks. Installed executable SHA-256 `f08327d54677542d1c5dc37930b8e42e50985e4f8a04ef2f0fd535fea8b32600`; profile expires October16 at23:56:11 UTC. This is the actual installed artifact, separate from the pre-helper Release hash. |
+| Launch / post-launch retention |Automatic launch denied; later read-only process inspection confirms build10 running. Do not attribute this to user confirmation. Independent October10 14:58:32 UTC post-launch audit PASSES: all13 files/13,350,814 bytes identical across all three snapshots; schema5/revision2198 and all54 sets/35 sessions/317 attempts/270 ink rows (213 active)/6 pieces/57 passages/2 notes/2 stamps exact. Profile/privacy/account/preferences, sync files and source PDFs remain exact. No active set or added persisted activity; authorship is not inferred. |
 | Actual Prokofiev and Beethoven physical comparison |Pending; no measured speedup or universal score-consistency claim. |
 
 Production source is unchanged after the initial `CGPoint.zero` compile correction. Later changes
@@ -69,7 +73,7 @@ Accepted visual evidence: [iPad large page](screenshots/ipad-large-page-selectio
 [phone ordinary page](screenshots/phone-ordinary-page-selection.png). These confirm the shown
 simulator layouts, not physical drag latency or sustained behavior.
 
-**Next steps:** complete guarded delivery, then obtain a physical Prokofiev/
-Beethoven selection and Cancel result. Retain failures
+**Next steps:** obtain the actual Prokofiev/Beethoven selection and Cancel verdict. Installation,
+running-process observation and complete post-launch preservation pass. Retain failures
 and precise run scopes; do not infer measured latency, sustained/week-long reliability or unrelated
 microphone/two-device acceptance.
