@@ -1,8 +1,8 @@
 # Praelude Mobile roadmap
 
-## October 9 — build8 usability and reliability lane (DEVELOPMENT CANDIDATE)
+## October 9 — build8 usability and reliability lane (INSTALLED — PHYSICAL FAILURE REPORTED)
 
-Native source is 2.0.0/build8/schema5; the connected personal iPad is confirmed on build7/schema5 today. The installed Mac stays v11.1.0/schema21. Christian's reported freezes, lag, inaccessible practice controls and microphone crashes remain the acceptance target, regardless of earlier build7 tests.
+Native source is 2.0.0/build8/schema5; the personal iPad now runs build8/schema5 and the user reports a confirmed native Undo crash. The installed Mac stays v11.1.0/schema21. Christian's reported freezes, lag, inaccessible practice controls and microphone crashes remain the acceptance target, regardless of earlier build7 tests.
 
 - Implemented for review: exact and tap tempo, visible goal/hands setup, clear technique chains, practice during annotation/selection, movable/minimizable palette, native ink zoom/layers, lighter highlighter and finer pen widths, two-finger Undo, passage/note rename and dictation, note repositioning, direct movement entries and safe warmup close/finish.
 - Implemented for review: background idle-save preparation with revision/ink conflict checks and coordinator generations; no redundant PDF-page writes or historical-session reprojection for unchanged practice records. Explicit transition saves and atomic publication remain synchronous.
@@ -13,11 +13,11 @@ Native source is 2.0.0/build8/schema5; the connected personal iPad is confirmed 
 
 - Pending: device Release/signing, guarded same-bundle installation with all-file pre/post comparison, launch/readback, then physical Pencil/audio/interruption/large-score and sustained practice acceptance. The exact named-device on-demand tunnel probe has three new regressions in the 57-test deployment-helper suite.
 
-**Delivery checkpoint:** the first two signed device Release attempts stopped before compilation with Xcode `No Accounts` / `No Profiles`; Xcode settings confirmed it was signed out. The user now confirms sign-in, and the final signed Release build is running. Its signing/profile validation and guarded installation remain pending. No credentials were obtained or new account/certificate created; the prior profile backup is archived. Build7 remains installed and unchanged.
+**Installed build8 — physical Undo crash remains open:** native2.0.0/build8/schema5 from `a23cdec4f4f9acf42e8e5c724b6a386430dddca5` is installed. Independent review verifies all13 owned files/12,788,247 bytes unchanged by filename, size and SHA-256 before launch. Automatic launch was declined; the user opened the app. The23:59:40 UTC readback retains schema5/revision2086 (from2079),6 pieces/51 passages/50 sets/31 sessions/304 attempts/255 ink records (199 active)/2 stamps/2 notes. Original records remain exact except one piece page bookmark; profile/privacy/account/score data are exact. This readback precedes the23:59:53 UTC crash and is not post-crash retention proof. The user reported failure at19:59:56 EDT. Matching build8 dSYM identifies main-thread `EXC_BAD_ACCESS` at0x10 in `PKTiledView.performUndo` tile update, reached through the two-finger Undo action; this is distinct from the build7 PDF watchdog. Exact user sequence remains pending and the crash is unclosed. Signed Release checks pass, with profile valid through October16 at23:56:11 UTC (7:56 PM EDT). Sanitized evidence: `docs/qa/ios/2.0.0/build8/personal-ipad-install.json`. Mac v11.1.0/schema21 is unchanged.
 
 ### Next steps
 
-Finish the outstanding UI/Release and independent-review gates, resolve observed regressions, and install only through the guarded refresh. Keep physical acceptance open until the actual flows are exercised. A week of teacher use has not occurred. Continue separate desktop-sync and two-device work only within their existing scope; Assistant remains on hold.
+Repair and verify the confirmed native Undo crash after obtaining the exact user sequence; the independent pre-crash preservation/readback audit passes. Keep physical acceptance open until the failing flow is reproduced, repaired and verified. A week of teacher use has not occurred. Continue separate desktop-sync and two-device work only within their existing scope; Assistant remains on hold.
 
 ## October7 — build7 installed on the personal iPad
 

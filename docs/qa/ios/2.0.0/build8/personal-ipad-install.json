@@ -1,0 +1,243 @@
+{
+  "date": "2026-10-09",
+  "sourceCommit": "a23cdec4f4f9acf42e8e5c724b6a386430dddca5",
+  "sourceTag": "ios-v2.0.0-build8-candidate",
+  "bundleIdentifier": "com.christian.praelude.ios",
+  "installedVersion": "2.0.0",
+  "installedBuild": "8",
+  "previousBuild": "7",
+  "method": "guarded same-bundle refresh",
+  "installationConfirmedByReadOnlyStatus": true,
+  "signature": {
+    "result": "passed",
+    "build": "8",
+    "profile_created_utc": "2026-10-09T23:56:11+00:00",
+    "profile_expires_utc": "2026-10-16T23:56:11+00:00",
+    "hours_remaining": 167.94,
+    "executable_sha256": "0d3ea4e8f18848f30761c926f70fc301369939fd05312647576a1005ed038098",
+    "checks": {
+      "exactly_one_named_device": true,
+      "device_udid_available": true,
+      "same_bundle": true,
+      "expected_version": true,
+      "expected_build": true,
+      "device_platform": true,
+      "no_test_fixtures": true,
+      "no_debug_diagnostic_strings": true,
+      "no_debug_injection_dylib": true,
+      "macho_architecture_read": true,
+      "arm64_device_executable": true,
+      "strict_signature_valid": true,
+      "profile_cms_decoded": true,
+      "profile_team_bundle_device_expiry": true,
+      "entitlements_read": true,
+      "signed_app_identifier": true,
+      "signed_team_identifier": true,
+      "signed_development_permission": true,
+      "all_signed_entitlements_permitted": true,
+      "signer_certificates_extracted": true,
+      "signer_certificate_present": true,
+      "signer_is_profile_member": true,
+      "usable_signing_identities_read": true,
+      "signer_has_valid_local_private_key_identity": true,
+      "signer_codesign_trust": true,
+      "requested_trial_expiry_covered": true
+    },
+    "boundary": "Actual post-helper installed artifact verified. Signature does not establish physical feature acceptance."
+  },
+  "privatePreBackup": "releases/ios-device-backups/20261009T235853Z-6f16a950",
+  "privatePostBackup": "releases/ios-device-backups/20261009T235912Z-bc0575d6",
+  "privatePostLaunchBackup": "releases/ios-device-backups/20261009T235940Z-39338673",
+  "preservation": {
+    "beforeBuild": "7",
+    "afterBuild": "8",
+    "ownedFiles": 13,
+    "totalBytes": 12788247,
+    "addedFiles": 0,
+    "deletedFiles": 0,
+    "changedFiles": 0,
+    "allFilenamesBytesSHA256Identical": true,
+    "ledgerByteIdentical": true,
+    "ledgerStructurallyIdentical": true,
+    "profilePrivacyPreferencesExact": true
+  },
+  "preLaunchLedger": {
+    "schema": 5,
+    "revision": 2079,
+    "pieces": 6,
+    "passages": 51,
+    "historicalSets": 50,
+    "allSetIDs": 50,
+    "sessions": 31,
+    "uniqueAttempts": 304,
+    "activeSetStatus": null,
+    "runningSets": 0,
+    "inkRows": 255,
+    "activeInkRows": 199,
+    "stamps": 2,
+    "textNotes": 2
+  },
+  "launch": {
+    "automatic": "declined by iOS",
+    "userConfirmedOpened": true,
+    "deviceReportsPraeludeRunning": true,
+    "postLaunchReadback": {
+      "ledger": {
+        "schema": 5,
+        "revision": 2086,
+        "pieces": 6,
+        "passages": 51,
+        "historicalSets": 50,
+        "allSetIDs": 50,
+        "sessions": 31,
+        "uniqueAttempts": 304,
+        "activeSetStatus": null,
+        "runningSets": 0,
+        "inkRows": 255,
+        "activeInkRows": 199,
+        "stamps": 2,
+        "textNotes": 2
+      },
+      "schemaUnchanged": true,
+      "revisionNondecreasing": true,
+      "retention": {
+        "history": {
+          "originalRecords": 50,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "sessions": {
+          "originalRecords": 31,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "inkStrokes": {
+          "originalRecords": 255,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "pieces": {
+          "originalRecords": 6,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 1,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": false
+        },
+        "passages": {
+          "originalRecords": 51,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "textAnnotations": {
+          "originalRecords": 2,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "stampAnnotations": {
+          "originalRecords": 2,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "allSets": {
+          "originalRecords": 50,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "attempts": {
+          "originalRecords": 304,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "attemptsWithinSets": {
+          "missingOriginalContainers": 0,
+          "missingOriginalAttempts": 0,
+          "changedOriginalAttempts": 0,
+          "allOriginalAttemptRecordsRetainedInOriginalContainers": true
+        },
+        "attemptsWithinSessions": {
+          "missingOriginalContainers": 0,
+          "missingOriginalAttempts": 0,
+          "changedOriginalAttempts": 0,
+          "allOriginalAttemptRecordsRetainedInOriginalContainers": true
+        }
+      },
+      "protectedData": {
+        "profileExact": true,
+        "privacyExact": true,
+        "accountOwnerExact": true,
+        "preferencesExact": true,
+        "syncOwnershipExact": true,
+        "backendProfilePrivacyExact": true,
+        "originalScoreAndOtherStaticFilesExact": true
+      },
+      "strictRetentionPassed": true,
+      "activityAttribution": "Not inferred. This is separate from byte-exact prelaunch preservation."
+    },
+    "observedDeltas": {
+      "changedLedgerFields": [
+        "pieces",
+        "revision"
+      ],
+      "changedPieces": [
+        {
+          "fields": [
+            "lastPage",
+            "lastPageUpdatedAt"
+          ]
+        }
+      ],
+      "changedSyncFiles": [
+        {
+          "file": "sync-state.json",
+          "beforeEntries": 6,
+          "afterEntries": 6,
+          "topLevelType": "dict"
+        },
+        {
+          "file": "sync-queue.json",
+          "beforeEntries": 3314,
+          "afterEntries": 3322,
+          "topLevelType": "list"
+        }
+      ]
+    },
+    "boundary": "The 23:59:40 UTC readback precedes the later build8 Undo crash; it does not establish post-crash retention."
+  },
+  "schemaMigrationOccurred": false,
+  "macImportOccurred": false,
+  "macAppOrDataChanged": false,
+  "destructiveWorkaroundsUsed": false,
+  "physicalFeatureAcceptance": {
+    "status": "failed",
+    "userReport": "Opened, but something still fails",
+    "newEvidence": "Matching build8 dSYM confirms a main-thread EXC_BAD_ACCESS in PKTiledView.performUndo tile update, invoked by the two-finger Undo action. This differs from the build7 PDF navigation watchdog.",
+    "exactUserSequence": "requested; not yet supplied",
+    "sustainedUseAccepted": false,
+    "nextStep": "Repair native Undo lifetime, verify and repeat guarded update and physical test."
+  }
+}

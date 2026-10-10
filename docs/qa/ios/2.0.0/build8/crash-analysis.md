@@ -1,4 +1,23 @@
-# Physical build7 freeze analysis — October 9, 2026
+# Physical build7 freeze and build8 Undo crash analysis — October 9, 2026
+
+## New installed-build8 Undo crash — physical acceptance failed
+
+Build8 from source `a23cdec` installs with independently verified preservation of all13 owned
+files/12,788,247 bytes. Automatic launch was declined; the user confirmed opening and then
+reported “Opened, but something still fails” at19:59:56 EDT. The new23:59:53 UTC crash is
+**EXC_BAD_ACCESS at0x10 on the main thread**, and the actual build8 dSYM matches. Its path is
+`twoFingerTapped` → `connectControls` Undo → `PKTiledView.performUndo` → tile update.
+This is a native Undo crash, distinct from the six build7 PDF-navigation watchdogs analyzed below.
+Exact preceding user actions remain pending; the repair is ongoing and physical acceptance is open.
+
+The23:59:40 UTC readback **precedes this crash**. It retains schema5/revision2086 (from2079),
+6 pieces/51 passages/50 sets/31 sessions/304 attempts/255 ink records (199 active)/2 stamps/2 notes.
+All original records are exact except one piece page bookmark; profile/privacy/account and score
+files are exact. It does not prove post-crash retention. The actual installed executable SHA-256 is
+`0d3ea4e8f18848f30761c926f70fc301369939fd05312647576a1005ed038098`; independent signing checks pass
+and the profile expires October16 at23:56:11 UTC. See [sanitized install evidence](personal-ipad-install.json).
+
+## Earlier build7 watchdog diagnosis
 
 The six physical-iPad crash reports (three from October 7 and three from October 9) and one CPU-resource report agree on one recurring failure: a SwiftUI responder-graph cycle while PDFKit removes a focused score overlay during a page change. This is stronger evidence than the earlier simulator-only responder hypothesis. It does not prove every reported freeze or microphone crash has this cause.
 
@@ -49,6 +68,6 @@ The pinch/swipe regression now loads an actual PDF before asserting zoom behavio
 
 A simulator pass remains separate from sustained Pencil/page/mode behavior on the physical iPad. The six historical crash reports identify the failure path; they cannot certify that the new build is free of all freezes.
 
-**Final source acceptance and delivery checkpoint:** the final native run passes245 tests/1 live-account skip/0 failures in16.881s, including strict crop/zoom checks after a test-only mounted-scene/window correction. UI15 actual complete sticky triple-tap/permission-denied recovery passes59.539s on the same final production source; Phone3 accessibility and scoped source/visual review pass. UI13–15 frame failures remain in the usability ledger. The first two signed device Release attempts failed before compilation with No Accounts / No Profiles; the user now confirms restored sign-in and the final signed build is running. Signing/profile checks and installation remain pending. Build7 remains installed and unchanged.
+**Final source acceptance and delivery checkpoint:** the final native run passes245 tests/1 live-account skip/0 failures in16.881s, including strict crop/zoom checks after a test-only mounted-scene/window correction. UI15 actual complete sticky triple-tap/permission-denied recovery passes59.539s on the same final production source; Phone3 accessibility and scoped source/visual review pass. UI13–15 frame failures remain in the usability ledger. The first two signed device Release attempts failed before compilation with No Accounts / No Profiles; the user restored sign-in, and actual signed Release/profile/signer checks now pass. The guarded refresh now installs build8 with helper-confirmed full-file preservation; automatic launch was declined, followed by user-confirmed opening and captured process/full post-launch readback. Independent inventory/count audit passes for the23:59:40 UTC snapshot, which precedes the23:59:53 UTC native Undo crash described above. The two failure paths are distinct.
 
-**Next steps:** finish the candidate's touch-flow acceptance, then perform the guarded same-bundle physical update and explicitly verify repeated focused-canvas page turns and annotation exit on the iPad. Retain the physical diagnostic boundary until that acceptance is observed.
+**Next steps:** obtain the exact user sequence and repair/verify the new native Undo crash. Keep its evidence separate from the six earlier build7 watchdogs, and the verified23:59:40 readback separate from post-crash retention. Physical acceptance remains failed; later build9 work is not claimed implemented here.

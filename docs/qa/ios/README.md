@@ -1,9 +1,9 @@
 # Native iPhone/iPad candidate acceptance
 
-## Current candidate — October 9, 2026
+## Current installed build — October 9, 2026; physical failure open
 
-Native source is **2.0.0/build8/schema5, DEVELOPMENT CANDIDATE**. The physical iPad remains on
-build7; the installed Mac remains v11.1.0/schema21. The [45-item usability review](2.0.0/build8/usability-review.md)
+Native source is **2.0.0/build8/schema5, INSTALLED — PHYSICAL FAILURE REPORTED**. The physical iPad now runs
+build8; a confirmed native Undo crash remains under repair; the installed Mac remains v11.1.0/schema21. The [45-item usability review](2.0.0/build8/usability-review.md)
 retains exact run scopes, failures, screenshots and open gates; [physical build7 crash analysis](2.0.0/build8/crash-analysis.md)
 records the matching-dSYM PDFKit/SwiftUI responder-cycle evidence.
 
@@ -14,9 +14,9 @@ source. Phone3 accessibility portrait/landscape passes71.631s with four accepted
 Source and scoped layout review pass; source is frozen. Earlier failed runs, the test-only
 mounted-window fixture correction and all exact scopes remain in the45-item review.
 
-**Delivery checkpoint:** the first two signed device Release attempts stopped before compilation with Xcode `No Accounts` / `No Profiles`; Xcode settings confirmed it was signed out. The user now confirms sign-in, and the final signed Release build is running. Its signing/profile validation and guarded installation remain pending. No credentials were obtained or new account/certificate created; the prior profile backup is archived. Build7 remains installed and unchanged.
+**Installed build8 — physical Undo crash remains open:** native2.0.0/build8/schema5 from `a23cdec4f4f9acf42e8e5c724b6a386430dddca5` is installed. Independent review verifies all13 owned files/12,788,247 bytes unchanged by filename, size and SHA-256 before launch. Automatic launch was declined; the user opened the app. The23:59:40 UTC readback retains schema5/revision2086 (from2079),6 pieces/51 passages/50 sets/31 sessions/304 attempts/255 ink records (199 active)/2 stamps/2 notes. Original records remain exact except one piece page bookmark; profile/privacy/account/score data are exact. This readback precedes the23:59:53 UTC crash and is not post-crash retention proof. The user reported failure at19:59:56 EDT. Matching build8 dSYM identifies main-thread `EXC_BAD_ACCESS` at0x10 in `PKTiledView.performUndo` tile update, reached through the two-finger Undo action; this is distinct from the build7 PDF watchdog. Exact user sequence remains pending and the crash is unclosed. Signed Release checks pass, with profile valid through October16 at23:56:11 UTC (7:56 PM EDT). Sanitized evidence: `docs/qa/ios/2.0.0/build8/personal-ipad-install.json`. Mac v11.1.0/schema21 is unchanged.
 
-**Next steps:** complete the signed device Release after user-confirmed sign-in; the final mounted-window native suite and independent review pass. Then verify actual
+**Next steps:** obtain the exact user sequence and reproduce the confirmed native two-finger Undo crash before accepting its repair. Keep the23:59:40 UTC readback separate from post-crash retention. Keep physical Pencil, microphone, large-score and sustained-use acceptance open; do not treat installation as task completion.
 Release/signing and the guarded all-file-preserving update. Installation, launch/readback and
 physical Pencil/audio/sustained-use acceptance must be recorded separately.
 

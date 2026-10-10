@@ -1,10 +1,29 @@
 # Build8 usability repair and critical review
 
-October 9, 2026. Candidate 2.0.0/build8, schema5. This is a working acceptance ledger,
-not a declaration of shipment, zero bugs, physical acceptance, or a week-long teacher trial.
+October 9, 2026. Installed2.0.0/build8, schema5. This is a working acceptance ledger,
+not a declaration of zero bugs, physical acceptance, or a week-long teacher trial.
 User feedback rejects build7's practical usability: annotation confirmation still freezes;
 ink looks pixelated; controls and navigation impede actual practice; voice/microphone crash.
 The full attached feedback is the scope, not just the previous stamp-switch reproduction.
+
+Installed source: `a23cdec4f4f9acf42e8e5c724b6a386430dddca5`, tagged
+`ios-v2.0.0-build8-candidate` after docs sync/check. The signed device Release passes independent
+validation and the guarded update installs build8 with helper-confirmed exact pre/post owned-file
+preservation. Automatic launch was declined; the user confirmed opening the app, and running-process
+inspection plus a full post-launch readback were captured. Independent review confirms all13 owned
+files/12,788,247 bytes unchanged by filename, size and SHA-256 before launch. The verified evidence is
+[the sanitized installation record](personal-ipad-install.json).
+
+**Physical acceptance failed:** the user then reported “Opened, but something still fails.”
+A matching build8 dSYM identifies a23:59:53 UTC main-thread `EXC_BAD_ACCESS` at0x10 in
+`PKTiledView.performUndo` tile update, invoked through `connectControls` Undo and `twoFingerTapped`.
+This differs from the build7 PDF navigation watchdog. Exact user actions before the crash remain
+pending; the Undo repair is ongoing. Installation/preservation do not close this failure.
+
+The23:59:40 UTC readback precedes that crash and the19:59:56 EDT user report. It retains schema5,
+revision2079→2086,6 pieces/51 passages/50 sets/31 sessions/304 attempts/255 ink records (199 active)/
+2 stamps/2 notes. Original records are exact except one piece page bookmark; profile/privacy/account
+and original scores are exact. Sync metadata changed after launch. This is not post-crash retention proof.
 
 ## Design research
 
@@ -21,7 +40,7 @@ that this app has passed physical or sustained-use acceptance.
 
 ## Concrete improvements and why they matter
 
-The 45 concrete improvements below are under final verification; scoped passes, failed attempts and remaining acceptance gates are recorded below. Build7 remains installed; build8 has not been installed.
+The 45 concrete changes below are installed. Scoped passes, failed attempts and open physical acceptance are recorded below; the new post-opening failure remains under diagnosis.
 
 1. Tap the tempo number for exact numeric entry: avoids guessing a drag distance.
 2. Drag tempo with immediate local preview and one commit at release: avoids writing the whole ledger per touch sample.
@@ -84,23 +103,28 @@ The 45 concrete improvements below are under final verification; scoped passes, 
 - [x] Final native run:245 executed/1 live-account skip/0 failures in16.881s (exit0). The test-only mounted-scene correction explicitly proves overlay.window identity before the strict crop/zoom transform checks; production is unchanged from UI15.
 - [x] Scoped phone + iPad portrait/landscape accessibility reachability: iPad UI12 and Phone3 pass; later production changes concern note accessibility geometry and retain UI15 actual touch coverage.
 - [x] Independent source and scoped screenshot/interaction review pass; source is frozen. This is not a full physical or week-long acceptance claim.
-- [ ] Signed device Release and fixture exclusion: first two attempts stop before compilation with Xcode No Accounts / No Profiles; user-confirmed sign-in restored, final signed build running.
-- [ ] Connected device, valid signing and fresh complete pre-install owned-file backup. The device is connected; current signing/profile checks and fresh backup remain pending.
-- [ ] Same-bundle installation and exact complete post-install filename/size/SHA-256 comparison.
-- [ ] Launch/readback.
-- [ ] Physical Pencil, microphone, interruptions, large real score and sustained practice acceptance.
+- [x] Actual signed device Release and fixture exclusion pass independent validation after user-confirmed sign-in. App/profile/team/device and actual signer trust/membership agree; fixture flags, debug dylib and test plug-ins are absent.
+- [x] Fresh complete backup and guarded same-bundle refresh complete; independent review verifies all13 owned files/12,788,247 bytes exactly unchanged by filename/size/SHA-256 before launch.
+- [x] Build8 installation confirmed from source `a23cdec`.
+- [x] User confirms opening after automatic launch was declined; running-process inspection and full23:59:40 UTC readback pass independent audit. This snapshot precedes the later crash.
+- [ ] Physical acceptance fails: matching build8 diagnostics establish a native two-finger Undo EXC_BAD_ACCESS. Exact user sequence remains pending; repair and physical verification are open. Pencil, microphone, interruptions, large-score and sustained-practice acceptance remain open.
 
 ## Evidence and limitations
 
 Initial read-only device status on October9 found no connected device; reconnection and installed-build7
-readback subsequently succeeded. Build8 is not installed. Prior build7 profile expiry is historical;
+readback subsequently succeeded. The guarded update now installs build8. Prior build7 profile expiry is historical;
 actual current signing must be checked before installation. Mac application/data stay unchanged.
 
-Two signed device Release attempts stop before compilation with Xcode `No Accounts` / `No Profiles`.
-Xcode Settings → Apple Accounts confirmed it was signed out. The user now confirms sign-in, and the
-final signed device Release is running. No credentials were obtained and no new account or certificate
-was created. The prior profile backup is safely archived. Signing/profile checks and installation
-remain pending. Build7 remains installed and unchanged; no build8 installation has occurred.
+The first two signed device Release attempts stopped before compilation with Xcode `No Accounts` /
+`No Profiles`; Xcode settings confirmed signed-out state. After user-confirmed sign-in, the actual
+signed Release passes independent signature/profile/app-team-device/signer-trust-and-membership checks,
+with fixture flags, debug dylib and test plug-ins excluded. The profile is valid October9 at23:56:11 UTC
+through October16 at23:56:11 UTC (7:56 PM EDT). No credentials were obtained or new account/certificate
+created; the prior profile backup is archived. The guarded refresh installs build8 and the helper
+confirms exact full-file preservation. Automatic launch was declined; the user opened the app and
+reported a failure. Process and full post-launch readback pass independent inventory/ledger audit,
+but the23:59:40 UTC snapshot precedes the23:59:53 native Undo crash. No post-crash retention or
+physical quality closure is claimed.
 
 Verification checkpoints include406 core tests,2,211 deterministic service assertions and57
 Python helper tests. Phone1 completes242 native tests with1 live-account skip/0 failures; three
@@ -198,7 +222,9 @@ Intermediate runs remain recorded rather than being replaced by final pass count
 | iPad UI15 | Actual complete sticky triple-tap/recovery passes59.539s. Native245/1 live-account skip still has2 frame assertion failures in one case, now returning a zero frame. The aggregate fails; a detached fixture is suspected. The subsequent test-only correction asynchronously mounts a real UIWindowScene/window and asserts overlay.window identity before the transform. Production is unchanged from this actual UI pass; the final passing native rerun is recorded below. |
 | Signed device Release attempts1–2 | Both fail before compilation: Xcode No Accounts / No Profiles. Actual Xcode Apple Accounts settings confirms signed-out state; the user has been asked to sign into the same original account. No credentials, new account or certificate changes; prior profile backup safely archived. No build8 install and no change to installed build7. |
 | Final native | Exit0;245 executed/1 live-account skip/0 failures in16.881s. The test-only async mounted-scene/window fixture explicitly asserts overlay.window identity before the unchanged strict crop/zoom checks. Same production source as successful actual UI15. Local evidence: `/tmp/praelude-build8-native-final.log`. |
-| Final signed device Release | User confirms restored sign-in; build is running. Signing/profile/fixture-exclusion result and installation remain pending. Earlier No Accounts / No Profiles failures stay recorded above. |
+| Final signed device Release | Actual post-helper installed artifact passes independent strict signature/profile/stable bundle-team-device and actual signer trust/membership checks. Fixture flags, debug dylib and test plug-ins are absent. Profile valid October9 23:56:11 UTC→October16 23:56:11 UTC (7:56 PM EDT). Executable SHA-256 `0d3ea4e8f18848f30761c926f70fc301369939fd05312647576a1005ed038098`. Earlier No Accounts / No Profiles failures remain above. |
+| Guarded refresh / opening | Installs source `a23cdec4f4f9acf42e8e5c724b6a386430dddca5`. Independent review verifies13 files/12,788,247 bytes, zero added/deleted/changed files and byte-identical pre-launch ledger. Automatic launch declined; user-confirmed opening/process inspection and23:59:40 UTC readback pass. Schema5/revision2079→2086 retains6 pieces/51 passages/50 sets/31 sessions/304 attempts/255 ink records (199 active)/2 stamps/2 notes. Original records exact except one piece page bookmark; profile/privacy/account/score data exact. See [sanitized install evidence](personal-ipad-install.json). |
+| New physical Undo crash | User report at19:59:56 EDT follows a23:59:53 UTC build8 crash. Matching dSYM identifies main-thread EXC_BAD_ACCESS at0x10 in PKTiledView.performUndo tile update, invoked through connectControls Undo→twoFingerTapped. Distinct from build7's PDF watchdog. Exact user sequence pending; repair remains open. The23:59:40 readback precedes the crash and is not post-crash retention proof. |
 
 Local full run logs and result bundles use `/tmp/praelude-build8-*`; raw device diagnostics,
 personal content and complete backups are deliberately excluded from Git.
@@ -231,4 +257,4 @@ Pencil/audio behavior or sustained-use acceptance.
 | Phone3 largest text — independently accepted | [Selection portrait](screenshots/phone-accessibility-selection-portrait.png), [selection landscape](screenshots/phone-accessibility-selection-landscape.png), [palette portrait](screenshots/phone-accessibility-palette-portrait.png), [palette landscape](screenshots/phone-accessibility-palette-landscape.png) |
 | Movement organization | [List](screenshots/ipad-movement-list.png), [grid](screenshots/ipad-movement-grid.png), [scoped score](screenshots/ipad-movement-score.png) |
 
-**Next steps:** complete and validate the running signed device Release after user-confirmed sign-in. Then perform the guarded same-bundle refresh with a fresh complete backup and exact pre/post file comparison, followed by launch/readback. Build7 remains physically installed at this checkpoint. Physical Pencil/audio/interruption/large-score and sustained-use acceptance remain separate.
+**Next steps:** obtain the exact user sequence, reproduce and repair the native two-finger Undo crash, then verify the repair before another guarded update. Keep the verified pre-crash readback separate from post-crash retention. Physical acceptance remains failed; installation is not task completion. Subsequent build9 work belongs to its own ledger and is not claimed implemented here.
