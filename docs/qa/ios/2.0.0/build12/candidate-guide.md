@@ -1,7 +1,8 @@
-# Build12 candidate guide
+# Build12 installed guide
 
-This describes candidate source, not the installed build11. Installation and physical acceptance
-remain separate. See [practice-upgrade.md](practice-upgrade.md) for current gates and all19 items.
+Personal iPad: installed 2.0.0/build12/schema5 from `459081c`, October10. User opening and read-only
+running-process observation are confirmed. Physical feature acceptance remains separate.
+See [practice-upgrade.md](practice-upgrade.md) for all19 items, retained failures and delivery evidence.
 
 - **Focus:** while reading, tap the center third near the top or bottom16% of the score, or use
   Score options → Focus. Controls and rep count hide. Rep recording, rep Undo and Reset are
@@ -52,9 +53,8 @@ remain separate. See [practice-upgrade.md](practice-upgrade.md) for current gate
 
 ## Next steps
 
-Source/native/scoped iPad review and signing pass. The personal iPad is connected and its fresh
-preflight has a completed set. Commit/tag and run guarded refresh, then check complete file
-preservation and launch/readback. Physically check focus/count resumption, both control positions,
+Guarded installation and independent full-file preservation pass; the user opened build12 and
+post-launch readback retains revision2848 with its completed set. Physically check focus/count resumption, both control positions,
 rapid ordinary/huge page turns, Pencil Undo/Redo through zoom/save/relaunch, brush widths, stamp lift,
 transparent-note readability, commands over piano and a manually confirmed real-score measure map.
 Phone largest-text stamps/actual landscape and real-account sync remain unaccepted.

@@ -1,0 +1,251 @@
+{
+  "auditVersion": 1,
+  "deviceActionsPerformed": false,
+  "preLaunchLedger": {
+    "schema": 5,
+    "revision": 2848,
+    "pieces": 6,
+    "passages": 66,
+    "historicalSets": 62,
+    "allSetIDs": 63,
+    "sessions": 40,
+    "uniqueAttempts": 393,
+    "activeSetStatus": "completed",
+    "runningSets": 0,
+    "inkRows": 343,
+    "activeInkRows": 267,
+    "stamps": 20,
+    "textNotes": 5
+  },
+  "beforeFiles": {
+    "count": 13,
+    "totalBytes": 15674360,
+    "manifestRecomputed": true
+  },
+  "installationPreservation": {
+    "beforeBuild": "11",
+    "afterBuild": "12",
+    "ownedFiles": 13,
+    "totalBytes": 15674360,
+    "addedFiles": 0,
+    "deletedFiles": 0,
+    "changedFiles": 0,
+    "allFilenamesBytesSHA256Identical": true,
+    "ledgerByteIdentical": true,
+    "ledgerStructurallyIdentical": true,
+    "profilePrivacyPreferencesExact": true
+  },
+  "result": "passed",
+  "checks": {
+    "before_stable_bundle": true,
+    "backup_root_is_directory": true,
+    "no_symlinks": true,
+    "regular_files_only": true,
+    "before_manifest_matches_actual_file_bytes": true,
+    "before_ledger_present": true,
+    "before_valid_schema_revision": true,
+    "active_set_status_valid": true,
+    "record_lists_valid": true,
+    "no_duplicate_ids_within_collection": true,
+    "active_set_not_duplicated_in_history": true,
+    "no_running_preinstall_set": true,
+    "after_stable_bundle": true,
+    "after_manifest_matches_actual_file_bytes": true,
+    "after_ledger_present": true,
+    "after_valid_schema_revision": true,
+    "expected_postinstall_version_build": true,
+    "all_prelaunch_files_exact": true,
+    "postlaunch_stable_bundle": true,
+    "postlaunch_manifest_matches_actual_file_bytes": true,
+    "postlaunch_ledger_present": true,
+    "postlaunch_valid_schema_revision": true,
+    "postlaunch_sync_state_present": true,
+    "postlaunch_schema_revision_valid": true,
+    "postlaunch_retention_proven": true
+  },
+  "sourceCommit": "459081c571c85b32b9aea3dfa7fd5d5801496750",
+  "candidateTag": "ios-v2.0.0-build12-candidate",
+  "independentAuditUTC": "2026-10-10T19:43:16.589250+00:00",
+  "beforeSnapshot": "20261010T194140Z-d9993743",
+  "afterSnapshot": "20261010T194209Z-47d3fadd",
+  "helperReportedInstallation": {
+    "version": "2.0.0",
+    "build": "12",
+    "sameBundleRefresh": true
+  },
+  "launch": {
+    "automaticLaunch": "declined_by_iOS",
+    "userOpeningConfirmation": "confirmed_by_user",
+    "runningProcessObserved": true,
+    "matchingProcessCount": 1,
+    "matchingExecutable": "Praelude.app/Praelude",
+    "runningProcessEvidence": "Parent read-only process query; verifier performed no device actions.",
+    "postLaunchReadback": "independently_verified_full_backup",
+    "activityAttribution": "Not inferred."
+  },
+  "boundary": "Installation before-to-after preserves all 13 owned files byte-for-byte. User opening is confirmed and the parent separately observes one matching running process. Independent full post-launch audit retains the exact schema5/revision2848 library, every original record, profile/privacy/preferences and static files; only two Sync metadata files change through five additive note-background annotation upserts. Full post-launch byte equality is not claimed. Physical Pencil, microphone, audio, latency, sustained-use and real two-device sync acceptance remain open.",
+  "postLaunchReadback": {
+    "ledger": {
+      "schema": 5,
+      "revision": 2848,
+      "pieces": 6,
+      "passages": 66,
+      "historicalSets": 62,
+      "allSetIDs": 63,
+      "sessions": 40,
+      "uniqueAttempts": 393,
+      "activeSetStatus": "completed",
+      "runningSets": 0,
+      "inkRows": 343,
+      "activeInkRows": 267,
+      "stamps": 20,
+      "textNotes": 5
+    },
+    "schemaUnchanged": true,
+    "revisionNondecreasing": true,
+    "retention": {
+      "history": {
+        "originalRecords": 62,
+        "missingOriginalIDs": 0,
+        "changedOriginalRecords": 0,
+        "addedIDs": 0,
+        "allOriginalIDsRetained": true,
+        "allOriginalRecordsExact": true
+      },
+      "sessions": {
+        "originalRecords": 40,
+        "missingOriginalIDs": 0,
+        "changedOriginalRecords": 0,
+        "addedIDs": 0,
+        "allOriginalIDsRetained": true,
+        "allOriginalRecordsExact": true
+      },
+      "inkStrokes": {
+        "originalRecords": 343,
+        "missingOriginalIDs": 0,
+        "changedOriginalRecords": 0,
+        "addedIDs": 0,
+        "allOriginalIDsRetained": true,
+        "allOriginalRecordsExact": true
+      },
+      "pieces": {
+        "originalRecords": 6,
+        "missingOriginalIDs": 0,
+        "changedOriginalRecords": 0,
+        "addedIDs": 0,
+        "allOriginalIDsRetained": true,
+        "allOriginalRecordsExact": true
+      },
+      "passages": {
+        "originalRecords": 66,
+        "missingOriginalIDs": 0,
+        "changedOriginalRecords": 0,
+        "addedIDs": 0,
+        "allOriginalIDsRetained": true,
+        "allOriginalRecordsExact": true
+      },
+      "textAnnotations": {
+        "originalRecords": 5,
+        "missingOriginalIDs": 0,
+        "changedOriginalRecords": 0,
+        "addedIDs": 0,
+        "allOriginalIDsRetained": true,
+        "allOriginalRecordsExact": true
+      },
+      "stampAnnotations": {
+        "originalRecords": 20,
+        "missingOriginalIDs": 0,
+        "changedOriginalRecords": 0,
+        "addedIDs": 0,
+        "allOriginalIDsRetained": true,
+        "allOriginalRecordsExact": true
+      },
+      "allSets": {
+        "originalRecords": 63,
+        "missingOriginalIDs": 0,
+        "changedOriginalRecords": 0,
+        "addedIDs": 0,
+        "allOriginalIDsRetained": true,
+        "allOriginalRecordsExact": true
+      },
+      "attempts": {
+        "originalRecords": 393,
+        "missingOriginalIDs": 0,
+        "changedOriginalRecords": 0,
+        "addedIDs": 0,
+        "allOriginalIDsRetained": true,
+        "allOriginalRecordsExact": true
+      },
+      "attemptsWithinSets": {
+        "missingOriginalContainers": 0,
+        "missingOriginalAttempts": 0,
+        "changedOriginalAttempts": 0,
+        "allOriginalAttemptRecordsRetainedInOriginalContainers": true
+      },
+      "attemptsWithinSessions": {
+        "missingOriginalContainers": 0,
+        "missingOriginalAttempts": 0,
+        "changedOriginalAttempts": 0,
+        "allOriginalAttemptRecordsRetainedInOriginalContainers": true
+      }
+    },
+    "protectedData": {
+      "profileExact": true,
+      "privacyExact": true,
+      "accountOwnerExact": true,
+      "preferencesExact": true,
+      "syncOwnershipExact": true,
+      "backendProfilePrivacyExact": true,
+      "originalScoreAndOtherStaticFilesExact": true
+    },
+    "strictRetentionPassed": true,
+    "activityAttribution": "Not inferred. This is separate from byte-exact prelaunch preservation.",
+    "result": "passed",
+    "snapshot": "20261010T194327Z-d6aff550",
+    "parentReadbackCheckpointUTC": "2026-10-10T19:43:35.418Z",
+    "independentAuditUTC": "2026-10-10T19:47:15.561058+00:00",
+    "installedVersion": "2.0.0",
+    "installedBuild": "12",
+    "ledgerByteIdentical": true,
+    "fullFileComparison": {
+      "result": "changed_sync_metadata_only",
+      "allThreeManifestsRecomputed": true,
+      "ownedFiles": 13,
+      "totalBytes": 15678293,
+      "addedFiles": 0,
+      "deletedFiles": 0,
+      "changedFiles": 2,
+      "beforeEqualsPostInstall": true,
+      "postInstallEqualsPostLaunch": false,
+      "beforeEqualsPostLaunch": false,
+      "allFilenamesBytesSHA256Identical": false,
+      "changedFileDetails": [
+        {
+          "path": "Sync/sync-queue.json",
+          "beforeBytes": 5770059,
+          "afterBytes": 5773677
+        },
+        {
+          "path": "Sync/sync-state.json",
+          "beforeBytes": 2348689,
+          "afterBytes": 2349004
+        }
+      ],
+      "unchangedFiles": 11
+    },
+    "syncMetadataDelta": {
+      "originalQueueEntries": 4641,
+      "postLaunchQueueEntries": 4646,
+      "originalQueuePrefixExact": true,
+      "appendedAnnotationUpserts": 5,
+      "outboundSnapshotKeysBefore": 1695,
+      "outboundSnapshotKeysAfter": 1695,
+      "allOriginalOutboundSnapshotKeysRetained": true,
+      "changedOutboundSnapshots": 5,
+      "onlyAddedRegionField": "textStyle.backgroundColor",
+      "addedBackgroundMatchesDefaultYellow": true,
+      "removedOrChangedExistingRegionFields": 0,
+      "boundary": "Observed local queue/snapshot encoding changes only. No server delivery or real two-device convergence is established."
+    }
+  }
+}

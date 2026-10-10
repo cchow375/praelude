@@ -44,6 +44,20 @@
   observes a running set/size change and refuses backup; after user idle confirmation, full backup
   verifies revision2848 with a completed set. Use each fresh guarded snapshot as authority.
 
+- Build12 guarded refresh from459081c preserves all13 owned files/15,674,360bytes at schema5/rev2848
+  including62history+1completed active-slot set. Actual helper binary9c4ea713… differs from initial
+  generic8bdbf412… and independently passes exact-device/signature/dSYM checks. OS launch denial is
+  separate from installed-build/full-file success; user confirms opening and readback remains2848.
+
+- Build12 post-launch retention is exact for the library/records/scores/profile/privacy/preferences.
+  Two Sync files change (+3,933bytes) after opening; keep that result separate from all13files
+  being byte-exact before→after installation. Do not claim all-file equality across launch.
+
+- Launching the new note-background encoder can append annotation upserts without rewriting the
+  library: observed original4,641queue entries retained+5upserts, all1,695snapshot keys retained,
+  five region.textStyle values gain onlybackgroundColor. Preserve this wire-only delta in audits;
+  queue presence is not proof of server delivery or real two-device convergence.
+
 ## October 10 — build11 note contracts and friend’s first install
 
 - **Text size is relative to a canonical 595-point page width.** PDF media-box units vary greatly between real scores; a fixed source-point font becomes unreadable on the oversized Prokofiev scan. `TextAnnotationStyle.referencePageWidth` is595; default size20, supported range12–48. Shared `TextAnnotationRenderer` keeps overlay/export text appearance tied to original page width, including crop transforms. Native2 passes the strict ordinary/oversized glyph-mask comparison; physical readability remains unverified. The initial renderer fails at0.169 overlap against greater-than0.95. Keep fonts/layout in canonical595-point space and scale the CGContext; source-unit-dependent font layout breaks visible consistency.

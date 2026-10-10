@@ -1,29 +1,30 @@
 # Native build12 practice upgrade — October 10, 2026
 
-Status: all 19 items have candidate implementations; final UI review and guarded delivery remain open. Last installed personal version remains
-2.0.0/build11/schema5; no build12 installation is claimed. Mac11.1.0/schema21 is unchanged.
+Status: all 19 areas implemented in personal installed 2.0.0/build12/schema5, source `459081c`,
+tag `ios-v2.0.0-build12-candidate`. Guarded preservation, user opening and running-process observation
+pass. Physical feature acceptance and the listed limitations remain open; Mac11.1.0/schema21 is unchanged.
 
 ## Request checklist
 
 | Item | Implementation | Verification / remaining boundary |
 | --- | --- | --- |
-| 1 Focus, middle-edge tap, hide/suspend reps | Implemented candidate | Native runtime and iPad UI preserve/resume checks pass; physical acceptance open |
-| 2 Saved top/bottom controls and visible voice access | Implemented candidate | iPad UI/relaunch passes; position is device-local; physical microphone open |
+| 1 Focus, middle-edge tap, hide/suspend reps | Implemented, installed | Native runtime and iPad UI preserve/resume checks pass; physical acceptance open |
+| 2 Saved top/bottom controls and visible voice access | Implemented, installed | iPad UI/relaunch passes; position is device-local; physical microphone open |
 | 3 Page-turn delay, cold first turn, white margins | Implemented bookmark deferral, bounded history retention and margin routing | Native unique-page pixel timings and actual gutter UI pass; physical timing unavailable |
 | 4 Left/Both/Right in Clean flow | Implemented, per-event hands metadata | Core/native persistence and iPad UI pass |
-| 5 Double-tap passage names; organize from Today/library | Implemented candidate | Actual dock/selected-region double-tap, save/reopen and Today no-start UI pass |
-| 6 Compact controls and grouped options menu | Implemented candidate | iPad layout/screenshots reviewed; phone width repaired; largest-text stamp reachability and actual landscape remain unaccepted |
-| 7 Sequential Undo/Redo, async save/zoom resurrection | Implemented candidate | Native race/reattach/queued history and actual iPad gesture/pinch/save/relaunch pass; physical Pencil open |
-| 8 Brush differentiation on huge/ordinary pages | Implemented canonical canvas repair | Native ordinary/huge width, original bytes and unchanged-stroke checks pass; physical drawing appearance open |
-| 9 Stamp ordering/expand/collapse/Pencil-lift placement | Implemented candidate | Native Pencil callback and iPad rows/collapse/finger Place UI pass; physical lift latency open |
-| 10 Arbitrary/transparent note backgrounds and resizing text | Implemented candidate | Native pixels/export/legacy and UI3 ordinary/huge resize/format/Transparent→Yellow→Transparent/save/reopen pass; physical readability open |
-| 11 Quick voice access/response | Implemented candidate | Native/service endpoint and lifecycle checks pass; 300ms single-word endpoint; no actual audio latency or piano acceptance |
-| 12 Supported context and repaired-phrase confirmation | Implemented candidate | Deterministic/service/native context, confirmation and collision checks pass |
+| 5 Double-tap passage names; organize from Today/library | Implemented, installed | Actual dock/selected-region double-tap, save/reopen and Today no-start UI pass |
+| 6 Compact controls and grouped options menu | Implemented, installed | iPad layout/screenshots reviewed; phone width repaired; largest-text stamp reachability and actual landscape remain unaccepted |
+| 7 Sequential Undo/Redo, async save/zoom resurrection | Implemented, installed | Native race/reattach/queued history and actual iPad gesture/pinch/save/relaunch pass; physical Pencil open |
+| 8 Brush differentiation on huge/ordinary pages | Implemented, installed canonical canvas repair | Native ordinary/huge width, original bytes and unchanged-stroke checks pass; physical drawing appearance open |
+| 9 Stamp ordering/expand/collapse/Pencil-lift placement | Implemented, installed | Native Pencil callback and iPad rows/collapse/finger Place UI pass; physical lift latency open |
+| 10 Arbitrary/transparent note backgrounds and resizing text | Implemented, installed | Native pixels/export/legacy and UI3 ordinary/huge resize/format/Transparent→Yellow→Transparent/save/reopen pass; physical readability open |
+| 11 Quick voice access/response | Implemented, installed | Native/service endpoint and lifecycle checks pass; 300ms single-word endpoint; no actual audio latency or piano acceptance |
+| 12 Supported context and repaired-phrase confirmation | Implemented, installed | Deterministic/service/native context, confirmation and collision checks pass |
 | 13 Custom command phrases | Implemented, local-only | Alias rejection/recovery/save/reopen and diagnostics iPad UI pass; microphone not enabled |
 | 14 Mic permissions/routing/ownership/latency | Implemented diagnostics | Native ownership/error recovery passes; actual iPad/piano audio and recognition acceptance open |
 | 15 Audit records and practice resources | Inspected read-only | Sanitized resource/data findings below |
-| 16 Independent full-tempo target and dimensions | Implemented candidate | Additive core/native persistence/wire and iPad save/reopen UI pass; real-account sync open |
-| 17 Explicit quarter-speed and period patterns | Implemented candidate | Boundary/provenance core tests and quarter-tempo current-reference UI pass |
+| 16 Independent full-tempo target and dimensions | Implemented, installed | Additive core/native persistence/wire and iPad save/reopen UI pass; real-account sync open |
+| 17 Explicit quarter-speed and period patterns | Implemented, installed | Boundary/provenance core tests and quarter-tempo current-reference UI pass |
 | 18 Explainable suggested quality signal | Implemented optional user-defined coverage plan | Sparse/missing/provenance guards pass; no universal dosage or playing-quality inference |
 | 19 Measure map real-data review and usable guide | Implemented guide/correction/recovery, read-only actual-score scanner review | Five actual PDFs scanned; hints not verified as correct bar numbers, zero saved anchors; actual iPad manual mapping open |
 
@@ -33,6 +34,36 @@ Read-only device status initially fails: exact personal device unavailable. Chri
 “I’ll connect it when ready.” Do not substitute the friend's device. No app termination,
 uninstall, reset, install or restore occurs. Build11 private checkpoint is schema5/revision2264
 with one paused active set; inspect current state again before any future refresh.
+
+## Actual personal delivery — October10
+
+The exact personal device later connects. A first read-only copy stops on an unexpected size while
+revision2844 has a running set; the partial backup is retained and no install occurs. Christian
+confirms idle readiness. A complete preflight observes revision2848 with a **completed** set; the
+historical paused revision2264 checkpoint is not current readiness.
+
+Guarded same-bundle refresh installs2.0.0/build12. Independent before
+`20261010T194140Z-d9993743` → after `20261010T194209Z-47d3fadd` inventory audit passes all13 files/
+15,674,360 bytes by filename, size and SHA-256, with0added/deleted/changed files and byte/structurally
+identical ledger. Schema5/revision2848 retains6pieces/66passages/62history+1completed active-slot set
+(63setIDs)/40sessions/393attempts/343ink(267active)/20stamps/5notes; profile/privacy/preferences exact.
+The actual helper executable differs from the initial generic artifact and is independently
+reverified: `9c4ea7130c15a56df04ca700c4dff201628d9f56b963108fa508c394c7dfd534`. Strict signature,
+current-device profile inclusion, entitlements/signer/local-key trust, resources, Release fixture
+exclusion and matching dSYM pass. Profile expiresOctober17 at16:14:24UTC. See
+[signed-release-actual.json](signed-release-actual.json).
+
+Automatic launch is declined by iOS. Christian then confirms opening Praelude and a read-only
+process query observes one exact app process. Complete post-launch readback at19:43:35UTC from
+`20261010T194327Z-d6aff550` retains schema5/revision2848 and the completed set. Independent post-launch audit retains every original record/attempt/container and protected
+profile/privacy/preferences, with byte-exact ledger and scores. Two Sync files change (+3,933 bytes;
+post-launch total15,678,293), so all13 files are not byte-identical across launch. Installation
+preservation remains exact. Separate full-file/record audit: [personal-ipad-install.json](personal-ipad-install.json).
+The queue retains its entire original4,641-entry prefix and appends5 annotation upserts. Sync-state
+retains all1,695 outbound snapshot keys;5 values add only `region.textStyle.backgroundColor`, with
+no prior region field removed/changed. This is the new optional note-background wire encoding;
+no ledger/practice activity changes. It does not prove server delivery or two-device convergence.
+These results do not establish physical Pencil/audio/performance or real-account sync acceptance.
 
 ## Inspected records and resources
 
@@ -231,9 +262,9 @@ context when rewriting it. No schema bump, server migration or new SQL column is
   note76.115s), frozen production app SHA-256 `38961b1216ec0e915caaf383ee6eb599568221e269a137d03cdb9654ab76e430`.
   Log executes strict focus/count restoration, hand changes/Undo and oversized24pt/Bold/
   Transparent→Yellow→Transparent/save/relaunch/reopen/geometry assertions. Independent verifier
-  accepts this scoped source/live gate. The installed runner executes the earlier strict fixture,
-  despite compiled new helper strings; fresh3 does **not** validate new stability/reveal helpers.
-  Runner provenance investigation remains separate. Fresh1/fresh2 failures remain; no blanket
+  accepts this scoped source/live gate. The run log shows the earlier strict traversal despite matching built/installed runner hashes
+  and new helper strings; fresh3 does **not** validate new stability/reveal helpers. The discrepancy
+  remains unresolved; no stale-runner cause is established. Fresh1/fresh2 failures remain; no blanket
   first-tap or sustained reliability claim. `/tmp/praelude-build12-fresh3.{log,xcresult}`.
 - Device status4 now sees exact personal iPad, installed11. Initial read-only preflight copy stops
   on a size mismatch; its partial ledger is revision2844 with a running set. No install occurs.
@@ -255,8 +286,8 @@ The authoritative project generator sets build12; schema5 and stable bundle iden
 
 ## Next steps
 
-Source/native/scoped iPad review and signing gates pass; retain the failures and phone limitations above.
-Sync/check docs and commit/tag the candidate, then promptly use guarded same-bundle refresh on the
-exact personal iPad after a fresh idle-state backup. Independently verify all filenames/sizes/SHA-256,
-installed build, actual helper artifact and launch/readback. Physical Pencil, microphone over piano,
-manual real-score mapping, sustained use and real-account sync remain distinct open gates.
+Installed/opened build12 has passed independent full-file preservation and actual-artifact checks.
+Physically verify focus/count resumption, top/bottom controls, ordinary/huge rapid page turns, Pencil
+Undo/Redo through zoom/save/relaunch, distinct brush widths, stamp lift, transparent-note readability,
+commands over piano and manually confirmed real-score mapping. Keep intermittent taps, phone largest
+text/actual landscape, sustained use and real-account sync open. Preserve every earlier failed run.

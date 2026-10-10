@@ -1,14 +1,62 @@
 # Praelude — How To Use
 
-## October 10 — installed guide and candidate boundary
+## October 10 — build12 personal iPad controls
 
-**Matches: installed personal native2.0.0/build11/schema5; Macv11.1.0/schema21. Last updated:2026-10-10.** Build12 is implemented but final delivery checks are in progress; it is not installed. Candidate gestures and new history/voice controls are documented in `docs/qa/ios/2.0.0/build12/candidate-guide.md` until refresh; the installed instructions below remain build11. Exact source/checklist: `docs/qa/ios/2.0.0/build12/practice-upgrade.md`.
+**Matches: installed personal native 2.0.0/build12/schema5; friend’s last verified build11; Mac v11.1.0/schema21. Last updated: 2026-10-10.** Guarded installation and full-file preservation pass; Christian confirms opening build12. Physical Pencil/audio/performance acceptance remains open. Full evidence: `docs/qa/ios/2.0.0/build12/practice-upgrade.md`.
 
-**Next steps:** after a verified guarded install, replace this boundary with the installed build12 tutorial and keep launch/physical acceptance separate.
+- **Focus:** while reading, tap the center third near the top or bottom16% of the score, or use
+  Score options → Focus. Controls and rep count hide. Rep recording, rep Undo and Reset are
+  suspended; the set and prior history remain. Use Exit focus or the same middle-edge tap to
+  restore counting. Listening can continue for other supported commands.
+- **Control position:** tap the up/down control beside the microphone, or use Settings → score
+  controls position. The main dock and annotation entry move together. The preference is local
+  to this device. The microphone starts hands-free mode directly; its active button opens the
+  hands-free panel.
+- **Hands:** L / Both / R sit directly above Clean in a running set. The choice is captured for
+  the next reported verdict; switching it does not change older reps or the original set contract.
+- **Passage names:** double-tap the selected passage name to rename it. Today → Name and
+  organize passages opens a searchable naming list without opening a score or beginning practice.
+  Pencil buttons provide an explicit alternative to double-tapping.
+- **Reading:** tap a white side margin to turn a page; left goes back, right advances. Top/bottom
+  middle focus zones take precedence. Drawing, passage selection and modal editors retain their
+  own gestures. Page buttons and keyboard arrows remain available. A250ms deferred bookmark write
+  keeps persistence out of the immediate turn callback; closing/backgrounding flushes the bookmark.
+- **Drawing:** Undo/Redo follow queued edits in order and reject obsolete asynchronous saves.
+  Clean recent-page histories are retained for two detached pages; memory pressure can evict older
+  Undo histories while saved ink remains. Huge pages use a normalized native canvas so PencilKit's
+  width clamp does not collapse Fine/Medium/Bold into the same stroke.
+- **Stamps:** accidentals come first in rows. Collapse stamp choices or minimize/move the palette
+  to uncover the score. Pencil lift places a stamp; a finger creates a preview and Place confirms it.
+- **Notes:** open Formatting for background color/opacity or Transparent, text color, size, font,
+  emphasis and alignment. Resize from a corner. Text shrinks within the box to a12-point floor.
+  The expanded reading inspector uses readable system colors; your chosen colors remain saved
+  for the score and PDF export.
+- **Voice:** Score options → Hands-free commands → Customize command phrases lets you add up
+  to three phrases per supported action; built-in phrases remain available. Tempo phrases are a
+  prefix followed by a number. Conflicting phrases are rejected with an editable error. Repaired
+  or ambiguous phrases require confirmation; Cancel/expiry leaves history unchanged. Only actions
+  supported in the current context are offered. Microphone diagnostics show permissions, route,
+  ownership, received audio and recognition timing. Simulator checks do not prove speech over piano.
+- **History:** Score options → Practice balance & full-tempo target, or History → By piece. Set
+  an optional20–300 BPM full-tempo reference, using the same beat unit as practice BPM. It is separate
+  from Start and Tempo goal. New sets capture it; older BPM is preserved and comparisons explicitly
+  use today's reference. Last14 days, All history and individual session views show hands, tempo
+  bands (including20–30% around quarter tempo), named variants, reps and sessions. Optional minimum
+  shares define the suggested signal. Missing attribution or sparse records show insufficient
+  information; this is not a judgment of playing or a prescribed practice mix.
+- **Measure map:** Score options → Score tools → Measure map. Choose a source page, drag a box
+  around one bar or system, enter first/last measure (same number for one bar), and confirm. Tap a
+  confirmed range to correct it. Draw passages fully within confirmed regions to use their labels.
+  A system rectangle yields the whole system range, not exact individual bar locations. Scan printed
+  numbers provides untrusted hints; confirm them manually. Real-score host scanning succeeds but
+  actual iPad map correctness and manual-flow acceptance remain pending.
 
-## Score controls — build11 installed on both iPads
 
-**Matches: both iPads installed native2.0.0/build11/schema5; Macv11.1.0/schema21. Last updated:2026-10-10.** Friend launch is user-confirmed; its initial-library readback remains unverified. Personal build11 refresh preserves13 files/13,568,473 bytes and its paused active set exactly under independent review. Personal launch/post-launch readback remains pending.
+**Next steps:** practice with build12 and verify the physical flows above. Preserve the current set; report exact failures without resetting the app.
+
+## Historical build11 controls and acceptance checkpoint
+
+**Historical checkpoint: both iPads installed native2.0.0/build11/schema5; Macv11.1.0/schema21. Last updated:2026-10-10.** Friend launch is user-confirmed; its initial-library readback remains unverified. Personal build11 refresh preserves13 files/13,568,473 bytes and its paused active set exactly under independent review. Personal launch/post-launch readback remains pending.
 
 Build10 keeps selection handles and borders visible across ordinary and oversized page coordinates and limits overlay raster work. Explicit selection Cancel immediately discards the draft and returns to the score; existing saved passages stay unchanged. Navigating away retains a separate confirmation guard. These flows pass scoped native and actual iPad/phone UI checks; the user now reports qualified improvement in the real-score comparison. Earlier build9 user acceptance and the later score-specific failure remain in QA.
 
@@ -22,7 +70,7 @@ Build10 keeps selection handles and borders visible across ordinary and oversize
 
 **Next steps:** confirm personal launch and inspect post-launch data separately. The friend’s user-confirmed launch does not establish initial-library readback or physical note acceptance. Keep unmatched UI/accessibility and B148 acceptance open.
 
-## Build11 note controls — installed on both iPads
+## Historical build11 note controls and acceptance checkpoint
 
 Both iPads now have build11 from `646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9`. The friend’s fresh empty install copies no personal data; Christian confirms opening it. His own iPad is updated in place with independently verified exact file and paused-set preservation, but automatic launch is denied and readback finds no running process. Open Praelude there; personal launch/post-launch data and physical note acceptance remain separate checks.
 
