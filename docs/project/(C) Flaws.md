@@ -1,5 +1,18 @@
 # Praelude — Flaws, Risks & Honest Limits
 
+## October 10 — build12 investigation; repairs not yet physically accepted
+
+- **B149 — score focus/controls/page-navigation friction (open).** The reported focus counter, controls position, white-margin turns and page delay have implemented build12 repairs. Native unique-page timing/correctness and iPad focus/position/gutter UI pass; physical timing/acceptance remain pending.
+- **B150 — drawing resurrection/sequential history/brush scale (open).** Source trace finds history eviction on PDF overlay detach and coalesced pending Undo/Redo; PencilKit also clamps oversized raw widths. Candidate repair preserves bounded page history and uses canonical canvas sizing; native width/history/race checks and actual simulator Undo/Redo/pinch/save/relaunch pass; physical Pencil acceptance remains open.
+- **B151 — command access, recognition and customization (open).** Candidate context/confirmation/aliases/diagnostics do not prove commands over piano on an iPad.
+- **B152 — practice-history dimensions and measure-map usability (open).** Inspected records lack full-tempo references/per-event hand capture and have zero measure anchors. Implemented additive fields/views preserve provenance; core/native and iPad full-tempo/quarter-speed/sparse-signal UI pass. Host scanning opens five actual PDFs, but no true bar-number/manual-map acceptance is claimed. Old history is not invented and playing quality is not inferred.
+- **B153 — Transparent shortcut resets to yellow (candidate UI repair verified; physical open).** Build12 UI2 fails both ordinary/oversized Transparent assertions; two automatic-style buttons share a SwiftUI Form row. Independent bordered44pt buttons repair routing; strict UI3 ordinary/huge Transparent→Yellow→Transparent/save/relaunch/reopen checks pass. Source is not installed and physical note acceptance remains open.
+- **B154 — narrow score controls overflow (width repair verified; remaining phone acceptance open).** Phone1 finds width466pt in402pt app with Annotate x414. Native10 passes after a ViewThatFits two-row fallback; phone2 confirms the control row fits402pt and phone3 opens annotation on its ordinary tap. Largest-text stamp traversal and actual landscape remain unaccepted; an orientation request alone was not landscape evidence.
+- **B155 — intermittent automation taps have no visible effect (unresolved).** Independent fresh2 records valid-coordinate taps that leave the focus menu open and annotation in reading. Fresh1 focus and fresh3 focus/note persistence pass on the same production binary. No source cause or first-tap/sustained reliability verdict is established; retain failure evidence and verify physically.
+- B148 note physical acceptance stays open. Build9–11 acceptance and failure scopes remain recorded below.
+
+**Next steps:** exact19-item checklist and new evidence are in `docs/qa/ios/2.0.0/build12/practice-upgrade.md`; do not close physical reports from source review alone.
+
 ## October 10 — B148 sticky-note readability and customization
 
 - **B148 — Sticky-note text is too difficult to read and boxes need resizing (physical acceptance open).** Build11 adds canonical page-width text sizing, readable note text, corner handles, lower scrollable formatting and shared vector export. Size/font/bold/italic/color/alignment persist through local saves, backups and the existing sync JSONB column. Legacy defaults do not rewrite files on opening; older clients may drop styling on rewrite. Core420 and final iPad5 native64 pass. Oversized actual UI passes1131.493s; ordinary fails184.170s before note interaction at `openScore` line19 amid host load144. No blanket UI, latency or physical acceptance follows.

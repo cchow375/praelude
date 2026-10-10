@@ -10,6 +10,7 @@ struct AnnotationToolbar: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var simplifiedLabels = false
     var onRemoveSelectedStamp: () -> Void = {}
+    @State private var showingStampChoices = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -123,23 +124,35 @@ struct AnnotationToolbar: View {
 
     private var stampPickerRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(StampKind.allCases, id: \.self) { kind in
-                        if let labels = kind.labels {
-                            ForEach(labels, id: \.self) { label in stampButton(kind, label) }
-                        } else {
-                            stampButton(kind, nil)
+            Button { showingStampChoices.toggle() } label: {
+                HStack {
+                    Text("Stamp choices").font(.subheadline.weight(.medium))
+                    if let stamp = markup.armedStamp {
+                        PraeludeStamp(kind: stamp.kind, label: stamp.label, size: 22).accessibilityHidden(true)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: showingStampChoices ? "chevron.up" : "chevron.down")
+                }.frame(minHeight: 44).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityIdentifier("toggleStampChoices")
+                .accessibilityValue(showingStampChoices ? "Expanded" : "Collapsed")
+            if showingStampChoices {
+                ForEach(StampKind.pickerOrder, id: \.self) { kind in
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(stampGroupLabel(kind)).font(.caption).foregroundStyle(.secondary)
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 4)], alignment: .leading, spacing: 4) {
+                            if let labels = kind.labels {
+                                ForEach(labels, id: \.self) { label in stampButton(kind, label) }
+                            } else { stampButton(kind, nil) }
                         }
                     }
-                }.padding(.vertical, 2)
+                }
             }
             HStack {
                 if markup.selectedStampID != nil {
                     Button("Remove stamp", role: .destructive, action: onRemoveSelectedStamp)
                         .font(.caption).accessibilityIdentifier("removeStamp")
                 } else {
-                    Text(markup.armedStamp == nil ? "Choose a stamp." : "Tap or drag to preview. Place when ready.")
+                    Text(markup.armedStamp == nil ? "Choose a stamp." : "Pencil: lift to place. Finger: preview, then Place.")
                         .font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
                 }
                 Spacer(minLength: 0)
@@ -161,6 +174,17 @@ struct AnnotationToolbar: View {
             }
         }
     }
+    private func stampGroupLabel(_ kind: StampKind) -> String {
+        switch kind {
+        case .accidental: return "Sharps and flats"
+        case .fingering: return "Fingerings"
+        case .dynamic: return "Dynamics"
+        case .breath: return "Breath"
+        case .bowing: return "Bowing"
+        case .circle: return "Circle"
+        case .watch: return "Watch this"
+        }
+    }
     private var stampSizeSlider: some View {
         Slider(value: $markup.stampSize, in: 0.02...0.12)
             .frame(minWidth: 80, maxWidth: 220, minHeight: 44)
@@ -177,7 +201,7 @@ struct AnnotationToolbar: View {
     }
     private func stampButton(_ kind: StampKind, _ label: String?) -> some View {
         let selected = markup.armedStamp.map { $0.kind == kind && $0.label == label } ?? false
-        return Button { markup.armedStamp = (kind, label); markup.selectedStampID = nil } label: {
+        return Button { markup.armedStamp = (kind, label); markup.selectedStampID = nil; markup.stampDraft = nil } label: {
             PraeludeStamp(kind: kind, label: label, size: 26)
                 .accessibilityHidden(true)
                 .padding(3).background(Color.white, in: RoundedRectangle(cornerRadius: 5))

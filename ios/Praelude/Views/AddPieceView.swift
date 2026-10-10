@@ -13,6 +13,7 @@ struct AddPieceView: View {
     let onAdded: (UUID) -> Void
     @State private var title = ""
     @State private var composer = ""
+    @State private var fullTempo = ""
     @State private var pdfURL: URL?
     @State private var showPicker = false
     @State private var showScanner = false
@@ -23,6 +24,10 @@ struct AddPieceView: View {
     @State private var instrumentID: UUID?
     @FocusState private var titleFocused: Bool
     private var liveInstruments: [Instrument] { store.state.instruments.filter { $0.deletedAt == nil } }
+    private var fullTempoValue: Double? { Double(fullTempo.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    private var validFullTempo: Bool {
+        fullTempo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || fullTempoValue.map { $0.isFinite && (20...300).contains($0) } == true
+    }
     var body: some View {
         NavigationStack {
             Form {
@@ -30,6 +35,13 @@ struct AddPieceView: View {
                     TextField("Title", text: $title).accessibilityIdentifier("pieceTitle")
                         .focused($titleFocused).textInputAutocapitalization(.words)
                     TextField("Composer", text: $composer).textInputAutocapitalization(.words)
+                }
+                Section {
+                    TextField("Full-tempo target · BPM (optional)", text: $fullTempo).keyboardType(.decimalPad)
+                        .accessibilityIdentifier("pieceFullTempo")
+                    if !validFullTempo { Text("Enter 20–300 BPM or leave blank.").font(.caption).foregroundStyle(.red) }
+                } footer: {
+                    Text("A reference for practice history, separate from attempt tempo. Use the same beat unit when practicing. You can set or edit it later in History → By piece.")
                 }
                 if liveInstruments.count > 1 {
                     Section {
@@ -66,7 +78,7 @@ struct AddPieceView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add", action: save).fontWeight(.semibold)
-                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || saving || composing)
+                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || saving || composing || !validFullTempo)
                         .accessibilityIdentifier("savePiece")
                 }
             }
@@ -149,9 +161,9 @@ struct AddPieceView: View {
         do {
             let id: UUID
             if let pdfURL {
-                id = try NativeLibraryFiles(store: store).importPDF(pdfURL, title: title, composer: composer, instrumentID: instrumentID)
+                id = try NativeLibraryFiles(store: store).importPDF(pdfURL, title: title, composer: composer, instrumentID: instrumentID, fullTempoBPM: fullTempoValue)
             } else {
-                let piece = Piece(title: title, composer: composer, instrumentID: instrumentID)
+                let piece = Piece(title: title, composer: composer, instrumentID: instrumentID, fullTempoBPM: fullTempoValue)
                 try store.addPiece(piece); id = piece.id
             }
             // Not previously wired (this is the only place a Piece is created): §4d sync needs this

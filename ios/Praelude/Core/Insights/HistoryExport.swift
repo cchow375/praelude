@@ -13,6 +13,12 @@ public enum HistoryExport {
         public var verdict: Verdict
         public var bpm: Double
         public var focus: String
+        public var hands: String
+        public var handsSource: String
+        public var variant: String?
+        public var fullTempoBPM: Double?
+        public var fullTempoSource: String
+        public var relativeTempoPercent: Double?
     }
 
     /// Every effective attempt across every session, oldest first by the attempt's own recorded date
@@ -26,9 +32,18 @@ public enum HistoryExport {
             let pieceTitle = state.pieces.first { $0.id == set.configuration.pieceID }?.title ?? "Untitled piece"
             let passageTitle = set.configuration.passageSnapshot?.title
                 ?? state.passages.first { $0.id == set.configuration.passageID }?.title
-            return set.attempts.filter(\.isEffective).map {
-                Row(sessionID: set.sessionID, pieceTitle: pieceTitle, passageTitle: passageTitle,
-                    date: $0.date, verdict: $0.verdict, bpm: $0.bpm, focus: set.configuration.focus)
+            let config = set.configuration
+            let piece = state.pieces.first { $0.id == config.pieceID }
+            let fullTempo = config.fullTempoBPM ?? piece?.fullTempoBPM
+            return set.attempts.filter(\.isEffective).map { attempt in
+                let captured = config.recordedHands[attempt.id.uuidString]
+                return Row(sessionID: set.sessionID, pieceTitle: pieceTitle, passageTitle: passageTitle,
+                    date: attempt.date, verdict: attempt.verdict, bpm: attempt.bpm, focus: config.focus,
+                    hands: captured ?? config.hands, handsSource: captured == nil ? "set contract" : "recorded per attempt",
+                    variant: config.stages.indices.contains(attempt.stageIndex) ? config.stages[attempt.stageIndex].name : nil,
+                    fullTempoBPM: fullTempo,
+                    fullTempoSource: config.fullTempoBPM != nil ? "set snapshot" : (fullTempo != nil ? "current piece reference" : "missing"),
+                    relativeTempoPercent: fullTempo.map { attempt.bpm / $0 * 100 })
             }
         }
         return rows.sorted { $0.date < $1.date }
@@ -46,10 +61,12 @@ public enum HistoryExport {
         // and this keeps the module free of global mutable state under strict concurrency.
         let isoFormatter = ISO8601DateFormatter()
         isoFormatter.formatOptions = [.withInternetDateTime]
-        var lines = ["Date,Piece,Passage,Focus,Verdict,BPM"]
+        var lines = ["Date,Piece,Passage,Focus,Verdict,BPM,Hands,Hands source,Variant,Full-tempo BPM,Full-tempo source,Relative tempo percent,Session ID"]
         for row in rows(state: state) {
             let fields = [isoFormatter.string(from: row.date), row.pieceTitle, row.passageTitle ?? "",
-                          row.focus, row.verdict.rawValue, String(Int(row.bpm.rounded()))]
+                          row.focus, row.verdict.rawValue, String(row.bpm), row.hands, row.handsSource,
+                          row.variant ?? "", row.fullTempoBPM.map { String($0) } ?? "", row.fullTempoSource,
+                          row.relativeTempoPercent.map { String($0) } ?? "", row.sessionID.uuidString]
             lines.append(fields.map(csvField).joined(separator: ","))
         }
         return lines.joined(separator: "\r\n") + "\r\n"
@@ -57,6 +74,8 @@ public enum HistoryExport {
 
     private struct JSONRow: Codable {
         var date: Date; var piece: String; var passage: String?; var focus: String; var verdict: String; var bpm: Double
+        var sessionID: UUID; var hands: String; var handsSource: String; var variant: String?
+        var fullTempoBPM: Double?; var fullTempoSource: String; var relativeTempoPercent: Double?
     }
 
     /// The same rows, machine-readable, for a musician's own tooling or a teacher's import.
@@ -66,7 +85,9 @@ public enum HistoryExport {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let payload = rows(state: state).map {
             JSONRow(date: $0.date, piece: $0.pieceTitle, passage: $0.passageTitle, focus: $0.focus,
-                    verdict: $0.verdict.rawValue, bpm: $0.bpm)
+                    verdict: $0.verdict.rawValue, bpm: $0.bpm, sessionID: $0.sessionID, hands: $0.hands,
+                    handsSource: $0.handsSource, variant: $0.variant, fullTempoBPM: $0.fullTempoBPM,
+                    fullTempoSource: $0.fullTempoSource, relativeTempoPercent: $0.relativeTempoPercent)
         }
         return try encoder.encode(payload)
     }

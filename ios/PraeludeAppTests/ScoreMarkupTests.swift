@@ -332,6 +332,49 @@ final class ScoreMarkupTests: XCTestCase {
         XCTAssertNil(overlay.passageRegion(at: CGPoint(x: 90, y: 80)), "A region entirely outside the active crop must no longer hit-test")
     }
 
+    @MainActor func testSelectedPassageFingerRouteHonorsInkNotesPermissionsAndCrops() {
+        let state = ScoreMarkupState()
+        let overlay = ScorePageOverlay(page: 1, markup: state)
+        overlay.frame = CGRect(x: 0, y: 0, width: 600, height: 800); overlay.layoutIfNeeded()
+        let selected = PassageRegion(page: 1, x: 0.1, y: 0.2, width: 0.3, height: 0.2)
+        let other = PassageRegion(page: 1, x: 0.6, y: 0.2, width: 0.3, height: 0.2)
+        overlay.displayedRegions = [selected, other]; overlay.emphasizedIDs = [selected.id]
+        let point = CGPoint(x: 150, y: 240)
+        XCTAssertTrue(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: CGPoint(x: 450, y: 240), touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: CGPoint(x: 20, y: 600), touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .pencil))
+        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: nil))
+        let unresolved = overlay.hitTest(point, with: nil)
+        XCTAssertTrue(unresolved === overlay.canvas || unresolved?.isDescendant(of: overlay.canvas) == true,
+                      "An unresolved first hit must preserve PencilKit input even over the selected passage")
+        for mode: ScoreMarkupState.Mode in [.writing, .selecting] {
+            state.mode = mode
+            XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        }
+        state.mode = .reading
+        overlay.inkReadOnly = true
+        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        overlay.inkReadOnly = false; overlay.contentReadOnly = true
+        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        overlay.contentReadOnly = false; state.quickBoxArmed = true
+        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        state.quickBoxArmed = false; state.breakPointArmed = true
+        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        state.breakPointArmed = false
+        let note = TextBoxAnnotation(pieceID: UUID(), page: 1,
+            region: NormalizedRect(x: 0.15, y: 0.25, width: 0.2, height: 0.1), text: "The note owns its tap sequence")
+        overlay.displayedTextBoxes = [note]
+        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        overlay.displayedTextBoxes = []; state.showPassageBoxes = false
+        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        state.showPassageBoxes = true
+        overlay.activeCrop = NormalizedRect(x: 0.1, y: 0.2, width: 0.5, height: 0.5)
+        XCTAssertTrue(overlay.shouldClaimSelectedPassage(at: CGPoint(x: 100, y: 100), touchType: .direct))
+        overlay.activeCrop = NormalizedRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5)
+        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+    }
+
     @MainActor func testStampAndTextPlacementAndQuickBoxClaimTapsButPlacementNeverClaimsDrags() async throws {
         let state = ScoreMarkupState()
         let overlay = ScorePageOverlay(page: 1, markup: state)
@@ -532,12 +575,13 @@ final class ScoreMarkupTests: XCTestCase {
         }
     }
 
-    @MainActor func testFailedWriteRetainsPageCanvasAndSuccessfulEvictionKeepsOtherPageInk() async throws {
+    @MainActor func testFailedWriteAndBoundedEvictionProtectDirtyCurrentAndOtherPageInk() async throws {
         let state = ScoreMarkupState()
-        var writesAllowed = false
+        var writesAllowed = false; var currentPage = 1
         let secondPageInk = ink(at: 100).dataRepresentation()
         var saved: [Int: Data] = [2: secondPageInk]
-        let parent = PagedScoreView(url: URL(fileURLWithPath: "/unused-fixture.pdf"), page: .constant(1), twoPages: false,
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/unused-fixture.pdf"),
+                                   page: Binding(get: { currentPage }, set: { currentPage = $0 }), twoPages: false,
                                    markup: state, drawingData: { saved[$0] }, saveDrawing: { page, data, expected in
             guard writesAllowed, saved[page] == expected else { return false }
             saved[page] = data.isEmpty ? nil : data
@@ -545,31 +589,54 @@ final class ScoreMarkupTests: XCTestCase {
         }, onPageChanged: { _ in })
         let coordinator = parent.makeCoordinator(); coordinator.connectControls()
         defer { coordinator.autosave?.cancel() }
-        let document = PDFDocument(); document.insert(try makePage(), at: 0); document.insert(try makePage(), at: 1)
+        let document = PDFDocument()
+        for index in 0..<4 { document.insert(try makePage(), at: index) }
         let view = PDFView(); view.document = document
-        let firstPage = try XCTUnwrap(document.page(at: 0)); let secondPage = try XCTUnwrap(document.page(at: 1))
-        let first = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: firstPage) as? ScorePageOverlay)
-        let second = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: secondPage) as? ScorePageOverlay)
-        coordinator.loading = true; first.canvas.drawing = ink(at: 40); coordinator.loading = false
+        let pages = try (0..<4).map { try XCTUnwrap(document.page(at: $0)) }
+        let first = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: pages[0]) as? ScorePageOverlay)
+        let second = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: pages[1]) as? ScorePageOverlay)
+        let third = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: pages[2]) as? ScorePageOverlay)
+        let fourth = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: pages[3]) as? ScorePageOverlay)
         coordinator.canvasViewDidBeginUsingTool(first.canvas)
+        coordinator.loading = true; first.canvas.drawing = ink(at: 40); coordinator.loading = false
         coordinator.canvasViewDrawingDidChange(first.canvas)
-        coordinator.otherLayersDrawingCache[1] = []
+        coordinator.otherLayersDrawingCache[1] = []; coordinator.otherLayersDrawingCache[2] = []
         XCTAssertFalse(coordinator.flush())
-        coordinator.pdfView(view, willEndDisplayingOverlayView: first, for: firstPage)
-        XCTAssertTrue(coordinator.overlays[1] === first, "Never evict an unsaved page after a failed disk write")
-        XCTAssertNil(saved[1]); XCTAssertEqual(saved[2], secondPageInk)
+        coordinator.pdfView(view, willEndDisplayingOverlayView: first, for: pages[0])
+        XCTAssertTrue(coordinator.overlays[1] === first, "A failed write must pin its dirty canvas")
+        XCTAssertTrue(coordinator.dirtyPages.contains(1)); XCTAssertNil(saved[1])
+        for (overlay, page) in [(second, pages[1]), (third, pages[2]), (fourth, pages[3])] {
+            coordinator.pdfView(view, willEndDisplayingOverlayView: overlay, for: page)
+        }
+        XCTAssertNil(coordinator.overlays[2], "A third clean detached page must evict the oldest eligible clean page")
+        XCTAssertNil(coordinator.otherLayersDrawingCache[2], "Eviction must release that page's layer source bytes")
+        XCTAssertTrue(coordinator.overlays[1] === first, "Clean-page pressure must never evict the unsaved page")
+        XCTAssertTrue(coordinator.overlays[3] === third); XCTAssertTrue(coordinator.overlays[4] === fourth)
+        XCTAssertEqual(saved[2], secondPageInk, "Eviction cannot rewrite another page's durable ink")
         writesAllowed = true
-        coordinator.pdfView(view, willEndDisplayingOverlayView: first, for: firstPage)
-        XCTAssertNil(coordinator.overlays[1])
-        XCTAssertFalse(coordinator.activeToolPages.contains(1), "Eviction must end activity even when PencilKit omits an end callback")
-        XCTAssertNil(coordinator.otherLayersDrawingCache[1], "Leaving pages must release cached layer source bytes")
-        XCTAssertTrue(coordinator.overlays[2] === second)
-        XCTAssertEqual(saved[1], first.canvas.drawing.dataRepresentation())
+        coordinator.pdfView(view, willEndDisplayingOverlayView: first, for: pages[0])
+        XCTAssertTrue(coordinator.overlays[1] === first, "The newly saved current page retains its Undo history")
+        XCTAssertTrue(first.canvas.inkHistory.canUndo, "Saving a retained page must keep its original drawing history")
+        XCTAssertFalse(coordinator.activeToolPages.contains(1), "Detachment ends activity even if PencilKit omits tool-end")
+        XCTAssertEqual(saved[1], first.canvas.sourceDrawing.dataRepresentation())
+        coordinator.pdfView(view, willEndDisplayingOverlayView: fourth, for: pages[3])
+        let refreshedThird = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: pages[2]) as? ScorePageOverlay)
+        coordinator.pdfView(view, willEndDisplayingOverlayView: refreshedThird, for: pages[2])
+        XCTAssertTrue(coordinator.overlays[1] === first, "The oldest detached page must be protected while it is current")
+        XCTAssertNil(coordinator.overlays[4], "An eligible noncurrent clean page is evicted instead")
+        currentPage = 2
+        let reopenedSecond = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: pages[1]) as? ScorePageOverlay)
+        assertSameInk(reopenedSecond.canvas.sourceDrawing, try PKDrawing(data: secondPageInk))
+        coordinator.pdfView(view, willEndDisplayingOverlayView: reopenedSecond, for: pages[1])
+        XCTAssertNil(coordinator.overlays[1], "Once another page is current, the oldest clean page becomes eligible")
+        XCTAssertNil(coordinator.otherLayersDrawingCache[1])
+        XCTAssertTrue(coordinator.overlays[2] === reopenedSecond)
+        let reopenedFirst = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: pages[0]) as? ScorePageOverlay)
+        XCTAssertFalse(reopenedFirst === first)
+        assertSameInk(reopenedFirst.canvas.sourceDrawing, try PKDrawing(data: XCTUnwrap(saved[1])))
+        coordinator.pdfView(view, willEndDisplayingOverlayView: first, for: pages[0])
+        XCTAssertTrue(coordinator.overlays[1] === reopenedFirst, "A stale callback cannot evict its replacement")
         XCTAssertEqual(saved[2], secondPageInk)
-        let reopened = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: firstPage) as? ScorePageOverlay)
-        assertSameInk(reopened.canvas.drawing, try PKDrawing(data: XCTUnwrap(saved[1])))
-        coordinator.pdfView(view, willEndDisplayingOverlayView: first, for: firstPage)
-        XCTAssertTrue(coordinator.overlays[1] === reopened, "An old overlay callback must not evict its replacement")
     }
 
     @MainActor func testExplicitInkConflictChoicesKeepTheChosenDrawing() async throws {

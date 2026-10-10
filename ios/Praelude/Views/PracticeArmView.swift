@@ -13,6 +13,7 @@ struct PracticeArmView: View {
     var arm: PracticeArmController
     var passage: Passage?
     var pieceSubtitle: String
+    var onRenamePassage: () -> Void = {}
     var onStarted: () -> Void
     var onOpenAdvanced: () -> Void
     var onSplitPassage: (Passage) -> Void
@@ -138,7 +139,7 @@ struct PracticeArmView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(passage?.title ?? arm.configuration?.passageSnapshot?.title ?? "Whole piece").font(.subheadline.weight(.semibold))
+            Text(passage?.title ?? arm.configuration?.passageSnapshot?.title ?? "Whole piece").onTapGesture(count: 2, perform: onRenamePassage).accessibilityAction(named: "Rename passage", onRenamePassage).font(.subheadline.weight(.semibold))
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
             Text(passage.map { target in ScoreOrganization.locationLabel(for: target, in: store.pieces.first { $0.id == target.pieceID }) } ?? pieceSubtitle)
                 .font(.caption).foregroundStyle(PraeludeColor.inkSecondary)

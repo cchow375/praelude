@@ -106,15 +106,17 @@ final class ScoreInkHistoryTests: XCTestCase {
         fixture.history.request(.undo); await settle(); XCTAssertTrue(fixture.value.strokes.isEmpty)
         fixture.history.request(.redo); await settle(); XCTAssertEqual(fixture.value, first)
     }
-    @MainActor func testUndoDuringToolOrZoomWaitsAndCoalescesWithoutDroppingCurrentInk() async {
-        let fixture = Fixture(); let expected = ink(1); fixture.history.beginTool()
+    @MainActor func testUndoDuringToolOrZoomWaitsAndPreservesEveryRequestWithoutDroppingCurrentInk() async {
+        let fixture = Fixture(); let first = ink(1); let expected = ink(2)
+        fixture.edit(first); await settle(); fixture.history.beginTool()
         fixture.value = expected; fixture.history.drawingChanged()
         fixture.history.request(.undo); fixture.history.request(.undo); await settle()
         XCTAssertEqual(fixture.value, expected); XCTAssertEqual(fixture.restores, 0)
         fixture.stable = false; fixture.history.endTool(); await settle()
         XCTAssertEqual(fixture.restores, 0)
         fixture.stable = true; fixture.history.finishedRendering(); await settle()
-        XCTAssertTrue(fixture.value.strokes.isEmpty); XCTAssertEqual(fixture.restores, 1)
+        XCTAssertTrue(fixture.value.strokes.isEmpty); XCTAssertEqual(fixture.restores, 2)
+        fixture.history.request(.redo); await settle(); XCTAssertEqual(fixture.value, first)
         fixture.history.request(.redo); await settle(); XCTAssertEqual(fixture.value, expected)
     }
     @MainActor func testDetachDropsPendingCommandButRetainsInterruptedStrokeAndHistory() async {
@@ -158,4 +160,20 @@ final class ScoreInkHistoryTests: XCTestCase {
         fixture.history.request(.undo); await settle()
         fixture.history.request(.undo); await settle(); XCTAssertTrue(fixture.value.strokes.isEmpty)
     }
+    @MainActor func testRapidMixedCommandsRemainSequentialAcrossZoomAndNeverCreateAnExtraHistoryEdit() async {
+        let fixture = Fixture(); let first = ink(1); let second = ink(2); let third = ink(3)
+        fixture.edit(first); fixture.edit(second); fixture.edit(third); await settle()
+        fixture.stable = false
+        fixture.history.request(.undo); fixture.history.request(.undo); fixture.history.request(.redo)
+        await settle(); XCTAssertEqual(fixture.value, third)
+        fixture.stable = true; fixture.history.finishedRendering(); await settle()
+        XCTAssertEqual(fixture.value, second, "Undo, Undo, Redo must execute in that order")
+        XCTAssertEqual(fixture.restores, 3)
+        fixture.history.drawingChanged() // A delayed callback of the restored value is not an edit.
+        fixture.history.finishedRendering(); await settle()
+        fixture.history.request(.undo); await settle(); XCTAssertEqual(fixture.value, first)
+        fixture.history.request(.undo); await settle(); XCTAssertTrue(fixture.value.strokes.isEmpty)
+        XCTAssertFalse(fixture.history.canUndo)
+    }
+
 }

@@ -14,34 +14,36 @@ final class AnnotationInteractionTests: XCTestCase {
     }
 
     @MainActor func testPDFZoomKeepsInkInFixedSourceCoordinatesWithNoInnerNavigation() throws {
-        for crop: NormalizedRect? in [nil, NormalizedRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6)] {
-            let state = ScoreMarkupState()
-            let overlay = ScorePageOverlay(page: 1, markup: state)
-            overlay.activeCrop = crop
-            overlay.frame = CGRect(x: 0, y: 0, width: 600, height: 800)
-            overlay.layoutIfNeeded()
-            overlay.canvas.drawing = ink(); overlay.otherLayersCanvas.drawing = ink()
-            let before = overlay.canvas.drawing.dataRepresentation()
-            let source = CGPoint(x: 140, y: 240)
-            let expected = CGPoint(x: overlay.sourceCanvasFrame.minX + source.x, y: overlay.sourceCanvasFrame.minY + source.y)
-            for scale: CGFloat in [1, 2, 4, 6, 1] {
-                overlay.updateInkResolution(displayScale: scale)
+        for fullSize in [CGSize(width: 600, height: 800), CGSize(width: 5609.6, height: 7764.01)] {
+            for crop: NormalizedRect? in [nil, NormalizedRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6)] {
+                let state = ScoreMarkupState(); let overlay = ScorePageOverlay(page: 1, markup: state)
+                overlay.activeCrop = crop
+                overlay.frame = CGRect(x: 0, y: 0, width: fullSize.width * (crop?.width ?? 1), height: fullSize.height * (crop?.height ?? 1))
                 overlay.layoutIfNeeded()
-                XCTAssertEqual(overlay.canvas.zoomScale, 1, accuracy: 0.001, "PDFKit alone owns zoom; an inner scroll view must not move ink independently")
-                XCTAssertTrue(overlay.canvas.transform.isIdentity)
-                XCTAssertFalse(overlay.canvas.panGestureRecognizer.isEnabled)
-                XCTAssertFalse(overlay.canvas.pinchGestureRecognizer?.isEnabled ?? false)
-                XCTAssertLessThanOrEqual(overlay.renderedInkScale * overlay.renderedInkScale * overlay.sourceCanvasFrame.width * overlay.sourceCanvasFrame.height, 4_000_001)
-                for canvas in [overlay.canvas, overlay.otherLayersCanvas] {
-                    let shown = canvas.convert(source, to: overlay)
-                    XCTAssertEqual(shown.x, expected.x, accuracy: 0.02)
-                    XCTAssertEqual(shown.y, expected.y, accuracy: 0.02)
+                let original = ink()
+                overlay.canvas.replaceDrawing(original); overlay.otherLayersCanvas.replaceDrawing(original)
+                let before = overlay.canvas.sourceDrawing.dataRepresentation()
+                let source = CGPoint(x: 140, y: 240)
+                let expected = CGPoint(x: overlay.sourceCanvasFrame.minX + source.x, y: overlay.sourceCanvasFrame.minY + source.y)
+                for scale: CGFloat in [0.1, 1, 2, 4, 6, 1] {
+                    overlay.updateInkResolution(displayScale: scale); overlay.layoutIfNeeded()
+                    XCTAssertEqual(overlay.canvas.zoomScale, 1, accuracy: 0.001, "PDFKit owns navigation; the bounded canvas uses only a fixed source transform")
+                    XCTAssertFalse(overlay.canvas.panGestureRecognizer.isEnabled)
+                    XCTAssertFalse(overlay.canvas.pinchGestureRecognizer?.isEnabled ?? false)
+                    XCTAssertLessThanOrEqual(overlay.renderedInkScale * overlay.renderedInkScale * overlay.sourceCanvasFrame.width * overlay.sourceCanvasFrame.height, 4_000_001)
+                    for canvas in [overlay.canvas, overlay.otherLayersCanvas] {
+                        let local = CGPoint(x: source.x / canvas.sourceCoordinateScale, y: source.y / canvas.sourceCoordinateScale)
+                        let shown = canvas.convert(local, to: overlay)
+                        XCTAssertEqual(shown.x, expected.x, accuracy: 0.02)
+                        XCTAssertEqual(shown.y, expected.y, accuracy: 0.02)
+                        XCTAssertLessThanOrEqual(canvas.bounds.width, ScoreInkCanvas.maximumCanvasPageWidth)
+                    }
+                    XCTAssertEqual(overlay.canvas.sourceDrawing.dataRepresentation(), before, "Zoom must preserve exact original vector data and stroke identities")
+                    XCTAssertEqual(overlay.canvas.frame.minX, overlay.sourceCanvasFrame.minX, accuracy: 0.02)
+                    XCTAssertEqual(overlay.canvas.frame.width, overlay.sourceCanvasFrame.width, accuracy: 0.02)
                 }
-                XCTAssertEqual(overlay.canvas.drawing.dataRepresentation(), before, "Rendering changes must leave saved vector data byte-identical")
-                XCTAssertEqual(overlay.canvas.frame.minX, overlay.sourceCanvasFrame.minX, accuracy: 0.02)
-                XCTAssertEqual(overlay.canvas.frame.width, overlay.sourceCanvasFrame.width, accuracy: 0.02)
+                XCTAssertFalse(overlay.otherLayersCanvas.isUserInteractionEnabled)
             }
-            XCTAssertFalse(overlay.otherLayersCanvas.isUserInteractionEnabled)
         }
     }
 

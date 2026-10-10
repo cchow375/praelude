@@ -105,6 +105,7 @@ public struct PieceSyncRow: Codable, Equatable, Sendable {
                       scoreSections: score_sections ?? existing?.scoreSections ?? [],
                       measureAnchors: measure_anchors ?? existing?.measureAnchors ?? [],
                       defaultPracticeBPM: hasDefaultPracticeTempo ? default_practice_bpm : existing?.defaultPracticeBPM,
+                      fullTempoBPM: existing?.fullTempoBPM, practiceBalancePlan: existing?.practiceBalancePlan ?? PracticeBalancePlan(),
                       updatedAt: updated_at, lastPageUpdatedAt: last_page_updated_at,
                       deletedAt: deleted_at)
     }

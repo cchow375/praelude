@@ -80,7 +80,8 @@ enum AnnotationWidth: Int, CaseIterable, Identifiable, Sendable {
         switch self { case .fine: return minimum; case .medium: return minimum * 2.2; case .bold: return minimum * 4.8 }
     }
     var highlighterPoints: CGFloat {
-        switch self { case .fine: return 6; case .medium: return 11; case .bold: return 18 }
+        let minimum = PKInkingTool.InkType.marker.validWidthRange.lowerBound
+        switch self { case .fine: return minimum; case .medium: return minimum * 1.6; case .bold: return minimum * 2.7 }
     }
 }
 
@@ -93,10 +94,15 @@ struct AnnotationTool: Equatable {
 
     /// `nil` for `.lasso`/`.eraser` (no ink attributes to show) and for `.stamp`/`.text` (placement
     /// tools, not inking tools — `ScorePageOverlay` never sets these as the canvas's live `PKTool`).
-    var pkTool: PKTool? {
+    var pkTool: PKTool? { pkTool(pageWidth: CGFloat(TextAnnotationStyle.referencePageWidth)) }
+
+    /// Ink, like note typography, uses a common page-width basis. PDFKit zoom scales the score
+    /// and its ink together; changing zoom must never rewrite a stroke or change its tool.
+    func pkTool(pageWidth: CGFloat) -> PKTool? {
+        let scale = pageWidth.isFinite && pageWidth > 0 ? pageWidth / CGFloat(TextAnnotationStyle.referencePageWidth) : 1
         switch kind {
-        case .pen: return PKInkingTool(.pen, color: color.uiColor, width: width.penPoints)
-        case .highlighter: return PKInkingTool(.marker, color: color.uiColor.withAlphaComponent(0.16), width: width.highlighterPoints)
+        case .pen: return PKInkingTool(.pen, color: color.uiColor, width: width.penPoints * scale)
+        case .highlighter: return PKInkingTool(.marker, color: color.uiColor.withAlphaComponent(0.16), width: width.highlighterPoints * scale)
         case .eraser: return PKEraserTool(.vector)
         case .lasso: return PKLassoTool()
         case .stamp, .text: return nil

@@ -11,6 +11,18 @@ final class PracticeRuntime {
     @ObservationIgnored private let recording: RecordingService
     @ObservationIgnored private let notifications = AudioNotificationBag()
     @ObservationIgnored private var scoreOwners: Set<UUID> = []
+    private var suspendedRepOwners: Set<UUID> = []
+    var isRepInputSuspended: Bool { !suspendedRepOwners.isEmpty }
+
+    /// Focus is a transient input guard. It never pauses, completes, or rewrites the active set.
+    func setRepInputSuspended(_ suspended: Bool, ownerID: UUID) {
+        if suspended { suspendedRepOwners.insert(ownerID) } else { suspendedRepOwners.remove(ownerID) }
+        speech.setPracticeInputSuspended(isRepInputSuspended)
+    }
+
+    private func requireRepInput() throws {
+        guard !isRepInputSuspended else { throw PracticeError.conflict("Leave score focus mode before recording or changing repetitions.") }
+    }
     @ObservationIgnored private var checkpointTimer: Timer?
     /// SwiftUI can deliver the background pause's status change only after the app is active
     /// again. Remember that specific retained click so a late observer cannot silence it.
@@ -72,6 +84,7 @@ final class PracticeRuntime {
     /// A first-attempt grade must describe the tempo that was actually audible. Restore a
     /// mismatched click for the next attempt, but do not commit the just-reported repetition.
     func validateAttemptTempo(_ bpm: Double) throws {
+        try requireRepInput()
         if metronome.isPlaying, abs(metronome.bpm - bpm) > 0.001 {
             metronome.setTempo(bpm)
             throw PracticeError.conflict("The click was restored to your set tempo. Repeat the passage before recording it.")
@@ -80,7 +93,8 @@ final class PracticeRuntime {
 
     /// The ledger commits first. Only its newly saved event may trigger transient feedback.
     @discardableResult
-    func record(_ verdict: Verdict, eventID: UUID = UUID()) throws -> Bool {
+    func record(_ verdict: Verdict, eventID: UUID = UUID(), hands: String? = nil) throws -> Bool {
+        try requireRepInput()
         let before = store.activeSet
         // Preserve the store's idempotent retry semantics even after a set has completed.
         if let before, metronome.isPlaying, abs(metronome.bpm - before.currentBPM) > 0.001 {
@@ -90,7 +104,7 @@ final class PracticeRuntime {
                 throw PracticeError.conflict("The click was restored to your set tempo. Repeat the passage before recording it.")
             }
         }
-        guard try store.record(verdict, eventID: eventID) else { return false }
+        guard try store.record(verdict, hands: hands, eventID: eventID) else { return false }
         // R6's own replay counts a manual Reset exactly like a Sloppy (`evaluateR6SlowDown`: "3
         // *resets* in a row") toward its under-half-goal window, so this must run before the early
         // return below — a Reset that completes a qualifying run must still slow the set down.
@@ -146,11 +160,13 @@ final class PracticeRuntime {
     }
 
     func undo() throws {
+        try requireRepInput()
         try store.undo()
         feedback.stop()
     }
 
     func reset() throws {
+        try requireRepInput()
         try store.reset()
         feedback.stop()
     }
@@ -162,6 +178,7 @@ final class PracticeRuntime {
 
     func scoreDisappeared(ownerID: UUID) {
         scoreOwners.remove(ownerID)
+        setRepInputSuspended(false, ownerID: ownerID)
         updateScreenAwake()
     }
 

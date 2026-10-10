@@ -260,4 +260,80 @@ final class AsyncInkCheckpointTests: XCTestCase {
         XCTAssertNil(coordinator.committed[1], "Unrelated remote data must still require an explicit conflict decision")
         XCTAssertTrue(coordinator.dirtyPages.contains(1))
     }
+    @MainActor func testUndoDuringOlderIdleSaveCannotResurrectInkAndLatestUndoSurvivesReopen() async throws {
+        let state = ScoreMarkupState(); let gate = Gate(); var saved: Data?
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/async-undo-race.pdf"), page: .constant(1), twoPages: false,
+                                   markup: state, drawingData: { _ in saved }, saveDrawing: { _, data, expected in
+            guard expected == saved else { XCTFail("Undo must use the authoritative completed save baseline"); return false }
+            saved = data.isEmpty ? nil : data; return true
+        }, saveDrawingAsync: { _, data, expected in
+            await gate.wait()
+            guard !Task.isCancelled, expected == saved else { return nil }
+            saved = data.isEmpty ? nil : data; return ScoreInkSaveReceipt(data: saved)
+        }, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator(); coordinator.connectControls()
+        defer { coordinator.autosave?.cancel(); gate.release() }
+        let overlay = try attach(coordinator)
+        overlay.canvas.inkHistory.acceptsRequest = { true }; overlay.canvas.inkHistory.mayRestore = { true }
+        edit(1, overlay: overlay, coordinator: coordinator)
+        edit(2, overlay: overlay, coordinator: coordinator)
+        let task = startIdle(coordinator); try await awaitEntry(gate)
+        overlay.canvas.inkHistory.request(.undo)
+        for _ in 0..<5 { await withCheckedContinuation { next in DispatchQueue.main.async { next.resume() } } }
+        XCTAssertEqual(overlay.canvas.drawing.strokes.count, 1)
+        gate.release(); await task.value
+        XCTAssertEqual(try PKDrawing(data: XCTUnwrap(saved)).strokes.count, 2, "This older snapshot is allowed to finish its durable write")
+        XCTAssertEqual(overlay.canvas.drawing.strokes.count, 1, "It cannot replace the current undone canvas")
+        XCTAssertTrue(coordinator.dirtyPages.contains(1))
+        XCTAssertTrue(coordinator.flush())
+        XCTAssertEqual(try PKDrawing(data: XCTUnwrap(saved)).strokes.count, 1)
+        overlay.canvas.inkHistory.request(.undo)
+        for _ in 0..<5 { await withCheckedContinuation { next in DispatchQueue.main.async { next.resume() } } }
+        XCTAssertTrue(overlay.canvas.drawing.strokes.isEmpty)
+        XCTAssertTrue(coordinator.flush()); XCTAssertNil(saved)
+        let reopened = parent.makeCoordinator(); defer { reopened.autosave?.cancel() }
+        let reopenedOverlay = try attach(reopened)
+        XCTAssertTrue(reopenedOverlay.canvas.drawing.strokes.isEmpty, "Relaunch reads the latest empty drawing rather than the superseded snapshot")
+    }
+
+    @MainActor func testCleanOverlayDetachAndReattachKeepsSequentialUndoAndDrawingValues() async throws {
+        let state = ScoreMarkupState(); var saved: Data?
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/zoom-overlay-history.pdf"), page: .constant(1), twoPages: false,
+                                   markup: state, drawingData: { _ in saved }, saveDrawing: { _, data, expected in
+            guard expected == saved else { return false }; saved = data.isEmpty ? nil : data; return true
+        }, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator(); coordinator.connectControls()
+        defer { coordinator.autosave?.cancel() }
+        let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792)).pdfData { $0.beginPage() }
+        let document = try XCTUnwrap(PDFDocument(data: data)); let page = try XCTUnwrap(document.page(at: 0))
+        let view = PDFView(); view.document = document; coordinator.pdfView = view
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 612, height: 792))
+        let controller = UIViewController(); window.rootViewController = controller
+        view.frame = controller.view.bounds; controller.view.addSubview(view); window.isHidden = false
+        defer { window.isHidden = true }
+        let overlay = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: page) as? ScorePageOverlay)
+        overlay.frame = view.bounds; view.addSubview(overlay); overlay.layoutIfNeeded()
+        coordinator.pdfView(view, willDisplayOverlayView: overlay, for: page)
+        XCTAssertNotNil(overlay.canvas.window, "Undo eligibility must be tested on a mounted live canvas")
+        edit(1, overlay: overlay, coordinator: coordinator); edit(2, overlay: overlay, coordinator: coordinator)
+        XCTAssertTrue(coordinator.flush())
+        coordinator.pdfView(view, willEndDisplayingOverlayView: overlay, for: page)
+        overlay.removeFromSuperview()
+        XCTAssertNil(overlay.canvas.window)
+        let reattached = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: page) as? ScorePageOverlay)
+        XCTAssertTrue(overlay === reattached, "A transient PDFKit zoom/reflow detach must retain that page's value history")
+        reattached.frame = view.bounds; view.addSubview(reattached); reattached.layoutIfNeeded()
+        coordinator.pdfView(view, willDisplayOverlayView: reattached, for: page)
+        XCTAssertNotNil(reattached.canvas.window, "The reattached page must regain normal Undo eligibility")
+        XCTAssertEqual(reattached.canvas.drawing.strokes.count, 2)
+        XCTAssertTrue(reattached.canvas.inkHistory.canUndo, "Reattachment must retain the history before any Undo request")
+        reattached.canvas.inkHistory.request(.undo)
+        for _ in 0..<5 { await withCheckedContinuation { next in DispatchQueue.main.async { next.resume() } } }
+        XCTAssertEqual(reattached.canvas.drawing.strokes.count, 1)
+        reattached.canvas.inkHistory.request(.undo)
+        for _ in 0..<5 { await withCheckedContinuation { next in DispatchQueue.main.async { next.resume() } } }
+        XCTAssertTrue(reattached.canvas.drawing.strokes.isEmpty)
+        XCTAssertTrue(coordinator.flush()); XCTAssertNil(saved)
+    }
+
 }

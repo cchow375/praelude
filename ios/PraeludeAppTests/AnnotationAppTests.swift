@@ -258,4 +258,79 @@ final class AnnotationAppTests: XCTestCase {
         XCTAssertNil(NormalizedRect.centered(at: .zero, width: 0, height: 0.1, in: size))
         XCTAssertNil(NormalizedRect.centered(at: .zero, width: 0.1, height: 0.1, in: .zero))
     }
+    @MainActor func testBrushStopsUsePageWidthBasisOnOrdinaryAndOversizedScoresAndStayDistinct() throws {
+        for kind: AnnotationToolKind in [.pen, .highlighter] {
+            for pageWidth: CGFloat in [626.76, 5609.6] {
+                var previous: CGFloat = 0
+                for width in AnnotationWidth.allCases {
+                    let annotation = AnnotationTool(kind: kind, width: width)
+                    let sourceScale = max(1, pageWidth / ScoreInkCanvas.maximumCanvasPageWidth)
+                    let tool = try XCTUnwrap(annotation.pkTool(pageWidth: pageWidth / sourceScale) as? PKInkingTool)
+                    let basis = kind == .pen ? width.penPoints : width.highlighterPoints
+                    XCTAssertEqual(tool.width * sourceScale / pageWidth * 595, basis, accuracy: 0.01,
+                                   "PencilKit must preserve normalized width without collapsing at its min/max")
+                    XCTAssertGreaterThan(tool.width, previous * 1.5); previous = tool.width
+                }
+            }
+        }
+    }
+
+    @MainActor func testCropAndZoomNeverChangeTheCanonicalBrushWidth() throws {
+        let state = ScoreMarkupState(); state.tool.width = .medium
+        let overlay = ScorePageOverlay(page: 1, markup: state)
+        overlay.activeCrop = NormalizedRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6)
+        overlay.frame = CGRect(x: 0, y: 0, width: 5609.6 * 0.5, height: 7764.01 * 0.6)
+        overlay.layoutIfNeeded(); overlay.assignToolIfNeeded()
+        let width = try XCTUnwrap(overlay.canvas.tool as? PKInkingTool).width
+        XCTAssertEqual(width * overlay.canvas.sourceCoordinateScale / 5609.6 * 595, AnnotationWidth.medium.penPoints, accuracy: 0.01)
+        for scale: CGFloat in [0.1, 0.5, 1, 2] {
+            overlay.updateInkResolution(displayScale: scale); overlay.assignToolIfNeeded()
+            XCTAssertEqual(try XCTUnwrap(overlay.canvas.tool as? PKInkingTool).width, width)
+        }
+    }
+
+    func testStampChoicesStartWithSharpFlatNaturalWithoutChangingStoredTokens() {
+        XCTAssertEqual(StampKind.pickerOrder.first, .accidental)
+        XCTAssertEqual(StampKind.accidentalLabels, ["sharp", "flat", "natural"])
+        XCTAssertEqual(Set(StampKind.pickerOrder), Set(StampKind.allCases))
+    }
+
+    @MainActor func testPencilLiftCommitsStampImmediatelyAndFailedSaveKeepsPreview() {
+        let markup = ScoreMarkupState(); markup.mode = .writing; markup.tool.kind = .stamp
+        markup.armedStamp = (.accidental, "sharp")
+        let overlay = ScorePageOverlay(page: 1, markup: markup)
+        overlay.frame = CGRect(x: 0, y: 0, width: 595, height: 842); overlay.layoutIfNeeded()
+        var saves = 0; var allowSave = false
+        overlay.onPlaceStamp = { _, _ in saves += 1; return allowSave }
+        overlay.handleStampPencilLift(at: CGPoint(x: 200, y: 300))
+        XCTAssertEqual(saves, 1); XCTAssertNotNil(markup.stampDraft)
+        allowSave = true; overlay.handleStampPencilLift(at: CGPoint(x: 220, y: 320))
+        XCTAssertEqual(saves, 2); XCTAssertNil(markup.stampDraft)
+        overlay.inkReadOnly = true; overlay.handleStampPencilLift(at: CGPoint(x: 250, y: 340))
+        XCTAssertEqual(saves, 2)
+        overlay.inkReadOnly = false; markup.mode = .reading
+        overlay.handleStampPencilLift(at: CGPoint(x: 250, y: 340)); XCTAssertEqual(saves, 2)
+    }
+
+    @MainActor func testHugeCanvasReusesExactOriginalStrokesAfterAnEditAndDoesNotRewriteOnOpen() throws {
+        let canvas = ScoreInkCanvas()
+        var originalStroke = stroke(at: 300)
+        originalStroke.transform = CGAffineTransform(translationX: 31.1234567, y: 17.7654321)
+        let original = PKDrawing(strokes: [originalStroke, originalStroke])
+        let originalData = original.dataRepresentation()
+        canvas.replaceDrawing(original)
+        canvas.configureSourcePageWidth(5609.6)
+        XCTAssertEqual(canvas.sourceDrawing.dataRepresentation(), originalData)
+        XCTAssertEqual(canvas.sourceDrawing.strokes.map(InkPerStroke.fingerprint), original.strokes.map(InkPerStroke.fingerprint))
+        let canonicalBefore = canvas.drawing
+        canvas.drawing = PKDrawing(strokes: canonicalBefore.strokes + [stroke(at: 70)])
+        let changed = canvas.sourceDrawing
+        XCTAssertEqual(Array(changed.strokes.prefix(2)).map(InkPerStroke.fingerprint), original.strokes.map(InkPerStroke.fingerprint),
+                       "An unrelated new stroke must preserve both original duplicate stroke identities exactly")
+        XCTAssertEqual(changed.strokes.last?.transform.a ?? 0, 5609.6 / 1000, accuracy: 0.001)
+        XCTAssertEqual(canvas.sourceDrawing.dataRepresentation(), changed.dataRepresentation(), "Repeated snapshots of an unchanged canvas must use stable bytes")
+        canvas.drawing = canonicalBefore
+        XCTAssertEqual(canvas.sourceDrawing.strokes.map(InkPerStroke.fingerprint), original.strokes.map(InkPerStroke.fingerprint))
+    }
+
 }

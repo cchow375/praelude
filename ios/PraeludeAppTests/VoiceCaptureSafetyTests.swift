@@ -108,6 +108,101 @@ final class VoiceCaptureSafetyTests: XCTestCase {
         service.stop(ifOwnedBy: owner)
         await gate.resolve(.denied)
     }
+    @MainActor func testCustomPhrasesPersistAndRestoreWithoutChangingDefaultVocabulary() throws {
+        let suite = "Praelude-VoiceAliases-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let service = SpeechCommandService(defaults: defaults)
+        try service.updateAliases(["all clear"], for: .clean)
+        try service.updateAliases(["speed"], for: .tempo)
+        let reopened = SpeechCommandService(defaults: defaults)
+        XCTAssertEqual(reopened.commandAliases.aliases(for: .clean), ["all clear"])
+        XCTAssertEqual(VoiceCommandRecognition.recognize("speed ninety six", aliases: reopened.commandAliases), .command(.setTempo(96)))
+        XCTAssertThrowsError(try service.updateAliases(["all clear"], for: .again))
+        XCTAssertEqual(service.commandAliases.aliases(for: .again), [])
+        reopened.restoreDefaultAliases()
+        XCTAssertEqual(SpeechCommandService(defaults: defaults).commandAliases, VoiceAliasConfiguration())
+        XCTAssertEqual(VoiceCommandRecognition.recognize("clean"), .command(.clean))
+    }
+
+    @MainActor func testNearMatchNeedsExplicitConfirmationAndContextChangeDiscardsIt() {
+        var commands: [VoiceCommand] = []
+        var confirmations: [VoiceCommand] = []
+        let service = SpeechCommandService(speechPermission: { .denied }, confirmation: { confirmations.append($0) }, logMisrecognition: { _ in })
+        let owner = UUID()
+        // Test routing final text only; permission work cannot run until this actor yields.
+        service.start(ownerID: owner) { commands.append($0) }
+        service.processCommandTranscript("green")
+        XCTAssertEqual(service.pendingConfirmation?.candidates, [.clean])
+        XCTAssertTrue(commands.isEmpty)
+        XCTAssertTrue(confirmations.isEmpty)
+        service.processCommandTranscript("confirm")
+        XCTAssertEqual(commands, [.clean])
+        XCTAssertEqual(confirmations, [.clean])
+        XCTAssertNil(service.pendingConfirmation)
+        service.processCommandTranscript("glean")
+        service.setCommandContext(UUID(), ifOwnedBy: owner)
+        XCTAssertNil(service.pendingConfirmation)
+        service.processCommandTranscript("confirm")
+        XCTAssertEqual(commands, [.clean])
+        service.stop()
+    }
+
+    @MainActor func testAmbiguousNearMatchRequiresSpecificChoiceAndCancelDoesNotWrite() throws {
+        var commands: [VoiceCommand] = []
+        let suite = "Praelude-VoiceAmbiguity-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let service = SpeechCommandService(defaults: defaults, speechPermission: { .denied }, confirmation: { _ in }, logMisrecognition: { _ in })
+        try service.updateAliases(["bloom"], for: .clean)
+        try service.updateAliases(["brood"], for: .again)
+        service.start(ownerID: UUID()) { commands.append($0) }
+        defer { service.stop(); service.restoreDefaultAliases() }
+        service.processCommandTranscript("broom")
+        XCTAssertEqual(service.pendingConfirmation?.candidates, [.clean, .again])
+        service.processCommandTranscript("confirm")
+        XCTAssertTrue(commands.isEmpty, "An ambiguous spoken confirmation cannot choose between actions")
+        service.confirmPendingCommand(.again)
+        XCTAssertEqual(commands, [.again])
+        service.processCommandTranscript("broom")
+        service.processCommandTranscript("cancel")
+        XCTAssertNil(service.pendingConfirmation)
+        XCTAssertEqual(commands, [.again])
+    }
+
+    @MainActor func testFocusAndMuteKeepOwnershipWhileRejectingHistoryInput() {
+        var commands: [VoiceCommand] = []
+        let service = SpeechCommandService(speechPermission: { .denied }, confirmation: { _ in }, logMisrecognition: { _ in })
+        let owner = UUID()
+        service.start(ownerID: owner) { commands.append($0) }
+        service.setPracticeInputSuspended(true)
+        for phrase in ["clean", "again", "undo", "start", "stop", "next", "green"] { service.processCommandTranscript(phrase) }
+        XCTAssertTrue(commands.isEmpty)
+        XCTAssertNil(service.pendingConfirmation)
+        XCTAssertEqual(service.ownerID, owner)
+        for phrase in ["next page", "metronome off", "tempo 72", "pause", "resume"] { service.processCommandTranscript(phrase) }
+        XCTAssertEqual(commands, [.nextPage, .metronomeStop, .setTempo(72), .pause, .resume])
+        service.setPracticeInputSuspended(false)
+        service.setMuted(true)
+        service.processCommandTranscript("clean")
+        XCTAssertEqual(commands.count, 5)
+        service.setMuted(false)
+        service.processCommandTranscript("clean")
+        XCTAssertEqual(commands.last, .clean)
+        service.stop()
+    }
+
+    @MainActor func testStableSingleWordEndpointIsShorterButTempoAndUncertainTextKeepSettleTime() throws {
+        XCTAssertEqual(SpeechCommandService.settleMilliseconds(for: "clean"), 300)
+        XCTAssertEqual(SpeechCommandService.settleMilliseconds(for: "confirm"), 300)
+        XCTAssertEqual(SpeechCommandService.settleMilliseconds(for: "green"), 600)
+        XCTAssertEqual(SpeechCommandService.settleMilliseconds(for: "tempo ninety"), 600)
+        XCTAssertEqual(SpeechCommandService.settleMilliseconds(for: "next page"), 600)
+        let aliases = try VoiceAliasConfiguration().updating(["done"], for: .clean)
+        XCTAssertEqual(SpeechCommandService.settleMilliseconds(for: "done", aliases: aliases), 300)
+        XCTAssertEqual(SpeechCommandService.settleMilliseconds(for: "all clear", aliases: aliases), 600)
+    }
+
 }
 
 private actor PermissionCallCount {

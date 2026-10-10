@@ -22,7 +22,7 @@ struct HistoryView: View {
 
     var body: some View {
         List {
-            if sessions.isEmpty && passagesWithHistory.isEmpty {
+            if sessions.isEmpty && passagesWithHistory.isEmpty && store.pieces.isEmpty {
                 PraeludeEmptyState(title: "No history yet", symbol: "clock.arrow.circlepath",
                                   message: "Practice a set and your sessions, repetitions and per-passage grades build up here.")
                     .listRowBackground(Color.clear).listRowSeparator(.hidden)
@@ -39,9 +39,20 @@ struct HistoryView: View {
                 } header: {
                     Text("Export")
                 } footer: {
-                    Text("Includes every recorded repetition: date, piece, passage, focus, verdict and tempo.")
+                    Text("Includes recorded repetitions, hand attribution, variant and the available full-tempo reference, with legacy/current-reference provenance.")
                 }
 
+                Section("By piece · hands, tempo and variants") {
+                    ForEach(store.pieces) { piece in
+                        NavigationLink { PiecePracticeInsightsView(pieceID: piece.id) } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(piece.title).font(.headline)
+                                Text(piece.fullTempoBPM.map { "Full tempo \(PracticeReferenceFormatting.bpm($0)) BPM" } ?? "Set a full-tempo reference")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
                 if !passagesWithHistory.isEmpty {
                     Section("By passage") {
                         ForEach(passagesWithHistory) { passage in
@@ -183,6 +194,9 @@ private struct HistorySessionDetailView: View {
                     LabeledContent("Focused time", value: practiceDuration(session.activeSeconds))
                     LabeledContent("Repetitions", value: "\(session.attempts.count)")
                     LabeledContent("Completed sets", value: "\(session.completedSets)")
+                }
+                Section {
+                    NavigationLink("Hands, tempo and variants") { PiecePracticeInsightsView(pieceID: session.pieceID, sessionID: sessionID) }
                 }
                 if let summary {
                     Section {

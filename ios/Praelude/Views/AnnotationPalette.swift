@@ -15,7 +15,9 @@ struct AnnotationPalette: View {
     var body: some View {
         GeometryReader { geometry in
             let width = collapsed ? min(188, geometry.size.width - 16) : min(520, geometry.size.width - 16)
-            let maxHeight = max(44, geometry.size.height - 16)
+            // Keep at least half the score visible. A viewport shorter than 88 points
+            // still needs the 44-point header so Done and minimize remain reachable.
+            let maxHeight = max(44, min(geometry.size.height - 16, max(44, geometry.size.height * 0.5)))
             let toolsHeight = min(ceil(measuredToolsHeight) + 4, max(0, maxHeight - 44))
             let height = collapsed ? 44 : 44 + toolsHeight
             let origin = clamped(position ?? CGPoint(x: geometry.size.width - width - 8, y: 8),

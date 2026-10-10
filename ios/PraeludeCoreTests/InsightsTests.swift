@@ -362,10 +362,10 @@ final class InsightsTests: XCTestCase {
         state.pieces = [piece]; state.sessions = [session]; state.history = [set]
         let csv = HistoryExport.csv(state: state)
         let lines = csv.components(separatedBy: "\r\n").filter { !$0.isEmpty }
-        XCTAssertEqual(lines.first, "Date,Piece,Passage,Focus,Verdict,BPM")
+        XCTAssertEqual(lines.first, "Date,Piece,Passage,Focus,Verdict,BPM,Hands,Hands source,Variant,Full-tempo BPM,Full-tempo source,Relative tempo percent,Session ID")
         XCTAssertEqual(lines.count, 2)
         XCTAssertTrue(lines[1].contains("\"Waltz, Op. 1\""))
-        XCTAssertTrue(lines[1].hasSuffix("clean,88"))
+        XCTAssertTrue(lines[1].contains("clean,88.0,Both hands,set contract"))
     }
 
     func testHistoryExportJSONRoundTrips() throws {

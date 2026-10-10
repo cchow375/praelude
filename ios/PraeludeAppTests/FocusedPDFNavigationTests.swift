@@ -122,7 +122,7 @@ final class FocusedPDFNavigationTests: XCTestCase {
         markup.tool.color = .red
         try await waitFor {
             final.canvas.drawingPolicy == .pencilOnly
-                && (final.canvas.tool as? PKInkingTool)?.width == AnnotationWidth.bold.penPoints
+                && (final.canvas.tool as? PKInkingTool)?.width == (markup.tool.pkTool(pageWidth: final.sourceCanvasFrame.width / final.canvas.sourceCoordinateScale) as? PKInkingTool)?.width
                 && (final.canvas.tool as? PKInkingTool)?.color == AnnotationColor.red.uiColor
         }
         let importedPoints = [CGPoint(x: 40, y: 60), CGPoint(x: 100, y: 160)].enumerated().map { step, point in

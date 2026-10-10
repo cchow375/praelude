@@ -136,4 +136,36 @@ final class TextAnnotationStyleTests: XCTestCase {
         XCTAssertEqual(store.state.textAnnotations, [note])
         XCTAssertEqual(PracticeStore(directory: store.directory).state.textAnnotations, [note])
     }
+    @MainActor func testArbitraryAndTransparentBackgroundsPersistAndSyncWithLegacyDefaults() throws {
+        let (store, piece) = try makeStore()
+        var style = styled
+        for color in [TextAnnotationStyle.BackgroundColor(red: 0.17, green: 0.42, blue: 0.91, alpha: 0.37), .clear] {
+            style.backgroundColor = color
+            let note = annotation(pieceID: piece.id, style: style)
+            try store.saveTextAnnotation(note)
+            let saved = try XCTUnwrap(store.state.textAnnotations.first(where: { $0.id == note.id }))
+            XCTAssertEqual(saved.style.backgroundColor, color)
+            XCTAssertEqual(PracticeStore(directory: store.directory).state.textAnnotations.first(where: { $0.id == note.id })?.style.backgroundColor, color)
+            let row = try SyncCoding.decoder.decode(AnnotationSyncRow.self, from: SyncCoding.encoder.encode(AnnotationSyncRow(saved)))
+            XCTAssertEqual(row.textValue?.style.backgroundColor, color)
+        }
+        XCTAssertEqual(try JSONDecoder().decode(TextAnnotationStyle.self, from: Data("{}".utf8)).backgroundColor, .yellow)
+    }
+
+    @MainActor func testInvalidBackgroundComponentsRejectAtomically() throws {
+        let (store, piece) = try makeStore()
+        var note = annotation(pieceID: piece.id)
+        try store.saveTextAnnotation(note)
+        let original = store.state; let bytes = try Data(contentsOf: store.fileURL)
+        let colors: [TextAnnotationStyle.BackgroundColor] = [
+            .init(red: -0.01, green: 0, blue: 0), .init(red: 0, green: 1.01, blue: 0),
+            .init(red: 0, green: 0, blue: .infinity), .init(red: 0, green: 0, blue: 0, alpha: .nan),
+            .init(red: 0, green: 0, blue: 0, alpha: 1.01)]
+        for color in colors {
+            note.style.backgroundColor = color
+            XCTAssertThrowsError(try store.saveTextAnnotation(note))
+            XCTAssertEqual(store.state, original); XCTAssertEqual(try Data(contentsOf: store.fileURL), bytes)
+        }
+    }
+
 }

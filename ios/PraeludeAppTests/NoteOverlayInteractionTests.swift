@@ -53,6 +53,59 @@ final class NoteOverlayInteractionTests: XCTestCase {
         }
     }
 
+    @MainActor func testExpandedInspectorRendersReadableTextWithoutChangingWhiteOnDarkNoteStyle() throws {
+        let (_, overlay, original) = fixture()
+        overlay.overrideUserInterfaceStyle = .light
+        var note = original
+        note.style.textColor = .white
+        note.style.backgroundColor = .init(red: 0.05, green: 0.08, blue: 0.12, alpha: 1)
+        overlay.displayedTextBoxes = [note]
+        overlay.handleTap(at: CGPoint(x: 210, y: 220))
+        let panel = try panel(in: overlay)
+        XCTAssertFalse(panel.isHidden)
+        let label = try XCTUnwrap(panel.subviews.compactMap { $0 as? UIScrollView }.first?.subviews.compactMap { $0 as? UILabel }.first)
+        let attributed = try XCTUnwrap(label.attributedText)
+        let foreground = try XCTUnwrap(attributed.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor)
+        let background = try XCTUnwrap(panel.backgroundColor)
+        for appearance in [UIUserInterfaceStyle.light, .dark] {
+            let traits = UITraitCollection(userInterfaceStyle: appearance)
+            XCTAssertEqual(foreground.resolvedColor(with: traits), UIColor.label.resolvedColor(with: traits))
+            XCTAssertEqual(background.resolvedColor(with: traits), UIColor.systemBackground.resolvedColor(with: traits))
+            XCTAssertEqual(background.resolvedColor(with: traits).cgColor.alpha, 1)
+        }
+        let font = try XCTUnwrap(attributed.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+        XCTAssertEqual(font, TextAnnotationRenderer.font(for: note.style), "Expanding changes contrast while retaining the chosen font and emphasis")
+        let paragraph = try XCTUnwrap(attributed.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(paragraph.alignment, .center)
+
+        // Render only the note label, excluding buttons/borders that could hide invisible text.
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        var rendered: UIImage?
+        UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
+            rendered = UIGraphicsImageRenderer(size: label.bounds.size, format: format).image { renderer in
+                background.setFill(); renderer.fill(label.bounds)
+                label.layer.render(in: renderer.cgContext)
+            }
+        }
+        let cg = try XCTUnwrap(rendered?.cgImage)
+        var pixels = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+        try pixels.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: cg.width, height: cg.height,
+                bitsPerComponent: 8, bytesPerRow: cg.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        }
+        var darkTextPixels = 0
+        for offset in stride(from: 0, to: pixels.count, by: 4) {
+            let isDark = pixels[offset] < 100 && pixels[offset + 1] < 100 && pixels[offset + 2] < 100
+            if isDark && pixels[offset + 3] == 255 { darkTextPixels += 1 }
+        }
+        XCTAssertGreaterThan(darkTextPixels, 100, "White saved ink must become visible dark glyphs on the light inspector surface")
+        XCTAssertEqual(overlay.displayedTextBoxes, [note], "Opening the inspector must not rewrite the saved note style")
+        XCTAssertEqual(TextAnnotationRenderer.color(for: note.style), .white, "Collapsed notes and export retain the selected ink")
+        XCTAssertEqual(TextAnnotationRenderer.backgroundColor(for: note.style), UIColor(red: 0.05, green: 0.08, blue: 0.12, alpha: 1))
+    }
+
     @MainActor func testResizeUsesGenerousOutsideCornerTargetAndSavesOnlyOnceAfter120Samples() throws {
         let (_, overlay, note) = fixture(size: CGSize(width: 5609.6, height: 7764.01))
         let size = overlay.bounds.size

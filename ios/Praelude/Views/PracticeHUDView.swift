@@ -13,6 +13,8 @@ struct PracticeHUDView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("ios.hudCollapsed") private var collapsed = true
     var active: ActiveSet
+    @Binding var selectedHands: String
+    var onRenamePassage: () -> Void = {}
     var passageTitle: String
     var arm: PracticeArmController
     var speech: SpeechCommandService
@@ -104,7 +106,7 @@ struct PracticeHUDView: View {
                     // §3d/§10c: readable from playing position, not just up close — see "(C) Audit.md"
                     // (this line measured well under the 20/20 acuity floor at arm's length at its old
                     // `.subheadline`/`.caption` sizes).
-                    Text(passageTitle).font(.title3.weight(.semibold)).lineLimit(1)
+                    Text(passageTitle).onTapGesture(count: 2, perform: onRenamePassage).accessibilityAction(named: "Rename passage", onRenamePassage).font(.title3.weight(.semibold)).lineLimit(1)
                     HStack(spacing: 8) {
                         if let stageName = active.currentStage?.name {
                             Text(stageName).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
@@ -149,7 +151,7 @@ struct PracticeHUDView: View {
             : AnyLayout(HStackLayout(spacing: 6))
         return layout {
             VStack(alignment: .leading, spacing: 2) {
-                Text(passageTitle).font(.subheadline.weight(.medium))
+                Text(passageTitle).onTapGesture(count: 2, perform: onRenamePassage).accessibilityAction(named: "Rename passage", onRenamePassage).font(.subheadline.weight(.medium))
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                 Text(dynamicTypeSize.isAccessibilitySize ? practiceContext : compactPracticeContext)
                     .font(.caption).foregroundStyle(.secondary)
@@ -176,7 +178,7 @@ struct PracticeHUDView: View {
     }
 
     private var practiceContext: String {
-        var parts = [active.configuration.hands]
+        var parts = [selectedHands]
         if let stage = active.currentStage {
             parts.append("\(active.stageIndex + 1)/\(active.configuration.stages.count) · \(stage.name)")
         }
@@ -186,12 +188,12 @@ struct PracticeHUDView: View {
 
     private var compactPracticeContext: String {
         let hands: String
-        switch active.configuration.hands {
+        switch selectedHands {
         case "Left hand": hands = "L"
         case "Right hand": hands = "R"
         case "Both hands": hands = "Both"
         case "Hands separately": hands = "L/R"
-        default: hands = active.configuration.hands
+        default: hands = selectedHands
         }
         var parts = [hands]
         if active.effectiveTargetBPM > active.currentBPM { parts.append("Goal \(Int(active.effectiveTargetBPM))") }
@@ -250,7 +252,12 @@ struct PracticeHUDView: View {
         return layout {
             verdictButton(.again, title: "Again", glyph: .verdictAgain, key: "3", primary: false)
             verdictButton(.sloppy, title: "Sloppy", glyph: .verdictSloppy, key: "2", primary: false)
-            verdictButton(.clean, title: "Clean", glyph: .verdictClean, key: "1", primary: true)
+            VStack(spacing: 0) {
+                // The chosen hand is captured on the next verdict; old attempts keep their hands.
+                PracticeHandsControl(hands: $selectedHands)
+                    .accessibilityIdentifier("cleanHands")
+                verdictButton(.clean, title: "Clean", glyph: .verdictClean, key: "1", primary: true)
+            }
         }.disabled(active.status != .running).opacity(active.status == .running ? 1 : 0.45)
     }
 

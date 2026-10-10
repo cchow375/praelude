@@ -327,18 +327,25 @@ public struct PracticeSessionSyncRow: Codable, Equatable, Sendable {
 private struct SetTempoSyncPayload: Codable, Equatable, Sendable {
     var step: TempoStep
     var changes: [SetTempoChange]
-    private enum CodingKeys: String, CodingKey { case tempoChanges }
-    init(step: TempoStep, changes: [SetTempoChange]) { self.step = step; self.changes = changes }
+    var fullTempoBPM: Double?
+    var recordedHands: [String: String]
+    private enum CodingKeys: String, CodingKey { case tempoChanges, fullTempoBPM, recordedHands }
+    init(step: TempoStep, changes: [SetTempoChange], fullTempoBPM: Double?, recordedHands: [String: String]) {
+        self.step = step; self.changes = changes; self.fullTempoBPM = fullTempoBPM; self.recordedHands = recordedHands
+    }
     init(from decoder: Decoder) throws {
         step = try TempoStep(from: decoder)
-        changes = try decoder.container(keyedBy: CodingKeys.self).decodeIfPresent([SetTempoChange].self, forKey: .tempoChanges) ?? []
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        changes = try values.decodeIfPresent([SetTempoChange].self, forKey: .tempoChanges) ?? []
+        fullTempoBPM = try values.decodeIfPresent(Double.self, forKey: .fullTempoBPM)
+        recordedHands = try values.decodeIfPresent([String: String].self, forKey: .recordedHands) ?? [:]
     }
     func encode(to encoder: Encoder) throws {
         try step.encode(to: encoder)
-        if !changes.isEmpty {
-            var values = encoder.container(keyedBy: CodingKeys.self)
-            try values.encode(changes, forKey: .tempoChanges)
-        }
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        if !changes.isEmpty { try values.encode(changes, forKey: .tempoChanges) }
+        try values.encodeIfPresent(fullTempoBPM, forKey: .fullTempoBPM)
+        if !recordedHands.isEmpty { try values.encode(recordedHands, forKey: .recordedHands) }
     }
 }
 
@@ -388,7 +395,8 @@ public struct SetSyncRow: Codable, Equatable, Sendable {
         piece_id = set.configuration.pieceID; passage_id = set.configuration.passageID
         focus = set.configuration.focus; goal = set.configuration.goal.rawValue; basis = set.configuration.basis.rawValue
         target_count = set.configuration.targetCount; start_bpm = set.configuration.startBPM; target_bpm = set.configuration.targetBPM
-        tempoPayload = SetTempoSyncPayload(step: set.configuration.tempoStep, changes: set.configuration.tempoChanges); stages = set.configuration.stages; hands = set.configuration.hands
+        tempoPayload = SetTempoSyncPayload(step: set.configuration.tempoStep, changes: set.configuration.tempoChanges,
+                                           fullTempoBPM: set.configuration.fullTempoBPM, recordedHands: set.configuration.recordedHands); stages = set.configuration.stages; hands = set.configuration.hands
         use_metronome = set.configuration.useMetronome; passage_snapshot = set.configuration.passageSnapshot
         current_bpm = set.currentBPM; stage_index = set.stageIndex; streak = set.streak
         total_plays = set.totalPlays; completed_stages = set.completedStages; status = set.status.rawValue
@@ -405,7 +413,8 @@ public struct SetSyncRow: Codable, Equatable, Sendable {
         let configuration = PracticeConfiguration(pieceID: piece_id, passageID: passage_id, focus: focus, goal: goal, basis: basis,
                                                    targetCount: target_count, startBPM: start_bpm, targetBPM: target_bpm,
                                                    tempoStep: tempo_step, stages: stages, hands: hands, useMetronome: use_metronome,
-                                                   passageSnapshot: passage_snapshot, tempoChanges: tempoPayload.changes)
+                                                   passageSnapshot: passage_snapshot, tempoChanges: tempoPayload.changes,
+                                                   fullTempoBPM: tempoPayload.fullTempoBPM, recordedHands: tempoPayload.recordedHands)
         var set = ActiveSet(id: id, sessionID: session_id, configuration: configuration, startedAt: started_at)
         set.currentBPM = current_bpm; set.stageIndex = stage_index; set.streak = streak
         set.totalPlays = total_plays; set.completedStages = completed_stages; set.status = status

@@ -44,7 +44,7 @@ import UIKit
     private var toolOperation = false
     private var sawDrawingCallback = false
     private var awaitingFirstChange = false
-    private var pending: Direction?
+    private var pending: [Direction] = []
     private var scheduled = false
     private var generation: UInt64 = 0
     private var costHighWatermark = 1
@@ -54,7 +54,7 @@ import UIKit
 
     init() { bridge.history = self }
     func reset(to value: PKDrawing) {
-        generation &+= 1; pending = nil; scheduled = false; toolActive = false
+        generation &+= 1; pending.removeAll(); scheduled = false; toolActive = false
         closeOperation(); baseline = value; costHighWatermark = 1
         undoValues.removeAll(); redoValues.removeAll()
         historyLimit = 40
@@ -85,16 +85,16 @@ import UIKit
     }
     func finishedRendering() { resumePendingRequest() }
     func detach() {
-        generation &+= 1; pending = nil; scheduled = false
+        generation &+= 1; pending.removeAll(); scheduled = false
         // An interrupted canvas may never receive didEndUsingTool. Keep its current drawing and
         // history, but do not leave it permanently tool-active when the retained page reattaches.
         toolActive = false; checkpoint()
     }
     func request(_ direction: Direction) {
-        guard acceptsRequest() else { pending = nil; return }
-        pending = direction; schedule()
+        guard acceptsRequest() else { pending.removeAll(); return }
+        pending.append(direction); schedule()
     }
-    func resumePendingRequest() { if pending != nil { schedule() } }
+    func resumePendingRequest() { if !pending.isEmpty { schedule() } }
     private func schedule() {
         guard !scheduled else { return }
         scheduled = true
@@ -135,15 +135,17 @@ import UIKit
         onRestored()
     }
     private func performPending() {
-        guard let direction = pending, !toolActive, !isRestoring else { return }
-        guard acceptsRequest() else { pending = nil; return }
+        guard !pending.isEmpty, !toolActive, !isRestoring else { return }
+        guard acceptsRequest() else { pending.removeAll(); return }
         guard mayRestore() else { return }
-        pending = nil
+        let direction = pending.removeFirst()
         if awaitingFirstChange {
             // A canceled/no-op and a not-yet-published mark are indistinguishable in this API.
             // Conservatively leave ink intact for this command. A later callback still records
             // against baseline; the next normal Undo works even if no callback ever arrives.
-            closeOperation(); onStateChanged(); return
+            closeOperation(); onStateChanged()
+            if !pending.isEmpty { schedule() }
+            return
         }
         closeOperation()
         switch direction {
@@ -159,6 +161,9 @@ import UIKit
             }
         }
         onStateChanged()
+        // Keep every deliberate request in its original order. A single pending direction used
+        // to lose rapid Undo presses, and Undo followed by Redo could become only a Redo.
+        if !pending.isEmpty { schedule() }
     }
     private func trimHistory() {
         // Undo/Redo transfers one value between stacks, so their combined count stays bounded.

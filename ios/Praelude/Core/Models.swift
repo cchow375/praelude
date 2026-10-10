@@ -28,6 +28,9 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
     public var scoreSections: [ScoreSection]
     public var measureAnchors: [ScoreMeasureAnchor]
     public var defaultPracticeBPM: Double?
+    /// Deliberate full-tempo reference, independent of the current practice/set tempo. Local metadata.
+    public var fullTempoBPM: Double?
+    public var practiceBalancePlan: PracticeBalancePlan
     /// Sync metadata (§4d) for everything except `lastPage`, which turning a page changes far more
     /// often than any of the above; it gets its own clock so ordinary reading never races a
     /// deliberate metadata edit made offline on another device (see "(C) Schema3.md").
@@ -39,7 +42,8 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
                 notes: String = "", createdAt: Date = Date(), instrumentID: UUID? = nil,
                 tagIDs: [UUID] = [], folderIDs: [UUID] = [], difficulty: Int? = nil, customCoverRef: String? = nil,
                 performanceDates: [Date] = [], scoreSections: [ScoreSection] = [], measureAnchors: [ScoreMeasureAnchor] = [],
-                defaultPracticeBPM: Double? = nil, updatedAt: Date = Date(), lastPageUpdatedAt: Date = Date(),
+                defaultPracticeBPM: Double? = nil, fullTempoBPM: Double? = nil,
+                practiceBalancePlan: PracticeBalancePlan = PracticeBalancePlan(), updatedAt: Date = Date(), lastPageUpdatedAt: Date = Date(),
                 deletedAt: Date? = nil) {
         self.id = id; self.title = title; self.composer = composer; self.pdfFileName = pdfFileName
         self.pageCount = pageCount; self.lastPage = lastPage; self.status = status
@@ -47,11 +51,12 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
         self.instrumentID = instrumentID; self.tagIDs = tagIDs; self.folderIDs = folderIDs
         self.difficulty = difficulty; self.customCoverRef = customCoverRef; self.performanceDates = performanceDates
         self.scoreSections = scoreSections; self.measureAnchors = measureAnchors; self.defaultPracticeBPM = defaultPracticeBPM
+        self.fullTempoBPM = fullTempoBPM; self.practiceBalancePlan = practiceBalancePlan
         self.updatedAt = updatedAt; self.lastPageUpdatedAt = lastPageUpdatedAt; self.deletedAt = deletedAt
     }
     private enum CodingKeys: String, CodingKey {
         case id, title, composer, pdfFileName, pageCount, lastPage, status, notes, createdAt, instrumentID,
-             tagIDs, folderIDs, difficulty, customCoverRef, performanceDates, scoreSections, measureAnchors, defaultPracticeBPM, updatedAt, lastPageUpdatedAt, deletedAt
+             tagIDs, folderIDs, difficulty, customCoverRef, performanceDates, scoreSections, measureAnchors, defaultPracticeBPM, fullTempoBPM, practiceBalancePlan, updatedAt, lastPageUpdatedAt, deletedAt
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -73,6 +78,8 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
         scoreSections = try values.decodeIfPresent([ScoreSection].self, forKey: .scoreSections) ?? []
         measureAnchors = try values.decodeIfPresent([ScoreMeasureAnchor].self, forKey: .measureAnchors) ?? []
         defaultPracticeBPM = try values.decodeIfPresent(Double.self, forKey: .defaultPracticeBPM)
+        fullTempoBPM = try values.decodeIfPresent(Double.self, forKey: .fullTempoBPM)
+        practiceBalancePlan = try values.decodeIfPresent(PracticeBalancePlan.self, forKey: .practiceBalancePlan) ?? PracticeBalancePlan()
         // Absent on schema1/2 data; SchemaMigration backfills the sentinel to the migration timestamp.
         updatedAt = try values.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .praeludeEpochSentinel
         lastPageUpdatedAt = try values.decodeIfPresent(Date.self, forKey: .lastPageUpdatedAt) ?? .praeludeEpochSentinel
@@ -214,18 +221,24 @@ public struct PracticeConfiguration: Codable, Equatable, Sendable {
     public var hands: String
     public var useMetronome: Bool
     public var passageSnapshot: Passage?
+    /// Full-tempo reference captured at set creation; old sets keep nil.
+    public var fullTempoBPM: Double?
+    /// Immutable hand selection per NEW recorded event. Legacy events retain only set-contract hands.
+    public var recordedHands: [String: String]
     public init(pieceID: UUID, passageID: UUID? = nil, focus: String = "Pulse", goal: SetGoal = .tempo,
                 basis: CompletionBasis = .cleanStreak, targetCount: Int = 5,
                 startBPM: Double = 60, targetBPM: Double = 60, tempoStep: TempoStep = .fixed(4),
                 stages: [VariantStage] = [], hands: String = "Both hands", useMetronome: Bool = false,
-                passageSnapshot: Passage? = nil, tempoChanges: [SetTempoChange] = []) {
+                passageSnapshot: Passage? = nil, tempoChanges: [SetTempoChange] = [],
+                fullTempoBPM: Double? = nil, recordedHands: [String: String] = [:]) {
         self.pieceID = pieceID; self.passageID = passageID; self.focus = focus; self.goal = goal; self.basis = basis
         self.targetCount = targetCount; self.startBPM = startBPM; self.targetBPM = targetBPM
         self.tempoStep = tempoStep; self.stages = stages; self.hands = hands; self.useMetronome = useMetronome
         self.passageSnapshot = passageSnapshot; self.tempoChanges = tempoChanges
+        self.fullTempoBPM = fullTempoBPM; self.recordedHands = recordedHands
     }
     private enum CodingKeys: String, CodingKey {
-        case pieceID, passageID, focus, goal, basis, targetCount, startBPM, targetBPM, tempoStep, tempoChanges, stages, hands, useMetronome, passageSnapshot
+        case pieceID, passageID, focus, goal, basis, targetCount, startBPM, targetBPM, tempoStep, tempoChanges, stages, hands, useMetronome, passageSnapshot, fullTempoBPM, recordedHands
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -243,6 +256,8 @@ public struct PracticeConfiguration: Codable, Equatable, Sendable {
         hands = try values.decode(String.self, forKey: .hands)
         useMetronome = try values.decode(Bool.self, forKey: .useMetronome)
         passageSnapshot = try values.decodeIfPresent(Passage.self, forKey: .passageSnapshot)
+        fullTempoBPM = try values.decodeIfPresent(Double.self, forKey: .fullTempoBPM)
+        recordedHands = try values.decodeIfPresent([String: String].self, forKey: .recordedHands) ?? [:]
     }
 }
 

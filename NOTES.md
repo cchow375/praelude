@@ -1,5 +1,49 @@
 # NOTES
 
+## October 10, 2026 — build12 candidate contracts
+
+- PDF page changes must still defer outside representable updates (build7 watchdog contract).
+  Bookmark serialization/write is now debounced250ms so page layout can begin first; score exit
+  and background flush the last pending bookmark. A sudden kill inside that window may retain the
+  previous bookmark, while practice/ink checkpoints retain their original durable-before-feedback gates.
+- Keep two clean detached overlay histories, plus current/dirty pages. PDFKit can detach during zoom;
+  destroying the canvas each time destroys value Undo/Redo. Clear on source/layer/page-edit changes.
+- Raw PencilKit pen width clamps at about25.659 points in the native probe. Scaling a Bold tool by a
+  huge PDF width can collapse distinct stops; canonical canvas coordinates with source-space storage
+  require exact old-stroke/persistence/zoom checks. Never call a tool-width formula verified without PK.
+- Full-tempo references and per-event hands are additive optional metadata; old records are never
+  retroactively rewritten. Sync support depends on the existing opaque tempo_step payload, while
+  piece target/planning fields, aliases and control position retain explicit local-only boundaries.
+- Focus gates rep/history input without completing/pausing the stored set or stopping voice capture.
+  Repaired speech requires confirmation and pending suggestions are scoped to the current set/context.
+
+- Old set-level hand labels and unspecified variants must not support negative coverage judgments.
+  A chosen hand check requires per-event attribution; a chosen variant check requires known method
+  on all included rows. Otherwise show incomplete attribution/reasons, while preserving counts.
+- Expanded note inspectors use opaque semantic systemBackground/label colors for readable rescue
+  text. Saved arbitrary RGBA colors remain on the score/preview/export. Never put saved white text
+  on a fixed yellow inspector surface. Palette tools scroll within half the score (44pt header minimum).
+- Selected reading-mode finger hits need the overlay route to avoid PDFKit text recognizers claiming
+  double-tap rename. Claim only definite direct touches in visible selected/emphasized regions;
+  preserve Pencil/unresolved, writing, note, crop and read-only priorities. Actual UI2 verifies
+  both selected-region and dock-title double-tap rename/save/reopen without starting practice.
+- Two automatic-style buttons in the same SwiftUI Form row can both run. Transparent then Yellow
+  produced an opaque note on ordinary and huge-score UI2. Give each action its own explicit button
+  style and full44-point label; test both directions and persisted state rather than weakening On/Off.
+- More44pt icons can widen a vertical ScrollView beyond the phone. Phone1 at largest text exposes
+  a466pt control viewport in a402pt app, placing Annotate at x414. The mode row now uses horizontal
+  ViewThatFits with a two-row navigation/actions fallback. Scrolling vertically cannot fix width.
+
+- Do not infer actual rotation from XCUIDevice orientation requests or screenshot filenames. Phone2
+  remained portrait; require app/PDF width>height before claiming landscape. AX hidden note-panel
+  controls can exist with0x0 frames, so presence alone does not prove interception.
+- Fresh2 valid-coordinate taps remain unexplained; fresh3 passes same-app strict focus/note flows.
+  A newly compiled test helper is not exercised merely because its strings appear in the product:
+  inspect the actual run log/runner provenance and preserve earlier fixture scope.
+- Historical revision2264's paused set is not current readiness. October10 read-only preflight first
+  observes a running set/size change and refuses backup; after user idle confirmation, full backup
+  verifies revision2848 with a completed set. Use each fresh guarded snapshot as authority.
+
 ## October 10 — build11 note contracts and friend’s first install
 
 - **Text size is relative to a canonical 595-point page width.** PDF media-box units vary greatly between real scores; a fixed source-point font becomes unreadable on the oversized Prokofiev scan. `TextAnnotationStyle.referencePageWidth` is595; default size20, supported range12–48. Shared `TextAnnotationRenderer` keeps overlay/export text appearance tied to original page width, including crop transforms. Native2 passes the strict ordinary/oversized glyph-mask comparison; physical readability remains unverified. The initial renderer fails at0.169 overlap against greater-than0.95. Keep fonts/layout in canonical595-point space and scale the CGContext; source-unit-dependent font layout breaks visible consistency.

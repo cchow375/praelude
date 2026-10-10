@@ -40,6 +40,17 @@ struct InsightsView: View {
                     Text("Your stats")
                 }
 
+                Section("Practice balance") {
+                    ForEach(store.pieces) { piece in
+                        NavigationLink { PiecePracticeInsightsView(pieceID: piece.id) } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(piece.title).font(.headline)
+                                Text("Hands, quarter-tempo work, variants and your chosen checks")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
                 Section {
                     Button("Weekly recap", systemImage: "photo.on.rectangle") { showRecap = true }
                         .frame(minHeight: 36)

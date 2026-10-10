@@ -66,13 +66,15 @@ final class ZoomableScorePDFView: PDFView {
                 if let overlay = root as? ScorePageOverlay {
                     let canvas = overlay.canvas
                     let stampWidth = overlay.markup.stampDraft?.page == overlay.pageNumber ? overlay.markup.stampDraft?.position.width ?? 0 : 0
-                    return ["selectionHandleScreenDiameter=\(overlay.selectionHandleDiameter * overlay.pageDisplayScale),stampPreviewWidth=\(stampWidth),stampCountPage\(overlay.pageNumber)=\(overlay.displayedStamps.filter { $0.page == overlay.pageNumber }.count),inkPage\(overlay.pageNumber)=\(canvas.drawing.strokes.count),canvasBounds=\(canvas.bounds),canvasFrame=\(canvas.frame),contentSize=\(canvas.contentSize),contentOffset=\(canvas.contentOffset),canvasZoom=\(canvas.zoomScale),drawingBounds=\(canvas.drawing.bounds);\(overlay.noteGestureDiagnostic)"]
+                    return ["selectionHandleScreenDiameter=\(overlay.selectionHandleDiameter * overlay.pageDisplayScale),stampPreviewWidth=\(stampWidth),stampCountPage\(overlay.pageNumber)=\(overlay.displayedStamps.filter { $0.page == overlay.pageNumber }.count),inkPage\(overlay.pageNumber)=\(canvas.drawing.strokes.count),canvasBounds=\(canvas.bounds),canvasFrame=\(canvas.frame),contentSize=\(canvas.contentSize),contentOffset=\(canvas.contentOffset),canvasZoom=\(canvas.zoomScale),drawingBounds=\(canvas.sourceDrawing.bounds);\(overlay.noteGestureDiagnostic)"]
                 }
                 return root.subviews.flatMap(inkCounts)
             }
             let renderedPageWidth = currentPage.map { convert($0.bounds(for: .cropBox), from: $0).width } ?? 0
+            let leftIsMargin = page(for: CGPoint(x: bounds.width * 0.03, y: bounds.midY), nearest: false) == nil
+            let rightIsMargin = page(for: CGPoint(x: bounds.width * 0.97, y: bounds.midY), nearest: false) == nil
             let quickEdit = (pageOverlayViewProvider as? PagedScoreView.Coordinator)?.quickEditDiagnostic ?? ""
-            return "renderedPageWidth=\(renderedPageWidth);scale=\(scaleFactor),min=\(minScaleFactor),max=\(maxScaleFactor),auto=\(autoScales),markup=\(isInMarkupMode),hit=\(hitTest(CGPoint(x:bounds.midX,y:bounds.midY),with:nil).map { String(describing:type(of:$0)) } ?? "none");\(details);quickEdit=[\(quickEdit)];\(inkCounts(self).joined(separator: ";"))"
+            return "renderedPageWidth=\(renderedPageWidth);leftIsMargin=\(leftIsMargin),rightIsMargin=\(rightIsMargin);scale=\(scaleFactor),min=\(minScaleFactor),max=\(maxScaleFactor),auto=\(autoScales),markup=\(isInMarkupMode),hit=\(hitTest(CGPoint(x:bounds.midX,y:bounds.midY),with:nil).map { String(describing:type(of:$0)) } ?? "none");\(details);quickEdit=[\(quickEdit)];\(inkCounts(self).joined(separator: ";"))"
         }
         set { super.accessibilityValue = newValue }
     }
@@ -161,6 +163,8 @@ struct PagedScoreView: UIViewRepresentable {
     var focusPageTurns: Bool = false
     var markup: ScoreMarkupState
     var allowsInk = true
+    var allowsFocusToggle = false
+    var onToggleFocus: () -> Void = {}
     /// §7 layers: which layer `drawingData`/`saveDrawing` read/write. Changing it tears down and
     /// reloads every overlay (see `Coordinator.adoptParent`) so the canvas never mixes two layers.
     var activeLayer: InkLayer = .mine
@@ -348,6 +352,9 @@ struct PagedScoreView: UIViewRepresentable {
         #endif
         weak var pdfView: PDFView?
         var overlays: [Int: ScorePageOverlay] = [:]
+        // Retain at most two clean detached pages. PDFKit also detaches during zoom/reflow;
+        // that must not destroy the current page's value-based Undo/Redo history.
+        private var detachedPages: [Int] = []
         var committed: [Int: Data] = [:]
         var canvasBaseline: [Int: Data] = [:]
         var dirtyPages: Set<Int> = []
@@ -481,7 +488,7 @@ struct PagedScoreView: UIViewRepresentable {
         // executor. Picker thumbnails use their own bounded renderer instead.
         func clearOverlays() {
             cancelIdleSave(); activeToolPages.removeAll()
-            overlays.removeAll(); committed.removeAll(); canvasBaseline.removeAll(); dirtyPages.removeAll(); editGenerations.removeAll()
+            detachedPages.removeAll(); overlays.removeAll(); committed.removeAll(); canvasBaseline.removeAll(); dirtyPages.removeAll(); editGenerations.removeAll()
             otherLayersDrawingCache.removeAll()
         }
         func connectControls() {
@@ -621,6 +628,7 @@ struct PagedScoreView: UIViewRepresentable {
         }
         func pdfView(_ pdfView: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
             guard let overlay = overlayView as? ScorePageOverlay else { return }
+            detachedPages.removeAll { $0 == overlay.pageNumber }
             func configure(_ view: UIView) {
                 guard !(view is ScorePageOverlay), !(view is PKCanvasView) else { return }
                 if let scrollView = view as? UIScrollView {
@@ -660,10 +668,16 @@ struct PagedScoreView: UIViewRepresentable {
             activeToolPages.remove(overlay.pageNumber)
             _ = flush()
             guard !dirtyPages.contains(overlay.pageNumber) else { return }
-            overlays.removeValue(forKey: overlay.pageNumber); committed.removeValue(forKey: overlay.pageNumber)
-            canvasBaseline.removeValue(forKey: overlay.pageNumber)
-            activeToolPages.remove(overlay.pageNumber)
-            otherLayersDrawingCache.removeValue(forKey: overlay.pageNumber)
+            detachedPages.removeAll { $0 == overlay.pageNumber }
+            detachedPages.append(overlay.pageNumber)
+            let current = sourcePage(forDisplayIndex: parent.page)
+            while detachedPages.count > 2 {
+                guard let victim = detachedPages.first(where: { $0 != current && !dirtyPages.contains($0) }) else { break }
+                detachedPages.removeAll { $0 == victim }
+                overlays.removeValue(forKey: victim); committed.removeValue(forKey: victim)
+                canvasBaseline.removeValue(forKey: victim); activeToolPages.remove(victim)
+                otherLayersDrawingCache.removeValue(forKey: victim)
+            }
         }
         func refreshOverlays() { for overlay in Array(overlays.values) { refresh(overlay) }; updateUndoState() }
         private func refresh(_ overlay: ScorePageOverlay) {
@@ -695,9 +709,7 @@ struct PagedScoreView: UIViewRepresentable {
                 } catch { parent.markup.errorMessage = "Saved ink could not be reopened. The original is preserved."; overlay.contentReadOnly = true }
                 loading = false
             }
-            if parent.markup.tool != overlay.lastAssignedTool, let tool = parent.markup.tool.pkTool {
-                overlay.canvas.tool = tool; overlay.lastAssignedTool = parent.markup.tool
-            }
+            overlay.assignToolIfNeeded()
             refreshOtherLayersDrawing(overlay)
             overlay.updateInkResolution(displayScale: pdfView?.scaleFactor ?? 1)
             overlay.refresh()
@@ -793,7 +805,7 @@ struct PagedScoreView: UIViewRepresentable {
                 let pending = parent.markup.pendingInk[number]
                 let data: Data, expected: Data?
                 if let canvas = overlays[number]?.canvas, dirtyPages.contains(number) {
-                    data = canvas.drawing.strokes.isEmpty ? Data() : canvas.drawing.dataRepresentation()
+                    data = canvas.sourceDrawing.strokes.isEmpty ? Data() : canvas.sourceDrawing.dataRepresentation()
                     expected = committed[number]
                     if (data.isEmpty ? nil : data) == canvasBaseline[number] {
                         dirtyPages.remove(number); parent.markup.clearPendingInk(page: number); continue
@@ -895,7 +907,7 @@ struct PagedScoreView: UIViewRepresentable {
                 let data: Data
                 let expected: Data?
                 if let canvas = overlays[number]?.canvas, dirtyPages.contains(number) {
-                    data = canvas.drawing.strokes.isEmpty ? Data() : canvas.drawing.dataRepresentation()
+                    data = canvas.sourceDrawing.strokes.isEmpty ? Data() : canvas.sourceDrawing.dataRepresentation()
                     expected = committed[number]
                     if (data.isEmpty ? nil : data) == canvasBaseline[number] {
                         dirtyPages.remove(number); parent.markup.clearPendingInk(page: number); continue
@@ -921,7 +933,8 @@ struct PagedScoreView: UIViewRepresentable {
             return success
         }
         private func encodedInk(_ canvas: PKCanvasView) -> Data? {
-            canvas.drawing.strokes.isEmpty ? nil : canvas.drawing.dataRepresentation()
+            let drawing = (canvas as? ScoreInkCanvas)?.sourceDrawing ?? canvas.drawing
+            return drawing.strokes.isEmpty ? nil : drawing.dataRepresentation()
         }
         private func decodeDrawing(_ data: Data?) throws -> PKDrawing {
             guard let data else { return PKDrawing() }
@@ -939,14 +952,20 @@ struct PagedScoreView: UIViewRepresentable {
         }
         @objc func pageTapped(_ recognizer: UITapGestureRecognizer) {
             guard recognizer.state == .ended, let view = recognizer.view as? PDFView else { return }
-            // Focus/performance mode (§7 reading): every tap is a page turn, full stop — no link
-            // or region can fire underneath it. That is the whole point of that mode: one
-            // unambiguous gesture, safe to use without looking, chrome or not.
-            if parent.focusPageTurns {
-                parent.onTurnPage(recognizer.location(in: view).x < view.bounds.width / 3 ? -1 : 1)
-                return
+            let point = recognizer.location(in: view)
+            let x = Double(point.x / max(1, view.bounds.width))
+            let y = Double(point.y / max(1, view.bounds.height))
+            if parent.allowsFocusToggle, ScoreReadingInteraction.togglesFocus(x: x, y: y) {
+                parent.onToggleFocus(); return
             }
-            guard let tappedPage = view.page(for: recognizer.location(in: view), nearest: false), let document = view.document else { return }
+            if parent.focusPageTurns {
+                parent.onTurnPage(ScoreReadingInteraction.pageDirection(x: x)); return
+            }
+            guard let tappedPage = view.page(for: point, nearest: false), let document = view.document else {
+                // The paper-white gutter belongs to page navigation too. Drawing/selection
+                // gestures never enter this reading-only recognizer.
+                parent.onTurnPage(ScoreReadingInteraction.pageDirection(x: x)); return
+            }
             let displayIndex = document.index(for: tappedPage) + 1
             // §7 links: a repeat/D.S./coda tap region is defined on the *displayed* page, in PDF
             // page-space (bottom-left origin), independent of whether that page has an ink overlay.

@@ -148,6 +148,8 @@ final class GestureErgonomicsUITests: XCTestCase {
         // The seeded selected region is x=.05...95, y=.16...29 in the real PDF page.
         let page = app.otherElements["scorePDF"].textViews.firstMatch
         page.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.225)).doubleTap()
+        let diagnostics = app.otherElements["scorePDF"].value as? String ?? "missing score diagnostics"
+        print("Selected-passage double-tap diagnostics: \(diagnostics)")
         XCTAssertTrue(app.navigationBars["Rename passage"].waitForExistence(timeout: 5), app.debugDescription)
         let field = app.textViews["passageRenameField"].exists ? app.textViews["passageRenameField"] : app.textFields["passageRenameField"]
         XCTAssertTrue(field.waitForExistence(timeout: 5), app.debugDescription)
@@ -161,6 +163,33 @@ final class GestureErgonomicsUITests: XCTestCase {
         app.terminate(); openScore(app, reset: false)
         app.buttons["passages"].tap()
         XCTAssertTrue(app.staticTexts["Gesture renamed passage"].waitForExistence(timeout: 8), app.debugDescription)
+    }
+
+    @MainActor func testActualDoubleTapDockPassageNameRenamesAndPersistsWithoutStartingPractice() {
+        let app = XCUIApplication(); openScore(app)
+        app.buttons["passages"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "savedPassage_", "Evenness and pulse")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 8), app.debugDescription); row.tap()
+        let title = app.otherElements["practiceArmPanel"].staticTexts["Evenness and pulse"]
+        XCTAssertTrue(title.waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].exists)
+        title.doubleTap()
+        XCTAssertTrue(app.navigationBars["Rename passage"].waitForExistence(timeout: 5), app.debugDescription)
+        let field = app.textViews["passageRenameField"].exists ? app.textViews["passageRenameField"] : app.textFields["passageRenameField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), app.debugDescription); field.tap()
+        let old = field.value as? String ?? ""
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + "Named from the practice dock")
+        app.buttons["savePassageName"].tap()
+        XCTAssertTrue(app.otherElements["practiceArmPanel"].staticTexts["Named from the practice dock"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].exists, "Renaming keeps the passage armed without starting a set")
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
+        shot("build12-double-tap-dock-passage-name")
+        app.buttons["closeScore"].tap(); app.terminate(); openScore(app, reset: false)
+        app.buttons["passages"].tap()
+        let saved = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "savedPassage_", "Named from the practice dock")).firstMatch
+        XCTAssertTrue(saved.waitForExistence(timeout: 8), app.debugDescription); saved.tap()
+        XCTAssertTrue(app.otherElements["practiceArmPanel"].staticTexts["Named from the practice dock"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
     }
 
     @MainActor func testStickyNoteHoldDragAndDoubleTapEditSurviveRelaunch() {

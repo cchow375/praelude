@@ -1,0 +1,25 @@
+{
+  "requested_device_name": "Christian\u2019s iPad",
+  "latest_read_only_check_utc": "2026-10-10T19:29:54.718784+00:00",
+  "status": "unavailable",
+  "attempts": 3,
+  "device_substitution": false,
+  "build12_install_attempted": false,
+  "personal_app_terminated_reset_uninstalled_restored": false,
+  "current_library_and_paused_set": "Cannot inspect until exact device is available. Historical build11 snapshot is not current state.",
+  "guarded_refresh_command": "npm run ios:refresh -- --device 'Christian\u2019s iPad'",
+  "required_before_refresh": [
+    "Current device and target profile inclusion",
+    "Complete private prebackup and idle/paused set inspection",
+    "Frozen candidate source checks",
+    "Same-bundle helper install",
+    "Complete postbackup filename/size/SHA256 comparison"
+  ],
+  "separate_after_refresh": [
+    "Actual artifact signing revalidation",
+    "Installed version",
+    "Launch/readback",
+    "Physical feature acceptance"
+  ],
+  "user_readiness_reply": "I\u2019ll connect it when ready"
+}

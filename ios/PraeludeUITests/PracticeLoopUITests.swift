@@ -337,30 +337,35 @@ final class PracticeLoopUITests: XCTestCase {
         XCTAssertTrue(app.buttons["verdict_clean"].exists, app.debugDescription)
     }
 
-    // MARK: - Focus mode must not hide the practice dock during a running set
+    // MARK: - Score focus hides counting controls while preserving the current set
 
-    /// "Focus on score" used to hide the whole practice dock while a set was running — the verdict
-    /// fallback buttons, Undo, Stop and the metronome toggle, all unreachable — see "(C) Audit.md".
-    @MainActor func testFocusModeKeepsPracticeControlsReachableDuringARunningSet() {
+    @MainActor func testFocusModeHidesPracticeControlsPreservesCounterAndResumesCounting() {
         let app = launch()
-        openScore(app)
-        choosePassage(app)
+        openScore(app); choosePassage(app)
         app.buttons["coldGrade_clean"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 15), app.debugDescription)
-        app.buttons["Score options"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["Focus on score"].waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["Focus on score"].press(forDuration: 0.15)
-        XCTAssertTrue(app.buttons["Exit focus"].waitForExistence(timeout: 10), app.debugDescription)
-        screenshot("loop-08-focus-mode-dock", app: app)
-        for identifier in ["verdict_clean", "verdict_sloppy", "verdict_again", "undoRep", "stopSet", "toggleMetronomeHUD"] {
-            XCTAssertTrue(app.buttons[identifier].exists, "\(identifier) must stay reachable in focus mode.\n\(app.debugDescription)")
-        }
-        XCTAssertTrue(app.buttons["verdict_clean"].isHittable, app.debugDescription)
-        app.buttons["verdict_clean"].press(forDuration: 0.15)
         ensureExpanded(app)
-        XCTAssertTrue(app.staticTexts["2 of 5 clean"].waitForExistence(timeout: 15), "A verdict must still record in focus mode.\n\(app.debugDescription)")
-        app.buttons["Exit focus"].press(forDuration: 0.15)
+        XCTAssertTrue(app.staticTexts["1 of 5 clean"].waitForExistence(timeout: 15), app.debugDescription)
+        let progress = app.staticTexts["repProgress"]
+        XCTAssertTrue(progress.exists, app.debugDescription)
+        let before = progress.label
+        app.buttons["Score options"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["enterScoreFocus"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["enterScoreFocus"].press(forDuration: 0.15)
+        XCTAssertTrue(app.buttons["exitScoreFocus"].waitForExistence(timeout: 10), app.debugDescription)
+        screenshot("loop-08-focus-mode-counter-hidden", app: app)
+        for identifier in ["verdict_clean", "verdict_sloppy", "verdict_again", "undoRep", "stopSet", "toggleMetronomeHUD"] {
+            XCTAssertFalse(app.buttons[identifier].exists, "\(identifier) must be hidden while rep input is suspended.\n\(app.debugDescription)")
+        }
+        XCTAssertFalse(progress.exists, "The counter must leave the score visible in focus mode")
+        app.buttons["exitScoreFocus"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 10), app.debugDescription)
+        ensureExpanded(app)
+        XCTAssertEqual(progress.label, before, "Entering and leaving focus must preserve the same repetition count")
+        app.buttons["verdict_clean"].press(forDuration: 0.15)
+        XCTAssertTrue(app.staticTexts["2 of 5 clean"].waitForExistence(timeout: 15), app.debugDescription)
+        app.buttons["undoRep"].press(forDuration: 0.15)
+        XCTAssertEqual(progress.label, before, "Counting and Undo resume against the existing set")
     }
 
     // MARK: - Verdict + Undo, always one tap during a set

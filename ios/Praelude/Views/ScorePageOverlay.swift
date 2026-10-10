@@ -31,6 +31,32 @@ enum ScorePassageBoxStyle {
 @MainActor final class ScoreInkCanvas: PKCanvasView {
     let inkHistory = ScoreInkHistory()
     var onDetached: () -> Void = {}
+    /// Large imported PDFs use a bounded canvas basis so PencilKit's width limits do not
+    /// collapse the brush stops. Persistent drawings remain in original PDF coordinates.
+    static let maximumCanvasPageWidth: CGFloat = 1000
+    private(set) var sourceCoordinateScale: CGFloat = 1
+    private var cachedSourceDrawing = PKDrawing()
+    private var cachedCanvasDrawing = PKDrawing()
+    private var originalStrokePairs: [(canvasKey: Data, source: PKStroke)] = []
+    var sourceDrawing: PKDrawing {
+        let current = drawing
+        if sourceCoordinateScale == 1 { return current }
+        if current == cachedCanvasDrawing { return cachedSourceDrawing }
+        var available: [Data: [PKStroke]] = [:]
+        for pair in originalStrokePairs { available[pair.canvasKey, default: []].append(pair.source) }
+        let scale = CGAffineTransform(scaleX: sourceCoordinateScale, y: sourceCoordinateScale)
+        let strokes = current.strokes.map { stroke -> PKStroke in
+            let key = InkPerStroke.fingerprint(stroke)
+            if var matches = available[key], !matches.isEmpty {
+                let original = matches.removeFirst(); available[key] = matches
+                return original
+            }
+            var source = stroke; source.transform = source.transform.concatenating(scale)
+            return source
+        }
+        cachedSourceDrawing = PKDrawing(strokes: strokes); cachedCanvasDrawing = current
+        return cachedSourceDrawing
+    }
     override var undoManager: UndoManager? { inkHistory.undoManager }
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -39,8 +65,24 @@ enum ScorePassageBoxStyle {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func replaceDrawing(_ value: PKDrawing) {
-        inkHistory.reset(to: value)
-        drawing = value
+        let inverse = 1 / sourceCoordinateScale
+        let canvasValue = sourceCoordinateScale == 1 ? value : value.transformed(using: CGAffineTransform(scaleX: inverse, y: inverse))
+        cachedSourceDrawing = value; cachedCanvasDrawing = canvasValue
+        originalStrokePairs = sourceCoordinateScale == 1 ? [] : zip(canvasValue.strokes, value.strokes).map {
+            (canvasKey: InkPerStroke.fingerprint($0.0), source: $0.1)
+        }
+        inkHistory.reset(to: canvasValue)
+        drawing = canvasValue
+    }
+    func configureSourcePageWidth(_ width: CGFloat) {
+        guard width.isFinite, width > 0 else { return }
+        let scale = max(1, width / Self.maximumCanvasPageWidth)
+        guard scale != sourceCoordinateScale else { return }
+        // Before the first layout, incoming saved ink still uses its exact original basis.
+        // Subsequent PDF zooms leave page-local width unchanged and never enter this branch.
+        let source = sourceDrawing
+        sourceCoordinateScale = scale
+        replaceDrawing(source)
     }
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -111,6 +153,7 @@ enum ScorePassageBoxStyle {
     /// nothing changed skips the reassignment and the `PKInkingTool`/`PKEraserTool`/`PKLassoTool`
     /// allocation it costs.
     var lastAssignedTool: AnnotationTool?
+    private var lastAssignedToolPageWidth: CGFloat?
     var onCanvasLayout: () -> Void = {}
     var pageImageForMagnifier: (CGSize) async -> UIImage? = { _ in nil }
     private var magnifierTask: Task<Void, Never>?
@@ -120,6 +163,7 @@ enum ScorePassageBoxStyle {
     private(set) var noteEditTap: UITapGestureRecognizer!
     private(set) var noteDictateTap: UITapGestureRecognizer!
     private(set) var stampPan: UIPanGestureRecognizer!
+    private(set) var stampPencilTap: UITapGestureRecognizer!
     private(set) var notePan: UIPanGestureRecognizer!
     private var movingNote: TextBoxAnnotation?
     private var movedNotePosition: NormalizedRect?
@@ -284,6 +328,10 @@ enum ScorePassageBoxStyle {
         stampPan.allowedTouchTypes = selectionPan.allowedTouchTypes
         selectionTap.require(toFail: stampPan)
         addGestureRecognizer(stampPan)
+        stampPencilTap = UITapGestureRecognizer(target: self, action: #selector(placeStampWithPencil(_:)))
+        stampPencilTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        stampPencilTap.delegate = self; stampPencilTap.require(toFail: stampPan)
+        addGestureRecognizer(stampPencilTap)
         notePan = UIPanGestureRecognizer(target: self, action: #selector(moveNote(_:)))
         notePan.maximumNumberOfTouches = 1; notePan.delegate = self
         notePan.allowedTouchTypes = selectionPan.allowedTouchTypes
@@ -333,6 +381,7 @@ enum ScorePassageBoxStyle {
         if sourceCanvasFrame != canvasFrame {
             sourceCanvasFrame = canvasFrame
             layoutInkCanvases()
+            assignToolIfNeeded()
             onCanvasLayout()
         }
         updateInkResolution(displayScale: requestedDisplayScale)
@@ -368,17 +417,33 @@ enum ScorePassageBoxStyle {
         renderedInkScale = canvasScale
         if contentScaleFactor != overlayScale { contentScaleFactor = overlayScale }
         for layerCanvas in [otherLayersCanvas, canvas] {
-            if layerCanvas.contentScaleFactor != canvasScale { layerCanvas.contentScaleFactor = canvasScale }
+            let localScale = canvasScale * layerCanvas.sourceCoordinateScale
+            if layerCanvas.contentScaleFactor != localScale { layerCanvas.contentScaleFactor = localScale }
         }
         if needsRedraw { updateSelectionPreviewLayers(); updateNotePreview(); updateNoteHandles(); layoutNotePanel(); setNeedsDisplay() }
     }
     private func layoutInkCanvases() {
         guard sourceCanvasFrame.width > 0, sourceCanvasFrame.height > 0 else { return }
         for layerCanvas in [otherLayersCanvas, canvas] {
-            if layerCanvas.frame != sourceCanvasFrame { layerCanvas.frame = sourceCanvasFrame }
-            if layerCanvas.contentSize != sourceCanvasFrame.size { layerCanvas.contentSize = sourceCanvasFrame.size }
+            layerCanvas.configureSourcePageWidth(sourceCanvasFrame.width)
+            let scale = layerCanvas.sourceCoordinateScale
+            let size = CGSize(width: sourceCanvasFrame.width / scale, height: sourceCanvasFrame.height / scale)
+            let transform = CGAffineTransform(scaleX: scale, y: scale)
+            if layerCanvas.transform != transform { layerCanvas.transform = transform }
+            if layerCanvas.bounds.size != size { layerCanvas.bounds = CGRect(origin: .zero, size: size) }
+            let center = CGPoint(x: sourceCanvasFrame.midX, y: sourceCanvasFrame.midY)
+            if layerCanvas.center != center { layerCanvas.center = center }
+            if layerCanvas.contentSize != size { layerCanvas.contentSize = size }
         }
     }
+    func assignToolIfNeeded() {
+        let width = sourceCanvasFrame.width
+        guard width > 0, markup.tool != lastAssignedTool || width != lastAssignedToolPageWidth,
+              let tool = markup.tool.pkTool(pageWidth: width / canvas.sourceCoordinateScale) else { return }
+        canvas.tool = tool
+        lastAssignedTool = markup.tool; lastAssignedToolPageWidth = width
+    }
+
     func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
         guard !inkReadOnly, !contentReadOnly, markup.mode != .selecting else { return }
         switch UIPencilInteraction.preferredTapAction {
@@ -468,6 +533,9 @@ enum ScorePassageBoxStyle {
         if markup.mode == .selecting || markup.quickBoxArmed || markup.breakPointArmed { return self }
         if placementToolArmed { return self }
         if note(at: point) != nil, event?.allTouches?.contains(where: { $0.type == .pencil }) != true { return self }
+        // Selected passage taps belong to our ancestor rename/dictate recognizers, rather
+        // than PDFKit's text selection recognizers. Keep Pencil and unresolved hits on ink.
+        if !pencil, shouldClaimSelectedPassage(at: point, touchType: event?.allTouches?.first?.type) { return self }
         if let touches = event?.allTouches, touches.filter({ $0.type == .direct }).count >= 2 { return self }
         guard !inkReadOnly, !contentReadOnly else { return nil }
         let touches = event?.allTouches
@@ -562,6 +630,12 @@ enum ScorePassageBoxStyle {
     func passageRegion(at point: CGPoint) -> UUID? {
         visibleRegions.reversed().first { displayRect(for: $0)?.contains(point) ?? false }?.id
     }
+    func shouldClaimSelectedPassage(at point: CGPoint, touchType: UITouch.TouchType?) -> Bool {
+        guard touchType == .direct, bounds.contains(point), markup.mode == .reading,
+              !inkReadOnly, !contentReadOnly, !markup.quickBoxArmed, !markup.breakPointArmed,
+              note(at: point) == nil, let region = passageRegion(at: point) else { return false }
+        return emphasizedIDs.contains(region)
+    }
     @objc private func tap(_ recognizer: UITapGestureRecognizer) { handleTap(at: recognizer.location(in: self)) }
     /// Point-based so tests can drive it directly without a live touch sequence (`UIGestureRecognizer.
     /// location(in:)` has no public way to fake a location outside real touch tracking).
@@ -593,6 +667,7 @@ enum ScorePassageBoxStyle {
         // already follows.
         if let existing = visibleStamps.reversed().first(where: { displayRect(for: $0.position)?.insetBy(dx: -6, dy: -6).contains(point) ?? false }) {
             markup.selectedStampID = (existing.layer == markup.activeLayer && markup.selectedStampID != existing.id) ? existing.id : nil
+            markup.stampDraft = nil
             setNeedsDisplay(); return
         }
         previewStamp(at: point)
@@ -759,10 +834,24 @@ enum ScorePassageBoxStyle {
         if let index = displayedTextBoxes.firstIndex(where: { $0.id == note.id }) { displayedTextBoxes[index] = saved }
         return true
     }
+    private var stampGestureUsesPencil = false
+    @objc private func placeStampWithPencil(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        handleStampPencilLift(at: recognizer.location(in: self))
+    }
+    func handleStampPencilLift(at point: CGPoint) {
+        guard !inkReadOnly, !contentReadOnly, markup.mode == .writing, markup.tool.kind == .stamp else { return }
+        handleStampTap(at: point)
+        commitStampDraft()
+    }
     @objc private func moveStamp(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
-        case .began, .changed, .ended: previewStamp(at: recognizer.location(in: self))
-        case .cancelled: markup.stampDraft = nil; setNeedsDisplay()
+        case .began, .changed: previewStamp(at: recognizer.location(in: self))
+        case .ended:
+            previewStamp(at: recognizer.location(in: self))
+            if stampGestureUsesPencil { commitStampDraft() }
+            stampGestureUsesPencil = false
+        case .cancelled: stampGestureUsesPencil = false; markup.stampDraft = nil; setNeedsDisplay()
         default: break
         }
     }
@@ -867,11 +956,11 @@ enum ScorePassageBoxStyle {
         return true
     }
     private func configureNotePanel() {
-        notePanel.backgroundColor = TextAnnotationRenderer.paperColor
+        notePanel.backgroundColor = .systemBackground
         notePanel.layer.cornerRadius = 8; notePanel.layer.borderWidth = 0.5
-        notePanel.layer.borderColor = UIColor.brown.withAlphaComponent(0.5).cgColor
+        notePanel.layer.borderColor = UIColor.separator.cgColor
         notePanel.isHidden = true; notePanel.accessibilityIdentifier = "expandedScoreNote"
-        noteLabel.font = .systemFont(ofSize: 15); noteLabel.numberOfLines = 0; noteLabel.textColor = UIColor(PraeludeColor.scoreInk)
+        noteLabel.font = .systemFont(ofSize: 15); noteLabel.numberOfLines = 0; noteLabel.textColor = .label
         noteEdit.setTitle("Edit", for: .normal); noteEdit.accessibilityIdentifier = "editScoreNote"
         noteEdit.addTarget(self, action: #selector(editExpandedNote), for: .touchUpInside)
         noteClose.setTitle("Close", for: .normal)
@@ -897,7 +986,11 @@ enum ScorePassageBoxStyle {
         let availableHeight = visible.height * pageDisplayScale - 16
         guard !visible.isNull, availableWidth > 120, availableHeight > 60 else { notePanel.isHidden = true; return }
         notePanel.isHidden = false
-        noteLabel.attributedText = NSAttributedString(string: note.text, attributes: TextAnnotationRenderer.attributes(for: note.style))
+        // The expanded inspector reads the full note on a neutral, opaque surface.
+        // Keep the user's typography; their ink and paper colors remain on the score/export.
+        var attributes = TextAnnotationRenderer.attributes(for: note.style)
+        attributes[.foregroundColor] = UIColor.label
+        noteLabel.attributedText = NSAttributedString(string: note.text, attributes: attributes)
         let width = min(320, availableWidth)
         let textSize = noteLabel.sizeThatFits(CGSize(width: width - 24, height: .greatestFiniteMagnitude))
         let height = min(max(100, textSize.height + 58), min(availableHeight, 260))
@@ -1040,6 +1133,7 @@ enum ScorePassageBoxStyle {
             #endif
             return begins
         }
+        if gestureRecognizer === stampPencilTap { return markup.mode == .writing && markup.tool.kind == .stamp && markup.armedStamp != nil }
         if gestureRecognizer === stampPan { return markup.mode == .writing && markup.tool.kind == .stamp && markup.armedStamp != nil && note(at: stampPan.location(in: self)) == nil }
         if gestureRecognizer === selectionTap { return markup.mode == .selecting || placementToolArmed || markup.breakPointArmed || note(at: selectionTap.location(in: self)) != nil }
         return markup.mode == .selecting || markup.quickBoxArmed
@@ -1065,6 +1159,8 @@ enum ScorePassageBoxStyle {
             #endif
             return accepts
         }
+        if gestureRecognizer === stampPan { stampGestureUsesPencil = touch.type == .pencil }
+        if gestureRecognizer === selectionTap, touch.type == .pencil, markup.tool.kind == .stamp { return false }
         if gestureRecognizer === notePan { return captureNotePanStart(at: touch.location(in: self)) }
         return true
     }

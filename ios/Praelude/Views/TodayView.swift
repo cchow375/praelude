@@ -5,6 +5,8 @@ struct TodayView: View {
     @Environment(MetronomeService.self) private var metronome
     @State private var errorMessage: String?
     @State private var showGoals = false
+    @State private var renamingPassage: Passage?
+    @State private var organizingPassages = false
     @State private var availableMinutes = 30
     @State private var sessionItems: [SessionItem] = []
     /// Skipped this app session only (§15 "skip"): the underlying passage/warmup/piece stays exactly
@@ -122,7 +124,7 @@ struct TodayView: View {
                     } else {
                         ForEach(Array(sessionItems.enumerated()), id: \.element.id) { index, item in
                             SessionItemRow(item: item, title: sessionItemTitle(item),
-                                          onStart: { startItem(item) }, onSkip: { skip(item) },
+                                          onStart: { startItem(item) }, onRename: item.passageID.flatMap { id in store.state.passages.first { $0.id == id } }.map { target in { renamingPassage = target } }, onSkip: { skip(item) },
                                           onMoveUp: index > 0 ? { move(index, by: -1) } : nil,
                                           onMoveDown: index < sessionItems.count - 1 ? { move(index, by: 1) } : nil)
                         }
@@ -177,6 +179,10 @@ struct TodayView: View {
                     }
                 }
 
+                Section {
+                    Button("Name and organize passages", systemImage: "character.cursor.ibeam") { organizingPassages = true }
+                        .accessibilityIdentifier("organizePassagesToday")
+                }
                 if !recentPieces.isEmpty {
                     Section("At your piano") {
                         ForEach(recentPieces) { piece in
@@ -212,6 +218,8 @@ struct TodayView: View {
             }
         }
         .sheet(isPresented: $showGoals) { PracticeGoalsView() }
+        .sheet(item: $renamingPassage) { passage in PassageRenameView(passage: passage) }
+        .sheet(isPresented: $organizingPassages) { PassageLibraryNamesView() }
         .onAppear { if sessionItems.isEmpty { refreshPlan() } }
     }
 
@@ -321,6 +329,7 @@ private struct SessionItemRow: View {
     let item: SessionItem
     let title: String
     let onStart: () -> Void
+    let onRename: (() -> Void)?
     let onSkip: () -> Void
     let onMoveUp: (() -> Void)?
     let onMoveDown: (() -> Void)?
@@ -332,7 +341,7 @@ private struct SessionItemRow: View {
                     Text(kindLabel).font(.caption.weight(.semibold)).foregroundStyle(PraeludeColor.inkSecondary)
                     Text("\(item.estimatedMinutes) min").font(.caption).foregroundStyle(PraeludeColor.inkTertiary)
                 }
-                Text(title.isEmpty ? "Untitled" : title).font(.subheadline.weight(.medium)).lineLimit(1)
+                Text(title.isEmpty ? "Untitled" : title).onTapGesture(count: 2) { onRename?() }.font(.subheadline.weight(.medium)).lineLimit(1)
                 Text(item.reason).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 6)
@@ -342,6 +351,7 @@ private struct SessionItemRow: View {
                 .background(PraeludeColor.inkFillQuiet, in: Capsule())
                 .accessibilityIdentifier("startSessionItem_\(item.kind.rawValue)_\(item.id)")
             Menu {
+                if let onRename { Button("Rename passage", systemImage: "character.cursor.ibeam", action: onRename) }
                 Button("Move earlier", systemImage: "arrow.up") { onMoveUp?() }.disabled(onMoveUp == nil)
                 Button("Move later", systemImage: "arrow.down") { onMoveDown?() }.disabled(onMoveDown == nil)
                 Button("Skip", systemImage: "forward", action: onSkip)

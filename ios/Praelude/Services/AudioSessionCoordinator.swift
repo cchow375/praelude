@@ -12,6 +12,8 @@ final class AudioSessionCoordinator {
     enum Client: Hashable { case metronome, speech, feedback, reward, tuner, drone, recording, recordingPlayback }
 
     private var clients: Set<Client> = []
+    /// Read-only, local diagnostics. This does not reserve or transfer audio ownership.
+    var activeClientLabels: [String] { clients.map { String(describing: $0) }.sorted() }
     private var configurationObservers: [(willChange: () -> Void, didChange: () -> Void)] = []
     private init() {}
 

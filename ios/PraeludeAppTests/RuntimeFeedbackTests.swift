@@ -320,4 +320,41 @@ final class RuntimeFeedbackTests: XCTestCase {
         XCTAssertFalse(fixture.metronome.isPlaying, "Ending the set clears its retained background click.")
     }
 
+    @MainActor func testFocusSuspendsRepMutationAndPreservesTheExactRunningSet() throws {
+        let fixture = try fixture(targetCount: 5)
+        let owner = UUID()
+        fixture.runtime.scoreAppeared(ownerID: owner)
+        XCTAssertTrue(try fixture.runtime.record(.clean))
+        let before = fixture.store.state
+        let bytes = try Data(contentsOf: fixture.store.fileURL)
+        fixture.runtime.setRepInputSuspended(true, ownerID: owner)
+        XCTAssertTrue(fixture.runtime.isRepInputSuspended)
+        XCTAssertThrowsError(try fixture.runtime.record(.clean))
+        XCTAssertThrowsError(try fixture.runtime.undo())
+        XCTAssertThrowsError(try fixture.runtime.reset())
+        XCTAssertThrowsError(try fixture.runtime.validateAttemptTempo(80))
+        XCTAssertEqual(fixture.store.state, before)
+        XCTAssertEqual(try Data(contentsOf: fixture.store.fileURL), bytes)
+        XCTAssertEqual(fixture.store.activeSet?.status, .running)
+        fixture.runtime.setRepInputSuspended(false, ownerID: owner)
+        XCTAssertFalse(fixture.runtime.isRepInputSuspended)
+        XCTAssertTrue(try fixture.runtime.record(.clean))
+        XCTAssertEqual(fixture.store.activeSet?.attempts.count, 2)
+    }
+
+    @MainActor func testLeavingOneFocusedWindowOnlyReleasesItsOwnRepSuspension() throws {
+        let fixture = try fixture()
+        let first = UUID(), second = UUID()
+        fixture.runtime.scoreAppeared(ownerID: first)
+        fixture.runtime.scoreAppeared(ownerID: second)
+        fixture.runtime.setRepInputSuspended(true, ownerID: first)
+        fixture.runtime.setRepInputSuspended(true, ownerID: second)
+        fixture.runtime.scoreDisappeared(ownerID: first)
+        XCTAssertTrue(fixture.runtime.isRepInputSuspended)
+        XCTAssertThrowsError(try fixture.runtime.record(.again))
+        fixture.runtime.scoreDisappeared(ownerID: second)
+        XCTAssertFalse(fixture.runtime.isRepInputSuspended)
+        XCTAssertTrue(try fixture.runtime.record(.again))
+    }
+
 }

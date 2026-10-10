@@ -4,6 +4,7 @@ struct SettingsView: View {
     @Environment(PracticeStore.self) private var store
     @Environment(SyncCoordinator.self) private var syncCoordinator
     @Environment(RecordingService.self) private var recording
+    @AppStorage("ios.scoreControlsAtTop") private var controlsAtTop = false
     @AppStorage("ios.feedback") private var feedbackEnabled = true
     @State private var errorMessage: String?
     @State private var soundEnabled = RewardSoundService.shared.isEnabled
@@ -22,10 +23,14 @@ struct SettingsView: View {
         @Bindable var recording = recording
         Form {
             Section("Score") {
+                Picker("Controls position", selection: $controlsAtTop) {
+                    Text("Top").tag(true)
+                    Text("Bottom").tag(false)
+                }
                 Toggle("Show passage boxes", isOn: preference(\.showPassageBoxes))
                 Toggle("Compact score controls", isOn: preference(\.compactScoreControls))
                 Toggle("Turn passage page after each verdict", isOn: preference(\.autoTurnPassageAfterVerdict))
-                Text("These score choices follow your account across devices. Pencil permissions and live audio stay on this device.")
+                Text("Passage boxes, compact controls and automatic turns follow your account. Controls position, Pencil permissions and live audio stay on this device.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Instruments") {
@@ -123,6 +128,7 @@ struct SettingsView: View {
             }
 
             Section {
+                NavigationLink("Customize hands-free commands") { VoiceCommandSettingsView() }
                 NavigationLink {
                     VoiceOnboardingView()
                 } label: {
@@ -136,7 +142,7 @@ struct SettingsView: View {
             } header: {
                 Text("Voice")
             } footer: {
-                Text("Hands-free commands are on-device only and never leave this device. A phrase that isn't in the fixed vocabulary is ignored, not sent anywhere, and logged here only so you can see what this room sounds like to it.")
+                Text("Hands-free commands are on-device only and never leave this device. Exact supported phrases and your saved aliases trigger commands. A likely misheard phrase asks for confirmation; unrelated speech is ignored. Command aliases and diagnostics stay on this device.")
             }
 
             Section {

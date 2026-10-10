@@ -159,6 +159,15 @@ import Observation
             next.pieces[index].defaultPracticeBPM = bpm; next.pieces[index].updatedAt = date
         }
     }
+    /// Edits the reference and an optional user-chosen coverage plan, never prior set contracts.
+    public func setPracticeReference(_ bpm: Double?, plan: PracticeBalancePlan, for pieceID: UUID) throws {
+        let date = now()
+        try transaction { next in
+            guard let index = next.pieces.firstIndex(where: { $0.id == pieceID }) else { throw PracticeError.invalid("Piece not found.") }
+            next.pieces[index].fullTempoBPM = bpm; next.pieces[index].practiceBalancePlan = plan
+            next.pieces[index].updatedAt = date
+        }
+    }
     public func setScoreSections(_ sections: [ScoreSection], for pieceID: UUID) throws {
         let date = now()
         try transaction { next in
@@ -495,6 +504,7 @@ import Observation
         }
         var sets = Dictionary(uniqueKeysWithValues: (state.history + [state.activeSet].compactMap { $0 }).map { ($0.id, $0) })
         for var set in receivedSets {
+            try Self.preservePracticeContext(in: &set, from: sets[set.id])
             set.attempts = sets[set.id]?.attempts ?? []
             sets[set.id] = set
         }
@@ -546,9 +556,29 @@ import Observation
     /// device's own cached fields (computed against its own, possibly different, view of `.attempts`)
     /// or leaving a stale local cache behind. `project` is pure and total (never throws), so this is
     /// always safe to call unconditionally, matching `record()`/`undo()`'s own unconditional calls.
+    /// Optional metadata is not an invitation for an older client to erase a captured reference
+    /// or an event's hand selection. Conflicting immutable selections require recovery, not guessing.
+    private static func preservePracticeContext(in incoming: inout ActiveSet, from existing: ActiveSet?) throws {
+        guard let existing else { return }
+        if let original = existing.configuration.fullTempoBPM {
+            if let remote = incoming.configuration.fullTempoBPM, remote != original {
+                throw PracticeError.conflict("The same set has conflicting full-tempo references. Keep the local record and retry sync.")
+            }
+            incoming.configuration.fullTempoBPM = original
+        }
+        for (eventID, hands) in existing.configuration.recordedHands {
+            if let remote = incoming.configuration.recordedHands[eventID], remote != hands {
+                throw PracticeError.conflict("The same repetition has conflicting hand selections. Keep the local record and retry sync.")
+            }
+            incoming.configuration.recordedHands[eventID] = hands
+        }
+    }
+
     public func applySyncedSet(_ incoming: ActiveSet) throws {
         try transaction { next in
             var incoming = incoming
+            let existing = next.activeSet?.id == incoming.id ? next.activeSet : next.history.first { $0.id == incoming.id }
+            try Self.preservePracticeContext(in: &incoming, from: existing)
             if next.activeSet?.id == incoming.id {
                 incoming.attempts = next.activeSet?.attempts ?? []
                 next.activeSet = PracticeEngine.project(incoming)
@@ -826,6 +856,8 @@ import Observation
     private static func beginSet(_ configuration: PracticeConfiguration, scoreSectionID: UUID? = nil, in next: inout LibraryState, at date: Date) throws {
         var configuration = configuration
         configuration.tempoChanges = [] // A new set gets its own tempo-event boundaries.
+        configuration.recordedHands = [:]
+        configuration.fullTempoBPM = next.pieces.first { $0.id == configuration.pieceID }?.fullTempoBPM
         if let scoreSectionID {
             guard configuration.passageID == nil,
                   let piece = next.pieces.first(where: { $0.id == configuration.pieceID && $0.deletedAt == nil }),
@@ -856,17 +888,22 @@ import Observation
     }
 
     /// Returns false for an already committed event. Callers must reward only true results.
-    @discardableResult public func record(_ verdict: Verdict, eventID: UUID = UUID()) throws -> Bool {
+    @discardableResult public func record(_ verdict: Verdict, hands: String? = nil, eventID: UUID = UUID()) throws -> Bool {
         let existing = (state.history + [state.activeSet].compactMap { $0 }).flatMap(\.attempts).first { $0.id == eventID }
         if let existing {
             guard existing.verdict == verdict else { throw PracticeError.conflict("This event identifier was already used for a different verdict.") }
             return false
         }
+        if let hands, !PracticeHand.isExplicitSelection(hands) { throw PracticeError.invalid("Choose Left hand, Both hands or Right hand.") }
         let date = now()
         try transaction { next in
             guard var set = next.activeSet, set.status == .running else { throw PracticeError.conflict("Resume a practice set before recording a repetition.") }
             Self.accrue(&set, at: date)
             set.attempts.append(Attempt(id: eventID, verdict: verdict, date: date, bpm: set.currentBPM, stageIndex: set.stageIndex))
+            // Reset is a command boundary, not a repetition. Preserve the selection only on reps.
+            if verdict != .reset, let selected = hands ?? PracticeHand.canonicalSelection(set.configuration.hands) {
+                set.configuration.recordedHands[eventID.uuidString] = selected
+            }
             set = PracticeEngine.project(set)
             if set.status == .completed { set.endedAt = date; set.lastCheckpoint = nil }
             next.activeSet = set
@@ -1401,6 +1438,8 @@ import Observation
         for piece in state.pieces {
             try require(text(piece.title) && text(piece.composer, blank: true) && text(piece.notes, maximum: 100_000, blank: true) && date(piece.createdAt), "A piece contains invalid text or dates.")
             try require((0...10000).contains(piece.pageCount) && (1...effectivePageBound(piece)).contains(piece.lastPage), "A score contains an invalid page number.")
+            try require(piece.fullTempoBPM.map { $0.isFinite && (20...300).contains($0) } != false, "The full-tempo target must be between 20 and 300 bpm.")
+            try require(piece.practiceBalancePlan.isValid, "Choose minimum practice coverage from 0–100%, with separate-hand totals no greater than 100%.")
             try require(piece.defaultPracticeBPM.map { $0.isFinite && (20...300).contains($0) } != false, "The default practice tempo must be between 20 and 300 bpm.")
             try require(piece.scoreSections.count <= 1000 && unique(piece.scoreSections.map(\.id)), "The score has too many or duplicate sections.")
             let ordered = piece.scoreSections.sorted { $0.startPage < $1.startPage }

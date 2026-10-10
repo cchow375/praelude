@@ -35,6 +35,75 @@ import Foundation
                        "tempo 301", "tempo 96 please", "tempo 1e2", "tempo ninety six three", "tempo hundred",
                        "tempo one hundred and", "tempo three hundred one", "tempo twenty zero"]
         for text in invalid { expect(VoiceCommand.parse(text) == nil, "Reject \(text)") }
+        // Command mode repairs are constrained suggestions, never automatic history writes.
+        for (text, command) in valid {
+            expect(VoiceCommandRecognition.recognize(text) == .command(command), "Exact recognition \(text)")
+        }
+        for text in ["cleen", "glean", "green", "queen", "claen"] {
+            expect(VoiceCommandRecognition.recognize(text) == .needsConfirmation([.clean]), "Confirm likely clean mishearing \(text)")
+        }
+        for (text, command) in [("paws", VoiceCommand.pause), ("and do", .undo), ("a gain", .again), ("shakey", .shaky), ("necks", .next), ("mist", .missed), ("miss", .missed)] {
+            expect(VoiceCommandRecognition.recognize(text) == .needsConfirmation([command]), "Confirm likely mishearing \(text)")
+        }
+        for text in ["no clean", "don't clean", "clean and sloppy", "please clean", "we missed the bus", "go faster", "tempo ninety six three", "temppo 96", "unknown words"] {
+            expect(VoiceCommandRecognition.recognize(text) == .ignored, "Never reinterpret arbitrary or negative speech \(text)")
+        }
+        expect(VoiceCommandRecognition.recognize("green", supportedActions: [.nextPage]) == .ignored, "Context excludes unavailable verdicts")
+        expect(VoiceCommandRecognition.recognize("clean", supportedActions: [.nextPage]) == .ignored, "Context also excludes exact unavailable verdicts")
+        var aliases = try VoiceAliasConfiguration().updating(["well done", "all clear"], for: .clean)
+        aliases = try aliases.updating(["speed"], for: .tempo)
+        expect(VoiceCommandRecognition.recognize("Well  done!", aliases: aliases) == .command(.clean), "Explicit custom phrase")
+        expect(VoiceCommandRecognition.recognize("all clear", aliases: aliases) == .command(.clean), "Second custom phrase")
+        expect(VoiceCommandRecognition.recognize("speed ninety six", aliases: aliases) == .command(.setTempo(96)), "Custom tempo prefix")
+        expect(VoiceCommandRecognition.recognize("speed 301", aliases: aliases) == .ignored, "Custom tempo validation")
+        expect(VoiceCommandRecognition.recognize("all clearly", aliases: aliases) == .ignored, "Custom phrase does not match conversational fragment")
+        let reopenedAliases = try JSONDecoder().decode(VoiceAliasConfiguration.self, from: JSONEncoder().encode(aliases))
+        expect(reopenedAliases == aliases, "Alias preferences round trip")
+        let historyCommands: [VoiceCommand] = [.clean, .sloppy, .again, .shaky, .missed, .undo, .start, .stop, .next]
+        for command in historyCommands { expect(command.altersPracticeHistory, "Focus guards \(command)") }
+        for command: VoiceCommand in [.pause, .resume, .nextPage, .previousPage, .slower, .faster, .setTempo(90), .metronomeStart, .metronomeStop] {
+            expect(!command.altersPracticeHistory, "Focus retains \(command)")
+        }
+        func rejectsAliases(_ phrases: [String], _ action: VoiceCommandAction) {
+            do { _ = try aliases.updating(phrases, for: action); preconditionFailure("Unsafe alias accepted: \(phrases)") }
+            catch { count += 1 }
+        }
+        rejectsAliases(["clean"], .again)
+        rejectsAliases(["well done"], .again)
+        rejectsAliases(["clean"], .clean)
+        rejectsAliases(["cleen"], .again)
+        rejectsAliases(["no thanks"], .clean)
+        rejectsAliases(["confirm"], .clean)
+        rejectsAliases(["cancel now"], .clean)
+        rejectsAliases(["x"], .clean)
+        rejectsAliases(["count 2"], .clean)
+        rejectsAliases(["my phrase", "another phrase", "a third phrase", "a fourth phrase"], .clean)
+        // Default parameterized grammar has the same reservation as the fixed vocabulary.
+        for phrase in ["tempo sixty", "set tempo ninety", "metronome eighty"] {
+            rejectsAliases([phrase], .clean)
+            rejectsAliases([phrase], .tempo)
+            expect(VoiceCommandRecognition.recognize(phrase, aliases: aliases) == .command(VoiceCommand.parse(phrase)!), "Default tempo grammar remains authoritative: \(phrase)")
+        }
+        rejectsAliases(["speed sixty"], .clean)
+        rejectsAliases(["speed", "speed sixty"], .tempo)
+        rejectsAliases(["speed sixty", "speed"], .tempo)
+        // Collision detection must also work when the fixed alias was saved before the tempo prefix.
+        let firstFixedAlias = try VoiceAliasConfiguration().updating(["speed sixty"], for: .clean)
+        do { _ = try firstFixedAlias.updating(["speed"], for: .tempo); preconditionFailure("A new tempo prefix must not steal an existing phrase") }
+        catch { count += 1 }
+        var persistedNumericConflict = VoiceAliasConfiguration()
+        persistedNumericConflict.phrases = ["clean": ["speed sixty"], "tempo": ["speed"]]
+        expect(VoiceCommandRecognition.recognize("speed sixty", aliases: persistedNumericConflict) == .ignored, "Invalid persisted numeric collisions cannot execute a custom action")
+        expect(VoiceCommandRecognition.recognize("tempo sixty", aliases: persistedNumericConflict) == .command(.setTempo(60)), "Invalid persisted configuration retains default numeric grammar")
+        let ambiguousAliases = try VoiceAliasConfiguration().updating(["bloom"], for: .clean).updating(["brood"], for: .again)
+        expect(VoiceCommandRecognition.recognize("broom", aliases: ambiguousAliases) == .needsConfirmation([.clean, .again]), "Two equally close actions remain ambiguous")
+        let restoredAliases = try aliases.updating([], for: .clean)
+        expect(restoredAliases.aliases(for: .clean).isEmpty, "Remove customization without changing defaults")
+        expect(VoiceCommandRecognition.recognize("clean", aliases: restoredAliases) == .command(.clean), "Default phrase always retained")
+        var malformedAliases = VoiceAliasConfiguration()
+        malformedAliases.phrases = ["again": ["clean"]]
+        expect(VoiceCommandRecognition.recognize("clean", aliases: malformedAliases) == .command(.clean), "Malformed persisted aliases cannot redefine defaults")
+        expect(VoiceCommandRecognition.recognize("cleanly", aliases: malformedAliases) == .ignored, "Malformed configuration never extends vocabulary")
         for bpm in [20.0, 60, 73.5, 120, 299, 300] {
             for beats in [1, 3, 4, 7, 12] {
                 for sub in [1, 2, 3, 4] {

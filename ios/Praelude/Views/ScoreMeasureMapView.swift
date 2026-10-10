@@ -8,6 +8,7 @@ struct ScoreMeasureMapView: View {
     @State private var page = 1
     @State private var scan: ScoreMapScan?
     @State private var selectedRegion: NormalizedRect?
+    @State private var editingAnchorID: UUID?
     @State private var firstMeasure = ""
     @State private var lastMeasure = ""
     @State private var scanning = false
@@ -23,11 +24,25 @@ struct ScoreMeasureMapView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Map measures once, then new passage boxes inherit the confirmed numbers. Outline a measure for an exact label, or a whole system for its full range.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                    DisclosureGroup("How to map this score") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("1. Choose a source page. Drag a box around one measure, or a whole system.")
+                            Text("2. Enter the first and last measure inside that box, then confirm. Use the same number twice for one measure.")
+                            Text("3. Return to the score and draw a passage fully inside mapped regions. It can display the confirmed numbers without changing old history.")
+                            Text("A system map gives the system's whole range; it cannot locate individual bars inside it. Map bars separately when you need exact labels. For movements whose numbers restart, organize the movement page ranges first.")
+                            Text("Scan printed numbers only offers hints. Review them: fingerings and page numbers can look like measures. Nothing is confirmed automatically.")
+                        }.font(.subheadline).foregroundStyle(.secondary).padding(.top, 5)
+                    }
+                    Text("\(piece?.measureAnchors.count ?? 0) confirmed regions in this score · \(anchors.count) on this page")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if anchors.isEmpty {
+                        Text("This page has no confirmed map yet. You can map it manually even if scanning finds no printed numbers.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
                     Stepper(piece.map { ScoreOrganization.pageLabel(page, in: $0) } ?? "Page \(page)", value: $page, in: 1...max(1, piece?.pageCount ?? 1))
                     if let scan { mapImage(scan) }
-                    else { ProgressView().frame(maxWidth: .infinity, minHeight: 200) }
+                    else if scanning { ProgressView("Opening score page…").frame(maxWidth: .infinity, minHeight: 200) }
+                    else { ContentUnavailableView("Score page unavailable", systemImage: "doc", description: Text("A local readable PDF is needed to map measures.")) }
                     Button { Task { await load(recognize: true) } } label: {
                         Label(scanning ? "Scanning this page…" : "Scan printed numbers", systemImage: "viewfinder")
                     }.disabled(scanning).buttonStyle(.bordered)
@@ -37,7 +52,7 @@ struct ScoreMeasureMapView: View {
                         ScrollView(.horizontal) {
                             HStack {
                                 ForEach(scan.hints) { hint in
-                                    Button("\(hint.number)") { firstMeasure = String(hint.number); lastMeasure = String(hint.number); selectedRegion = nil }
+                                    Button("\(hint.number)") { firstMeasure = String(hint.number); lastMeasure = String(hint.number); selectedRegion = nil; editingAnchorID = nil }
                                         .buttonStyle(.bordered)
                                 }
                             }
@@ -47,14 +62,22 @@ struct ScoreMeasureMapView: View {
                         TextField("First measure", text: $firstMeasure).keyboardType(.numberPad)
                         TextField("Last measure", text: $lastMeasure).keyboardType(.numberPad)
                     }.textFieldStyle(.roundedBorder)
-                    Button("Confirm measure region", systemImage: "checkmark") { save() }
-                        .buttonStyle(.borderedProminent).disabled(!valid)
+                    Button(editingAnchorID == nil ? "Confirm measure region" : "Update measure region", systemImage: "checkmark") { save() }
+                        .buttonStyle(.borderedProminent).disabled(!valid).accessibilityIdentifier("confirmMeasureRegion")
+                    if editingAnchorID != nil || selectedRegion != nil {
+                        Button("Clear selection") { clearSelection() }.buttonStyle(.bordered)
+                    }
                     if let errorMessage { ErrorMessage(message: errorMessage) }
                     if !anchors.isEmpty {
                         Text("Confirmed on this page").font(.headline)
                         ForEach(anchors) { anchor in
                             HStack {
-                                Text(anchor.startMeasure == anchor.endMeasure ? "m. \(anchor.startMeasure)" : "mm. \(anchor.startMeasure)–\(anchor.endMeasure)")
+                                Button {
+                                    editingAnchorID = anchor.id; selectedRegion = anchor.region
+                                    firstMeasure = String(anchor.startMeasure); lastMeasure = String(anchor.endMeasure)
+                                } label: {
+                                    Label(anchor.startMeasure == anchor.endMeasure ? "m. \(anchor.startMeasure)" : "mm. \(anchor.startMeasure)–\(anchor.endMeasure)", systemImage: "pencil")
+                                }
                                 Spacer()
                                 Button("Delete", systemImage: "trash", role: .destructive) { remove(anchor) }.labelStyle(.iconOnly)
                             }.frame(minHeight: 44)
@@ -65,7 +88,7 @@ struct ScoreMeasureMapView: View {
             .navigationTitle("Measure map").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
             .onAppear { page = min(max(1, currentPage), max(1, piece?.pageCount ?? 1)) }
-            .task(id: page) { selectedRegion = nil; scan = nil; await load(recognize: false) }
+            .task(id: page) { clearSelection(); scan = nil; errorMessage = nil; await load(recognize: false) }
         }
     }
     private func mapImage(_ scan: ScoreMapScan) -> some View {
@@ -99,7 +122,9 @@ struct ScoreMeasureMapView: View {
             .position(x: box.midX * size.width, y: box.midY * size.height)
     }
     private func load(recognize: Bool) async {
-        guard let piece, let url = NativeLibraryFiles(store: store).scoreURL(for: piece) else { return }
+        guard let piece, let url = NativeLibraryFiles(store: store).scoreURL(for: piece) else {
+            scanning = false; errorMessage = "Download or import this score PDF before mapping measures."; return
+        }
         let requestedPage = page
         let requestID = UUID(); scanRequestID = requestID
         scanning = true
@@ -117,13 +142,21 @@ struct ScoreMeasureMapView: View {
     private func save() {
         guard let piece, let region = selectedRegion, let first = Int(firstMeasure), let last = Int(lastMeasure) else { return }
         do {
-            try store.setMeasureAnchors(piece.measureAnchors + [ScoreMeasureAnchor(page: page, region: region, startMeasure: first, endMeasure: last)], for: pieceID)
-            selectedRegion = nil; firstMeasure = ""; lastMeasure = ""; errorMessage = nil
+            let anchor = ScoreMeasureAnchor(id: editingAnchorID ?? UUID(), page: page, region: region, startMeasure: first, endMeasure: last)
+            try store.setMeasureAnchors(piece.measureAnchors.filter { $0.id != anchor.id } + [anchor], for: pieceID)
+            clearSelection(); errorMessage = nil
         } catch { errorMessage = error.localizedDescription }
     }
     private func remove(_ anchor: ScoreMeasureAnchor) {
         guard let piece else { return }
-        do { try store.setMeasureAnchors(piece.measureAnchors.filter { $0.id != anchor.id }, for: pieceID) }
+        do {
+            try store.setMeasureAnchors(piece.measureAnchors.filter { $0.id != anchor.id }, for: pieceID)
+            if editingAnchorID == anchor.id { clearSelection() }
+        }
         catch { errorMessage = error.localizedDescription }
     }
+    private func clearSelection() {
+        selectedRegion = nil; editingAnchorID = nil; firstMeasure = ""; lastMeasure = ""
+    }
+
 }

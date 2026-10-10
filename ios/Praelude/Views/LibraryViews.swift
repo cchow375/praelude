@@ -5,12 +5,13 @@ import UIKit
 /// One enum-driven `.sheet` for the whole screen (matching `ScoreWorkspace`'s `ScoreSheet`
 /// convention) rather than several independent `isPresented`/`item` sheets stacked on one view.
 private enum LibrarySheet: Identifiable {
-    case folders, tags, setlists, pieceDetails(Piece), movements(Piece)
+    case folders, tags, setlists, passageNames, pieceDetails(Piece), movements(Piece)
     var id: String {
         switch self {
         case .folders: return "folders"
         case .tags: return "tags"
         case .setlists: return "setlists"
+        case .passageNames: return "passageNames"
         case .pieceDetails(let piece): return "details-\(piece.id)"
         case .movements(let piece): return "movements-\(piece.id)"
         }
@@ -87,6 +88,7 @@ struct LibraryView: View {
                         Button("Folders", systemImage: "folder") { sheet = .folders }
                         Button("Tags", systemImage: "tag") { sheet = .tags }
                         Button("Setlists", systemImage: "list.number") { sheet = .setlists }
+                        Button("Passage names", systemImage: "character.cursor.ibeam") { sheet = .passageNames }
                     }
                 } label: {
                     Label("Sort and organize", systemImage: "arrow.up.arrow.down")
@@ -116,6 +118,7 @@ struct LibraryView: View {
                                        onAdd: { try store.saveTag(Tag(name: $0)) },
                                        onRename: { tag, name in var t = tag; t.name = name; t.updatedAt = Date(); try store.saveTag(t) },
                                        onDelete: { try store.deleteTag($0.id) })
+            case .passageNames: PassageLibraryNamesView()
             case .setlists:
                 NavigationStack { SetlistsView(onOpenPiece: onOpenPiece, onOpenPieceAtPage: onOpenPieceAtPage) }
             }

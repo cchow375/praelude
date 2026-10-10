@@ -1,17 +1,7 @@
 import Foundation
 
-/// The entire voice hot loop. Only complete, explicitly recognized phrases are actions.
-/// The recognizer never evaluates piano audio or sends these commands to a model.
-///
-/// §9's fixed vocabulary in three groups: warm verdicts (`clean`/`sloppy`/`again`/`undo`), set
-/// control (`start`/`stop`/`pause`/`slower`/`faster`/`setTempo`/`metronomeStart`/`metronomeStop`/
-/// `next`), and cold-attempt grading (`clean`/`shaky`/`missed` — `clean` is shared with the warm
-/// scale since a cold Clean and a warm Clean are the same spoken word; which one a heard "clean"
-/// means is a caller-side question of whether a cold grade is currently being asked for, not a
-/// parsing question). Every case here is a complete, exact phrase match — no substring or fuzzy
-/// matching — so an ambient conversational fragment ("no thanks", "again, like I said...") can
-/// never masquerade as a command. See "(C) Flaws.md" A1/B24 for why that firewall matters: real use
-/// at an acoustic instrument produced both missed words and false positives from ordinary speech.
+/// Deterministic local voice commands. Only complete supported phrases execute directly.
+/// Likely recognition mistakes are suggestions requiring an explicit confirmation.
 enum VoiceCommand: Equatable, Hashable, Sendable {
     case clean, sloppy, again, undo, pause, resume
     case shaky, missed
@@ -22,9 +12,7 @@ enum VoiceCommand: Equatable, Hashable, Sendable {
     case nextPage, previousPage
 
     static func parse(_ transcript: String) -> VoiceCommand? {
-        let phrase = transcript.lowercased()
-            .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
-            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let phrase = normalizedPhrase(transcript)
         switch phrase {
         case "clean": return .clean
         case "sloppy": return .sloppy
@@ -57,6 +45,42 @@ enum VoiceCommand: Equatable, Hashable, Sendable {
             return .setTempo(bpm)
         }
         return nil
+    }
+
+    static func normalizedPhrase(_ text: String) -> String {
+        text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    var action: VoiceCommandAction {
+        switch self {
+        case .clean: .clean
+        case .sloppy: .sloppy
+        case .again: .again
+        case .undo: .undo
+        case .pause: .pause
+        case .resume: .resume
+        case .shaky: .shaky
+        case .missed: .missed
+        case .start: .start
+        case .stop: .stop
+        case .next: .next
+        case .slower: .slower
+        case .faster: .faster
+        case .metronomeStart: .metronomeStart
+        case .metronomeStop: .metronomeStop
+        case .setTempo: .tempo
+        case .nextPage: .nextPage
+        case .previousPage: .previousPage
+        }
+    }
+
+    /// Score focus keeps the set intact and the microphone live, while rejecting rep/history input.
+    var altersPracticeHistory: Bool {
+        switch self {
+        case .clean, .sloppy, .again, .shaky, .missed, .undo, .start, .stop, .next: true
+        default: false
+        }
     }
 
     private static func spokenNumber(_ phrase: String) -> Int? {
@@ -95,5 +119,174 @@ enum VoiceCommand: Equatable, Hashable, Sendable {
             return hundreds * 100 + suffix
         }
         return underHundred(words)
+    }
+}
+
+
+/// Stable identifiers for customizable phrases. Tempo phrases are prefixes followed by a number.
+enum VoiceCommandAction: String, Codable, CaseIterable, Identifiable, Sendable {
+    case clean, sloppy, again, undo, pause, resume, shaky, missed, start, stop, next, slower, faster
+    case metronomeStart, metronomeStop, tempo, nextPage, previousPage
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .metronomeStart: "Metronome on"
+        case .metronomeStop: "Metronome off"
+        case .tempo: "Set tempo"
+        case .nextPage: "Next page"
+        case .previousPage: "Previous page"
+        default: rawValue.capitalized
+        }
+    }
+
+    var phrases: [String] {
+        switch self {
+        case .metronomeStart: ["metronome start", "start metronome", "metronome on"]
+        case .metronomeStop: ["metronome stop", "stop metronome", "metronome off"]
+        case .tempo: ["tempo", "set tempo", "metronome"]
+        case .nextPage: ["next page"]
+        case .previousPage: ["previous page"]
+        default: [rawValue]
+        }
+    }
+
+    var command: VoiceCommand? { self == .tempo ? nil : VoiceCommand.parse(phrases[0]) }
+}
+
+struct VoiceAliasConfiguration: Codable, Equatable, Sendable {
+    var version = 1
+    var phrases: [String: [String]] = [:]
+
+    func aliases(for action: VoiceCommandAction) -> [String] { phrases[action.rawValue] ?? [] }
+
+    func updating(_ aliases: [String], for action: VoiceCommandAction) throws -> Self {
+        var updated = self
+        let normalized = aliases.map(VoiceCommand.normalizedPhrase).filter { !$0.isEmpty }
+        if normalized.isEmpty { updated.phrases.removeValue(forKey: action.rawValue) }
+        else { updated.phrases[action.rawValue] = normalized }
+        try updated.validate()
+        return updated
+    }
+
+    func validate() throws {
+        guard version == 1, phrases.keys.allSatisfy({ VoiceCommandAction(rawValue: $0) != nil }) else {
+            throw AliasError.invalid("Saved command phrases are unsupported. Restore default phrases to recover.")
+        }
+        // Check against every numeric prefix up front, independent of action iteration order.
+        // Otherwise a phrase like "speed sixty" could become Clean before "speed" is later
+        // registered as a tempo prefix, while recognition always parses it as a tempo command.
+        let tempoPrefixes = VoiceCommandAction.tempo.phrases + aliases(for: .tempo)
+        func parameterizedTempo(_ phrase: String) -> VoiceCommand? {
+            for prefix in tempoPrefixes where phrase.hasPrefix(prefix + " ") {
+                if let command = VoiceCommand.parse("tempo " + phrase.dropFirst(prefix.count + 1)) { return command }
+            }
+            return nil
+        }
+        var owners: [String: VoiceCommandAction] = [:]
+        for action in VoiceCommandAction.allCases {
+            for phrase in action.phrases { owners[phrase] = action }
+        }
+        for action in VoiceCommandAction.allCases {
+            let aliases = aliases(for: action)
+            guard aliases.count <= 3 else { throw AliasError.invalid("Use up to three extra phrases per action.") }
+            for phrase in aliases {
+                let words = phrase.split(separator: " ")
+                guard phrase == VoiceCommand.normalizedPhrase(phrase), (3...50).contains(phrase.count),
+                      (1...5).contains(words.count), phrase.unicodeScalars.allSatisfy({ CharacterSet.letters.union(.whitespaces).union(CharacterSet(charactersIn: "'-")).contains($0) }),
+                      !VoiceCommandRecognition.containsNegation(phrase), !words.contains("confirm"), !words.contains("cancel") else {
+                    throw AliasError.invalid("Use a short phrase of letters and spaces, without confirm, cancel, or a negative instruction.")
+                }
+                if let parsed = VoiceCommand.parse(phrase), parsed.action != action {
+                    throw AliasError.invalid("\u{201c}\(phrase)\u{201d} already belongs to \(parsed.action.label). Choose a different phrase.")
+                }
+                if parameterizedTempo(phrase) != nil {
+                    if action == .tempo {
+                        throw AliasError.invalid("\u{201c}\(phrase)\u{201d} already includes a tempo number. Choose a prefix without the number.")
+                    }
+                    throw AliasError.invalid("\u{201c}\(phrase)\u{201d} already belongs to Set tempo. Choose a different phrase.")
+                }
+                if let other = owners[phrase] {
+                    throw AliasError.invalid("\u{201c}\(phrase)\u{201d} already belongs to \(other.label). Choose a different phrase.")
+                }
+                // Reject similar custom phrases instead of making the user discover a collision in practice.
+                if let similar = owners.first(where: { VoiceCommandRecognition.isNear(phrase, $0.key) && $0.value != action }) {
+                    throw AliasError.invalid("\u{201c}\(phrase)\u{201d} is too close to \(similar.value.label). Choose a more distinct phrase.")
+                }
+                owners[phrase] = action
+            }
+        }
+    }
+
+    enum AliasError: LocalizedError {
+        case invalid(String)
+        var errorDescription: String? { if case .invalid(let message) = self { message } else { nil } }
+    }
+}
+
+enum VoiceCommandRecognition: Equatable {
+    case command(VoiceCommand)
+    case needsConfirmation([VoiceCommand])
+    case ignored
+
+    /// No transcript fragments or arbitrary semantic guesses. A unique near match still needs confirmation.
+    static func recognize(_ transcript: String, aliases: VoiceAliasConfiguration = .init(),
+                          supportedActions: Set<VoiceCommandAction> = Set(VoiceCommandAction.allCases)) -> Self {
+        let phrase = VoiceCommand.normalizedPhrase(transcript)
+        guard !phrase.isEmpty, phrase.count <= 80, !containsNegation(phrase) else { return .ignored }
+        if let command = VoiceCommand.parse(phrase) {
+            return supportedActions.contains(command.action) ? .command(command) : .ignored
+        }
+        // Invalid persisted settings never redefine the supported vocabulary.
+        let validAliases = (try? aliases.validate()) != nil ? aliases : VoiceAliasConfiguration()
+        var vocabulary: [(String, VoiceCommandAction)] = []
+        for action in VoiceCommandAction.allCases where supportedActions.contains(action) {
+            let actionPhrases = action.phrases + validAliases.aliases(for: action)
+            if action == .tempo {
+                for prefix in actionPhrases where phrase.hasPrefix(prefix + " ") {
+                    if let command = VoiceCommand.parse("tempo " + phrase.dropFirst(prefix.count + 1)) { return .command(command) }
+                }
+            } else {
+                if actionPhrases.contains(phrase), let command = action.command { return .command(command) }
+                vocabulary += actionPhrases.map { ($0, action) }
+            }
+        }
+        let knownMishearings: [String: VoiceCommandAction] = [
+            "cleen": .clean, "glean": .clean, "green": .clean, "queen": .clean,
+            "a gain": .again, "and do": .undo, "paws": .pause, "shakey": .shaky,
+            "necks": .next, "mist": .missed, "miss": .missed
+        ]
+        var candidates = Set(vocabulary.filter { isNear(phrase, $0.0) }.map { $0.1 })
+        if let known = knownMishearings[phrase], supportedActions.contains(known) { candidates.insert(known) }
+        let commands = VoiceCommandAction.allCases.filter { candidates.contains($0) }.compactMap(\.command)
+        return commands.isEmpty ? .ignored : .needsConfirmation(commands)
+    }
+
+    static func containsNegation(_ phrase: String) -> Bool {
+        let words = Set(phrase.split(separator: " ").map(String.init))
+        return !words.isDisjoint(with: ["no", "not", "don't", "dont", "never", "cannot", "can't", "cant", "without"])
+    }
+
+    /// One insertion, deletion, replacement or adjacent transposition, with the same word count.
+    /// Short tokens and tempo numbers are intentionally excluded from fuzzy repair.
+    static func isNear(_ first: String, _ second: String) -> Bool {
+        guard first != second, min(first.count, second.count) >= 4,
+              first.split(separator: " ").count == second.split(separator: " ").count,
+              !first.unicodeScalars.contains(where: CharacterSet.decimalDigits.contains),
+              abs(first.count - second.count) <= 1 else { return false }
+        let a = Array(first), b = Array(second)
+        if a.count == b.count {
+            let differences = a.indices.filter { a[$0] != b[$0] }
+            if differences.count == 1 { return true }
+            if differences.count == 2 {
+                let i = differences[0], j = differences[1]
+                return j == i + 1 && a[i] == b[j] && a[j] == b[i]
+            }
+            return false
+        }
+        let short = a.count < b.count ? a : b, long = a.count < b.count ? b : a
+        var index = 0
+        while index < short.count, short[index] == long[index] { index += 1 }
+        return Array(short[index...]) == Array(long[(index + 1)...])
     }
 }

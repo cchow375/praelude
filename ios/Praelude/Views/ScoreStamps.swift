@@ -14,7 +14,8 @@ extension StampKind {
     static let fingeringLabels = ["1", "2", "3", "4", "5"]
     static let dynamicLabels = ["pp", "p", "mp", "mf", "f", "ff"]
     static let bowingLabels = ["down", "up"]
-    static let accidentalLabels = ["flat", "natural", "sharp"]
+    static let accidentalLabels = ["sharp", "flat", "natural"]
+    static let pickerOrder: [StampKind] = [.accidental, .fingering, .dynamic, .breath, .bowing, .circle, .watch]
     /// Whether this kind needs a specific label chosen (vs. `.breath`/`.circle`/`.watch`, which are
     /// one fixed mark each).
     var labels: [String]? {
@@ -227,7 +228,7 @@ struct TextBoxEditorView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("noteFormatting")
             .accessibilityValue(showingFormatting ? "Expanded" : "Collapsed")
-            .accessibilityHint("Text size, font, emphasis, color and alignment")
+            .accessibilityHint("Text size, font, emphasis, color, background and alignment")
 
             if showingFormatting {
                 VStack(alignment: .leading, spacing: 8) {
@@ -284,6 +285,23 @@ struct TextBoxEditorView: View {
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("textNoteColor")
 
+                ColorPicker("Note background", selection: backgroundBinding, supportsOpacity: true)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("textNoteBackground")
+                HStack(spacing: 12) {
+                    Button { style.backgroundColor.alpha = 0 } label: {
+                        Text("Transparent").frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                    }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("textNoteTransparentBackground")
+                        .accessibilityValue(style.backgroundColor.alpha == 0 ? "On" : "Off")
+                    Button { style.backgroundColor = .yellow } label: {
+                        Text("Yellow paper").frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                    }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("textNoteYellowBackground")
+                        .accessibilityValue(style.backgroundColor == .yellow ? "On" : "Off")
+                }
                 Picker("Alignment", selection: $style.alignment) {
                     Image(systemName: "text.alignleft").tag(TextAnnotationStyle.Alignment.leading)
                         .accessibilityLabel("Align left")
@@ -305,14 +323,23 @@ struct TextBoxEditorView: View {
                         .lineLimit(6)
                         .frame(maxWidth: .infinity, minHeight: 80, alignment: previewFrameAlignment)
                         .padding(12)
-                        .background(Color(uiColor: TextAnnotationRenderer.paperColor), in: RoundedRectangle(cornerRadius: 8))
+                        .background(Color(uiColor: TextAnnotationRenderer.backgroundColor(for: style)), in: RoundedRectangle(cornerRadius: 8))
                         .accessibilityIdentifier("textNoteStylePreview")
                 }
                 .padding(.vertical, 4)
             }
         } footer: {
-            if showingFormatting { Text("On the score, tap a note and drag a corner to resize its box. Text size stays the same.") }
+            if showingFormatting { Text("On the score, tap a note and drag a corner to resize its box. Text fits smaller boxes down to 12 points; expand the note to read any remaining text.") }
         }
+    }
+
+    private var backgroundBinding: Binding<Color> {
+        Binding(get: { Color(uiColor: TextAnnotationRenderer.backgroundColor(for: style)) }, set: { value in
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+            guard UIColor(value).getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return }
+            func component(_ value: CGFloat) -> Double { Double(min(1, max(0, value))) }
+            style.backgroundColor = .init(red: component(red), green: component(green), blue: component(blue), alpha: component(alpha))
+        })
     }
 
     private func emphasisButton(_ title: String, systemImage: String, isOn: Bool,

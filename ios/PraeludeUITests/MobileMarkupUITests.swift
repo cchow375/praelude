@@ -45,7 +45,7 @@ final class MobileMarkupUITests: XCTestCase {
     @MainActor private func revealAnnotationControl(_ element: XCUIElement, app: XCUIApplication) {
         let controls = app.descendants(matching: .any).matching(identifier: "annotationControls").firstMatch
         XCTAssertTrue(controls.waitForExistence(timeout: 5), app.debugDescription)
-        for _ in 0..<8 {
+        for _ in 0..<40 {
             let viewport = controls.frame.intersection(app.frame)
             if element.exists, element.isHittable, viewport.contains(element.frame) { break }
             // The bounded footer may itself be the ScrollView. Exclude horizontal rows and
@@ -58,8 +58,12 @@ final class MobileMarkupUITests: XCTestCase {
                 XCTFail("The annotation control is clipped and its footer has no vertical scroll.\n" + app.debugDescription)
                 return
             }
-            if element.exists, element.frame.minY < viewport.minY { vertical.swipeDown() }
-            else { vertical.swipeUp() }
+            let downward = element.exists && element.frame.minY < viewport.minY
+            let distance = min(24, max(12, vertical.frame.height * 0.25))
+            let middle = vertical.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5))
+            let start = middle.withOffset(.init(dx: 0, dy: downward ? -distance / 2 : distance / 2))
+            let end = middle.withOffset(.init(dx: 0, dy: downward ? distance / 2 : -distance / 2))
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
         }
         XCTAssertTrue(element.exists && element.isHittable && controls.frame.intersection(app.frame).contains(element.frame),
                       "The bounded annotation footer must scroll to its controls.\n" + app.debugDescription)
@@ -289,8 +293,21 @@ final class MobileMarkupUITests: XCTestCase {
         let annotate = app.buttons["annotateScore"]
         revealPracticeControl(annotate, app: app); annotate.tap()
         let controls = app.descendants(matching: .any).matching(identifier: "annotationControls").firstMatch
-        XCTAssertTrue(controls.waitForExistence(timeout: 8), app.debugDescription)
+        let centerTapOpened = controls.waitForExistence(timeout: 8)
+        if !centerTapOpened {
+            // Diagnose the ordinary center hit without accepting a different gesture as a pass.
+            // The native scrollbar's AX touch frame overlaps the rightmost button center.
+            annotate.coordinate(withNormalizedOffset: .init(dx: 0.15, dy: 0.5)).tap()
+            let leftTapOpened = controls.waitForExistence(timeout: 4)
+            let diagnostic = XCTAttachment(string: "ordinaryCenterOpened=\(centerTapOpened);leftInteriorOpened=\(leftTapOpened);button=\(annotate.frame)")
+            diagnostic.name = "annotation-center-versus-left-interior"; diagnostic.lifetime = .keepAlways; add(diagnostic)
+            shot("build12-phone-annotation-hit-diagnostic")
+        }
+        XCTAssertTrue(centerTapOpened, "The ordinary center tap must open annotation.\n" + app.debugDescription)
         XCUIDevice.shared.orientation = .landscapeLeft
+        let landscape = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [landscape], timeout: 8), .completed,
+                       "This case requires actual landscape geometry, not just an orientation request.")
 
         // The fitting tray is an Other; the bounded scrolling fallback is a ScrollView.
         // Keep this query valid as choosing Stamp changes which branch fits.
@@ -304,7 +321,7 @@ final class MobileMarkupUITests: XCTestCase {
         XCTAssertTrue(stampTool.exists && stampTool.isHittable, app.debugDescription)
         settle(stampTool, app: app); stampTool.tap()
         let fingering = controls.buttons["stamp_fingering_1"]
-        XCTAssertTrue(fingering.waitForExistence(timeout: 8) && fingering.isHittable, app.debugDescription)
+        revealAnnotationControl(fingering, app: app)
         fingering.tap()
 
         let pdf = app.otherElements["scorePDF"]
@@ -393,6 +410,41 @@ final class MobileMarkupUITests: XCTestCase {
         app.buttons["finishScoreMarkup"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["armStartSet"].waitForExistence(timeout: 8), app.debugDescription)
         shot("build7-pen-after-stamp")
+    }
+
+    @MainActor func testAccidentalStampRowsCollapseAndFingerPlacement() {
+        let app = XCUIApplication(); openScore(app)
+        app.buttons["annotateScore"].tap()
+        app.buttons["annotationTool_stamp"].tap()
+        let sharp = app.buttons["stamp_accidental_sharp"]
+        let flat = app.buttons["stamp_accidental_flat"]
+        let natural = app.buttons["stamp_accidental_natural"]
+        revealAnnotationControl(sharp, app: app)
+        XCTAssertTrue(flat.exists && natural.exists, app.debugDescription)
+        XCTAssertLessThan(sharp.frame.minX, flat.frame.minX)
+        XCTAssertLessThan(flat.frame.minX, natural.frame.minX)
+        XCTAssertEqual(sharp.frame.midY, flat.frame.midY, accuracy: 2)
+        XCTAssertEqual(flat.frame.midY, natural.frame.midY, accuracy: 2)
+        let fingering = app.buttons["stamp_fingering_1"]
+        XCTAssertTrue(fingering.exists)
+        XCTAssertLessThan(sharp.frame.midY, fingering.frame.midY, "Accidentals must precede the fingering row")
+        shot("build12-stamp-accidentals-first-expanded")
+        sharp.tap()
+        let choices = app.buttons["toggleStampChoices"]
+        revealAnnotationControl(choices, app: app); choices.tap()
+        XCTAssertEqual(choices.value as? String, "Collapsed")
+        XCTAssertFalse(flat.exists, "Collapsed stamp choices must release score space")
+        shot("build12-stamp-choices-collapsed")
+        app.buttons["toggleAnnotationPalette"].tap()
+        let pdf = app.otherElements["scorePDF"]
+        pdf.textViews.firstMatch.coordinate(withNormalizedOffset: .init(dx: 0.3, dy: 0.55)).tap()
+        app.buttons["toggleAnnotationPalette"].tap()
+        let confirm = app.buttons["confirmStamp"]
+        revealAnnotationControl(confirm, app: app); confirm.tap()
+        let placed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "stampCountPage1=1"), object: pdf)
+        XCTAssertEqual(XCTWaiter.wait(for: [placed], timeout: 5), .completed, app.debugDescription)
+        shot("build12-stamp-sharp-placed")
+        app.buttons["finishScoreMarkup"].tap()
     }
 
 }

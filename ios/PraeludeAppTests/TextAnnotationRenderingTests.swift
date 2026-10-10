@@ -48,4 +48,33 @@ final class TextAnnotationRenderingTests: XCTestCase {
         XCTAssertEqual(paragraph.lineBreakMode, .byWordWrapping)
         XCTAssertEqual(TextAnnotationRenderer.font(for: style, scale: 5609.6 / 595).pointSize / (5609.6 / 595), 32, accuracy: 0.001)
     }
+    @MainActor func testSmallerBoxesFitTextWithoutChangingSavedPreferredSize() {
+        let style = TextAnnotationStyle(fontSize: 36)
+        let text = "Listen to the bass and keep a steady pulse."
+        let large = TextAnnotationRenderer.fittedStyle(for: text, style: style, in: CGSize(width: 500, height: 200))
+        let small = TextAnnotationRenderer.fittedStyle(for: text, style: style, in: CGSize(width: 180, height: 55))
+        XCTAssertEqual(large.fontSize, 36); XCTAssertLessThan(small.fontSize, 36)
+        XCTAssertGreaterThanOrEqual(small.fontSize, 12); XCTAssertEqual(style.fontSize, 36)
+    }
+
+    @MainActor func testFullyTransparentNoteLeavesEmptyAreaUnpainted() throws {
+        var style = TextAnnotationStyle(fontSize: 20); style.backgroundColor = .clear
+        let note = TextBoxAnnotation(pieceID: UUID(), page: 1,
+            region: NormalizedRect(x: 0, y: 0, width: 0.5, height: 0.2), text: "Pulse", style: style)
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 100), format: format).image {
+            TextAnnotationRenderer.draw(note: note, in: CGRect(x: 0, y: 0, width: 300, height: 100),
+                                        pageWidth: 595, context: $0.cgContext)
+        }
+        let cg = try XCTUnwrap(image.cgImage)
+        var pixels = [UInt8](repeating: 0, count: 300 * 100 * 4)
+        try pixels.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: 300, height: 100, bitsPerComponent: 8,
+                bytesPerRow: 300 * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: 300, height: 100))
+        }
+        XCTAssertEqual(pixels[(50 * 300 + 250) * 4 + 3], 0)
+        XCTAssertTrue(stride(from: 3, to: pixels.count, by: 4).contains { pixels[$0] > 0 })
+    }
+
 }

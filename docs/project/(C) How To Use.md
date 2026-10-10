@@ -1,5 +1,11 @@
 # Praelude — How To Use
 
+## October 10 — installed guide and candidate boundary
+
+**Matches: installed personal native2.0.0/build11/schema5; Macv11.1.0/schema21. Last updated:2026-10-10.** Build12 is implemented but final delivery checks are in progress; it is not installed. Candidate gestures and new history/voice controls are documented in `docs/qa/ios/2.0.0/build12/candidate-guide.md` until refresh; the installed instructions below remain build11. Exact source/checklist: `docs/qa/ios/2.0.0/build12/practice-upgrade.md`.
+
+**Next steps:** after a verified guarded install, replace this boundary with the installed build12 tutorial and keep launch/physical acceptance separate.
+
 ## Score controls — build11 installed on both iPads
 
 **Matches: both iPads installed native2.0.0/build11/schema5; Macv11.1.0/schema21. Last updated:2026-10-10.** Friend launch is user-confirmed; its initial-library readback remains unverified. Personal build11 refresh preserves13 files/13,568,473 bytes and its paused active set exactly under independent review. Personal launch/post-launch readback remains pending.
