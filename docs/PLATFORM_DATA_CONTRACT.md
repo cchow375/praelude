@@ -1,6 +1,6 @@
 # Shared account and practice data contract
 
-Current native source: 2.0.0/build11/schema5; friend’s iPad:first install11, launch pending; personal iPad:10. Updated October10,2026.
+Current native source: 2.0.0/build11/schema5 on both iPads; friend launch user-confirmed, personal launch pending. Updated October10,2026.
 This contract is the starting point for a future Mac, Windows, Android or web client. The installed
 Tauri Mac application does not yet implement this adapter. A shared backend is readiness for those
 clients, not evidence that their local databases already synchronize.
@@ -90,7 +90,7 @@ Core/fake two-device tests cover deterministic convergence, deletion, account is
 nullable clears. Hosted rollback-only SQL checks cover owner isolation and the actual RPC schema.
 These do not establish a musician's account/PDF/ink history on two physical devices. Real-account
 sign-in, round-trip edits/files/Undo and offline recovery remain required before declaring live
-cross-device continuity accepted. The personal iPad has build10/schema5 after a guarded in-place update with complete file preservation. The friend’s build11 first install is confirmed, without copied personal data; launch/initial-library readback remains pending. Neither this second-device install nor one-device test results establish account convergence.
+cross-device continuity accepted. The personal iPad has build11/schema5 after guarded refresh with independently verified exact file/paused-set preservation; launch/post-launch readback is pending. The friend’s build11 first install copies no personal data and launch is user-confirmed; initial-library readback is unavailable. Neither this second-device install nor one-device test results establish account convergence.
 
 **Next steps:** accept a real two-device account flow using the installed candidate,
 then implement each future platform adapter against this contract with migration and fixture tests.

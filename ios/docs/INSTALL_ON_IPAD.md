@@ -2,13 +2,15 @@
 
 ## Build11 installation boundary — October 10
 
-**First install confirmed on the friend’s exact `iPad (6)` (iPad8,5, iOS18.7.8):2.0.0/build11 from `646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9`, tag `ios-v2.0.0-build11-candidate`.** The guarded `ios:install` helper passes strict signature/target/install-version checks. Developer Mode/DDI are ready. A fresh pre-install query found no Praelude, so this is a generic empty first install: no prior owned inventory existed for comparison and no personal scores, account or backups were copied. Christian's personal iPad remains10 from `b22d4bf`.
+**First install confirmed on the friend’s exact `iPad (6)` (iPad8,5, iOS18.7.8):2.0.0/build11 from `646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9`, tag `ios-v2.0.0-build11-candidate`.** The guarded `ios:install` helper passes strict signature/target/install-version checks. Developer Mode/DDI are ready. A fresh pre-install query found no Praelude, so this is a generic empty first install: no prior owned inventory existed for comparison and no personal scores, account or backups were copied. This first-install evidence is distinct from the personal same-bundle refresh below.
 
 The first incremental targeted Release had invalid sealed resources; a clean rebuild fixes that packaging failure. Independent pre-install checks pass, including only13 expected bundle files/no personal resources. Independent post-helper checks also pass on the actual installed artifact, executable SHA-256 `ce2373e0e3a61116072ddddbd8e9e219f6faa8d025a528f7683a577d12daf0cd`. Its profile expires October17 at16:14:24 UTC (12:14 PM EDT); revalidate the actual profile on any later update.
 
-Automatic launch is denied. Fresh readback finds build11 installed but no running process. The user has been asked to open/trust Praelude; launch and initial-library readback remain pending. Core420/native64 and oversized actual UI pass, while final ordinary UI times out before note entry; physical note acceptance is separate. Optional phone checks remain unperformed.
+The friend’s automatic launch is initially denied. Christian subsequently confirms opening it; its device is unavailable, so initial-library readback is unverified. Core420/native64 and oversized actual UI pass, while final ordinary UI times out before note entry; physical note acceptance is separate. Optional phone checks remain unperformed.
 
-**Next steps:** confirm opening/trust and inspect the initial library. Do not turn a first install into a claimed prior-data preservation comparison. Evidence: `docs/qa/ios/2.0.0/build11/friend-ipad-install.json`, `friend-signed-release.json` and `sticky-notes.md`.
+**Personal refresh checkpoint:** snapshots `20261010T162445Z-1f3e7476` → `20261010T162506Z-2d5ab44e` preserve all13 files/13,568,473 bytes and schema5/revision2264 exactly:6 pieces,60 passages,55 historical sets plus1 paused active set (56 unique set IDs),37 sessions,321 attempts,274 ink rows (217 active),2 stamps and4 notes. Profile/privacy/preferences are exact. The paused set remains paused, with zero running sets; it is not an empty active slot. Independent actual-artifact signing passes, with the same `ce2373e0…` executable as the friend’s install and profile expiry October17 at16:14:24 UTC. Personal launch/post-launch retention remains pending.
+
+**Next steps:** confirm personal launch and inspect post-launch data separately. The friend’s user-confirmed launch does not establish initial-library readback or physical note acceptance. Keep unmatched UI/accessibility and B148 acceptance open.
 
 ## October 10 — build10 installed; qualified physical improvement
 

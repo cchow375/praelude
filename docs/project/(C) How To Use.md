@@ -1,8 +1,8 @@
 # Praelude — How To Use
 
-## Build10 controls — installed October 10; qualified physical improvement
+## Score controls — build11 installed on both iPads
 
-**Matches: friend’s iPad installed native2.0.0/build11/schema5; personal iPad native2.0.0/build10/schema5; Macv11.1.0/schema21. Last updated:2026-10-10.** Build10 is installed from `b22d4bf`. Independent pre/post/post-launch review verifies all13 owned files/13,350,814 bytes unchanged, including schema5/revision2198 and all history/marks. The October10 14:58:32 UTC snapshot has no active set or added persisted activity. A read-only process inspection confirms build10 running after automatic launch was denied. Christian subsequently replies “good it works better” to the selection/Cancel comparison. This records qualified improvement, with no zero-defect or sustained-use claim.
+**Matches: both iPads installed native2.0.0/build11/schema5; Macv11.1.0/schema21. Last updated:2026-10-10.** Friend launch is user-confirmed; its initial-library readback remains unverified. Personal build11 refresh preserves13 files/13,568,473 bytes and its paused active set exactly under independent review. Personal launch/post-launch readback remains pending.
 
 Build10 keeps selection handles and borders visible across ordinary and oversized page coordinates and limits overlay raster work. Explicit selection Cancel immediately discards the draft and returns to the score; existing saved passages stay unchanged. Navigating away retains a separate confirmation guard. These flows pass scoped native and actual iPad/phone UI checks; the user now reports qualified improvement in the real-score comparison. Earlier build9 user acceptance and the later score-specific failure remain in QA.
 
@@ -14,17 +14,17 @@ Build10 keeps selection handles and borders visible across ordinary and oversize
 - **Movements:** use Movements & pieces in the score or the library's movement entries. Name the movement and set its first/last PDF pages with the large number fields or adjacent steppers. Typing replaces the selected page number; empty, zero or out-of-range pages keep Save disabled until corrected. An entry opens that source-page range and shows its own practice target. The PDF and annotations remain shared; saved practice retains the movement name and source range even if the label later changes. Actual saved passages keep their own identity and history.
 - **Warmups:** adjust tempo or metronome without leaving the exercise. Pause & close preserves unfinished practice; Finish ends the session. Failed saves stay visible so work is not silently discarded.
 
-**Next steps:** retain the qualified build10 feedback and verify the new sticky-note work separately. Installation, observed running state and exact post-launch data retention pass; keep qualified improvement and longer-term reliability separate.
+**Next steps:** confirm personal launch and inspect post-launch data separately. The friend’s user-confirmed launch does not establish initial-library readback or physical note acceptance. Keep unmatched UI/accessibility and B148 acceptance open.
 
-## Build11 note controls — installed on friend’s iPad; launch pending
+## Build11 note controls — installed on both iPads
 
-The friend’s `iPad (6)` now has build11 from `646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9`; the personal iPad remains10. This is a fresh generic empty installation with no personal data copied. Automatic launch was denied and the first readback finds no running process. Open Praelude and complete Developer App trust if iOS requires it; successful opening and initial-library readback have not yet been confirmed.
+Both iPads now have build11 from `646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9`. The friend’s fresh empty install copies no personal data; Christian confirms opening it. His own iPad is updated in place with independently verified exact file and paused-set preservation, but automatic launch is denied and readback finds no running process. Open Praelude there; personal launch/post-launch data and physical note acceptance remain separate checks.
 
 Build11 adds readable on-score notes and corner resizing. Select a note to show its corner handles, then drag a corner to resize. Double-tap the note to edit; open the lower scrollable formatting section for size (12–48, default20), font, bold/italic, text color and alignment. Review the preview and Save; Cancel preserves the original note. A failed save retains the draft and displays its exact error. The original score PDF remains unchanged.
 
 Core420/native64 and the final oversized actual UI flow pass. Ordinary final UI fails before note entry amid extreme host load; this is not blanket UI or physical acceptance. See `docs/qa/ios/2.0.0/build11/sticky-notes.md` for the exact limits.
 
-**Next steps:** confirm the friend’s app opens and inspect the initial library, then verify note readability/resize/formatting on the real device. The personal iPad stays10.
+**Next steps:** confirm personal opening and post-launch retention, then verify note readability/resize/formatting. The friend’s initial-library readback remains unverified while that device is unavailable.
 
 ## Historical build8 installation and failure
 

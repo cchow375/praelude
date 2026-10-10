@@ -1,0 +1,55 @@
+{
+  "recorded_date": "2026-10-10",
+  "source_commit": "646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9",
+  "source_tag": "ios-v2.0.0-build11-candidate",
+  "version": "2.0.0",
+  "build": "11",
+  "device_role": "personal",
+  "installation": {
+    "kind": "guarded_same_bundle_refresh",
+    "before_build": "10",
+    "installed_build_readback": "11",
+    "before_snapshot": "20261010T162445Z-1f3e7476",
+    "after_snapshot": "20261010T162506Z-2d5ab44e",
+    "helper_owned_filename_size_sha256_check": "passed",
+    "independent_preservation_review": "passed",
+    "owned_files": 13,
+    "owned_bytes": 13568473,
+    "details": "personal-preservation.json"
+  },
+  "prelaunch_ledger": {
+    "schema": 5,
+    "revision": 2264,
+    "pieces": 6,
+    "passages": 60,
+    "historicalSets": 55,
+    "allSetIDs": 56,
+    "sessions": 37,
+    "uniqueAttempts": 321,
+    "activeSetStatus": "paused",
+    "runningSets": 0,
+    "inkRows": 274,
+    "activeInkRows": 217,
+    "stamps": 2,
+    "textNotes": 4
+  },
+  "signed_artifact": {
+    "independent_checks": "passed",
+    "actual_executable_sha256": "ce2373e0e3a61116072ddddbd8e9e219f6faa8d025a528f7683a577d12daf0cd",
+    "same_executable_as_friend_install": true,
+    "profile_expires_utc": "2026-10-17T16:14:24Z",
+    "details": "personal-signed-release.json"
+  },
+  "launch": {
+    "automatic_launch": "denied",
+    "initial_running_process_readback": false,
+    "user_open_requested": true,
+    "user_confirmed_launch": false,
+    "postlaunch_readback": "pending"
+  },
+  "acceptance": {
+    "physical_note_acceptance": "pending",
+    "blanket_ui_pass": false,
+    "zero_defect_or_weeklong_claim": false
+  }
+}

@@ -6,9 +6,9 @@
 
 Christian's separate build10 response, “good it works better,” remains qualified selection/Cancel improvement (B146/B147). Build11's earlier formatting hit miss, glyph mismatch, Save-not-committed failure and stale consecutive-drag receipt are retained in QA alongside their source repairs. Fresh source review accepts the final fixes; failed and zero-test runs remain recorded.
 
-Build11’s source repair `646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9` is installed on the friend’s `iPad (6)` as a fresh generic empty app. There was no prior app-owned inventory to compare; no personal data was copied. Personal iPad remains10. Strict target/signature checks pass, including the actual helper-built artifact. Automatic launch is denied and readback finds no running process; launch/initial-library and physical note acceptance remain pending. B148 stays open at that physical boundary.
+Build11’s source repair `646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9` is installed on the friend’s `iPad (6)` as a fresh generic empty app. There was no prior app-owned inventory to compare; no personal data was copied. Friend launch is now user-confirmed; unavailable-device initial-library and physical note acceptance remain unverified. Personal iPad now has the same-source build11 through guarded refresh: independent review preserves13 files/13,568,473 bytes, revision2264 and its paused active set exactly. Personal launch/post-launch readback is pending. B148 stays open at the physical boundary.
 
-**Next steps:** confirm the friend opens/trusts build11, inspect launch and the initial library separately, then obtain the physical note verdict. Keep the personal iPad on10 and unmatched UI/accessibility checks open. No zero-defect or week-long acceptance is claimed. Evidence: `docs/qa/ios/2.0.0/build11/friend-ipad-install.json`.
+**Next steps:** confirm personal launch and inspect post-launch data separately. The friend’s user-confirmed launch does not establish initial-library readback or physical note acceptance. Keep unmatched UI/accessibility and B148 acceptance open. Evidence: `docs/qa/ios/2.0.0/build11/`.
 
 ## October 10 — build10 installed; qualified physical improvement
 

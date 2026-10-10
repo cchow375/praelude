@@ -1,8 +1,8 @@
 # (C) Annotations — ink, stamps, text boxes, layers, and passage editing
 
-## October 10 — build11 notes installed on friend’s iPad
+## October 10 — build11 notes installed on both iPads
 
-Friend’s `iPad (6)` has a verified fresh empty build11 installation; launch/initial-library and physical acceptance remain pending. Personal iPad remains10; no personal data was copied. Build11 adds `TextAnnotationStyle` and shared
+Both iPads have build11. Friend first install copies no personal data and launch is user-confirmed; initial-library readback is unavailable. Personal same-bundle refresh has independently verified exact file/paused-set preservation; personal launch/post-launch readback and physical note acceptance remain pending. Build11 adds `TextAnnotationStyle` and shared
 `TextAnnotationRenderer` for readable text and vector PDF export. Size20 defaults use a595-point
 canonical original-page width, with sizes12–48, four font families, bold/italic, five text colors
 and three alignments. Font/layout dimensions remain canonical while the CGContext scales; this
@@ -14,7 +14,7 @@ Style decodes optionally in old libraries/backups, without rewriting files on op
 `annotations.region` JSONB carries nested `textStyle`; old readers understand geometry but can
 lose unsupported style on rewrite. Core420 and final iPad5 native64 pass, including strict glyph comparison, styled vector export and authoritative saved-note receipts for consecutive gestures. The final oversized actual UI flow passes1131.493s; ordinary fails184.170s at pre-note navigation amid extreme host load. The whole UI run is not accepted. Physical note and broader layout acceptance remain open in [the build11 ledger](../../docs/qa/ios/2.0.0/build11/sticky-notes.md).
 
-**Next steps:** confirm the friend’s launch/initial library and verify physical note behavior. Optional phone checks remain unperformed, not passed.
+**Next steps:** confirm personal launch/post-launch retention and physical note behavior. Friend initial-library and optional phone checks remain unverified.
 
 ## Historical initial annotation implementation
 

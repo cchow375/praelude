@@ -1,0 +1,59 @@
+{
+  "auditVersion": 1,
+  "deviceActionsPerformed": false,
+  "preLaunchLedger": {
+    "schema": 5,
+    "revision": 2264,
+    "pieces": 6,
+    "passages": 60,
+    "historicalSets": 55,
+    "allSetIDs": 56,
+    "sessions": 37,
+    "uniqueAttempts": 321,
+    "activeSetStatus": "paused",
+    "runningSets": 0,
+    "inkRows": 274,
+    "activeInkRows": 217,
+    "stamps": 2,
+    "textNotes": 4
+  },
+  "beforeFiles": {
+    "count": 13,
+    "totalBytes": 13568473,
+    "manifestRecomputed": true
+  },
+  "installationPreservation": {
+    "beforeBuild": "10",
+    "afterBuild": "11",
+    "ownedFiles": 13,
+    "totalBytes": 13568473,
+    "addedFiles": 0,
+    "deletedFiles": 0,
+    "changedFiles": 0,
+    "allFilenamesBytesSHA256Identical": true,
+    "ledgerByteIdentical": true,
+    "ledgerStructurallyIdentical": true,
+    "profilePrivacyPreferencesExact": true
+  },
+  "result": "passed",
+  "checks": {
+    "before_stable_bundle": true,
+    "backup_root_is_directory": true,
+    "no_symlinks": true,
+    "regular_files_only": true,
+    "before_manifest_matches_actual_file_bytes": true,
+    "before_ledger_present": true,
+    "before_valid_schema_revision": true,
+    "active_set_status_valid": true,
+    "record_lists_valid": true,
+    "no_duplicate_ids_within_collection": true,
+    "active_set_not_duplicated_in_history": true,
+    "no_running_preinstall_set": true,
+    "after_stable_bundle": true,
+    "after_manifest_matches_actual_file_bytes": true,
+    "after_ledger_present": true,
+    "after_valid_schema_revision": true,
+    "expected_postinstall_version_build": true,
+    "all_prelaunch_files_exact": true
+  }
+}

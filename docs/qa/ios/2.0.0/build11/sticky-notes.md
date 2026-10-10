@@ -1,13 +1,13 @@
 # Build11 — readable and resizable sticky notes
 
-Updated October 10, 2026. Native2.0.0/build11/schema5 is first-installed on the friend’s exact
-`iPad (6)` (iPad8,5, iOS18.7.8), source `646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9`, tag
-`ios-v2.0.0-build11-candidate`. Christian’s personal iPad remains10; Macv11.1.0/schema21 is unchanged.
-Prior app absence is verified: no previous owned inventory exists for comparison and no personal
-data was copied. Guarded helper install/version checks and independent actual post-helper signing
-pass. Automatic launch is denied; readback confirms installed11 but no running process. User opening/
-trust and initial-library readback remain pending. [Install record](friend-ipad-install.json) and
-[actual signed artifact](friend-signed-release.json) retain the separate results.
+Updated October 10, 2026. Both iPads now have native2.0.0/build11/schema5 from
+`646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9`, tag `ios-v2.0.0-build11-candidate`. Macv11.1.0/schema21
+is unchanged. Friend first install is generic/empty with no copied personal data; Christian confirms
+opening it, but its unavailable device has no initial-library readback. Personal guarded same-bundle
+refresh independently preserves13 files/13,568,473 bytes, revision2264 and the paused active set.
+Personal automatic launch is denied; latest readback remains installed11/process false. Personal
+user-confirmed launch/post-launch retention and physical note acceptance are pending. Separate records:
+[friend](friend-ipad-install.json), [personal](personal-ipad-install.json).
 
 ## Feedback and acceptance boundary
 
@@ -57,8 +57,9 @@ put formatting below the writing area. This is separate from the earlier selecti
 | Editor ordinary/accessibility layouts | Final oversized flow passes. Earlier iPad4 ordinary Save/reopen size24 is partial evidence on earlier source. Current ordinary complete flow, broader accessibility and optional phone checks remain unaccepted; they are not called passed to expedite delivery. |
 | Independent source/visual review | Fresh review accepts the final renderer, routing, editor and saved-note receipt fixes. Final native regression passes. Screenshots are retained below; source review does not establish physical note acceptance. |
 | Device Release/signing | PASS on clean targeted Release and independently on actual post-helper artifact. Initial incremental sealed-resource failure retained below. Actual executable SHA-256 `ce2373e0e3a61116072ddddbd8e9e219f6faa8d025a528f7683a577d12daf0cd`; profile expires2026-10-17T16:14:24Z (12:14 PM EDT). |
-| Requested installation | PASS: guarded `ios:install` verifies build11 on exact friend’s `iPad (6)`. First generic empty install; prior app absence verified, no prior inventory comparison, no copied personal data. Personal iPad remains10. |
-| Launch/readback | Automatic launch denied. Fresh device readback confirms installed11, process false. User asked to open/trust; confirmed launch and initial-library inspection pending. |
+| Friend installation | PASS: guarded `ios:install` verifies build11 on exact friend’s `iPad (6)`. First generic empty install; prior app absence verified, no prior inventory comparison, no copied personal data. |
+| Personal installation/preservation | PASS: guarded same-bundle refresh verifies11. Independent review proves13 owned files/13,568,473 bytes identical by filename/size/SHA-256, including schema5/revision2264 and paused active set. [Full sanitized audit](personal-preservation.json). |
+| Launch/readback | Friend: user-confirmed opening; device unavailable, initial library unverified. Personal: automatic launch denied; latest installed11/process false; user opening and post-launch retention pending. |
 | Physical note acceptance | Pending. |
 
 ## Retained attempts and source follow-up
@@ -126,7 +127,7 @@ Christian explicitly requests immediate build11 delivery to the most recently co
 `iPad (6)`. Developer Mode/DDI are ready. Prior app absence is verified, so the guarded helper performs
 a fresh generic empty first install and verifies version/build11 on that exact target. No scores,
 practice history, account or personal backups are copied. This supplies no prior-data preservation
-comparison. Christian’s personal iPad remains10 and unchanged. Optional phone/layout checks are
+comparison. The personal iPad is subsequently refreshed separately, as recorded below. Optional phone/layout checks are
 deferred without claiming they passed.
 
 Independent pre-install review passes, including only13 expected code/signing/art/font/privacy
@@ -138,8 +139,9 @@ October17 at16:14:24 UTC (12:14 PM EDT). Exact sanitized evidence is in
 [friend-signed-release.json](friend-signed-release.json).
 
 Automatic launch is denied. Fresh device readback finds build11 installed with no running process.
-The user has been asked to open/trust the app. Successful opening, initial-library inspection and
-physical note acceptance remain pending in [friend-ipad-install.json](friend-ipad-install.json).
+Christian subsequently confirms opening it (“alr i launched it on his now ship it to mine”).
+The friend’s device is now unavailable, so its initial-library inspection and physical note acceptance
+remain unverified in [friend-ipad-install.json](friend-ipad-install.json).
 
 ### Retained target packaging attempt
 
@@ -149,6 +151,23 @@ incremental build did not execute CodeSign. The invalid artifact is archived pri
 targeted Release rebuild resolves the failure before installation. No certificate, key or profile
 bypass is used. Both pre-install checks and independent checks of the actual helper-built artifact
 pass afterward; the failed attempt is retained rather than replaced by the successful result.
+
+## Personal iPad guarded refresh
+
+At the user’s subsequent request, the same source/tag is installed11 through guarded same-bundle
+refresh. Independent review recomputes the before/after manifests and verifies all13 owned files /
+13,568,473 bytes identical by filename, size and SHA-256: snapshots `20261010T162445Z-1f3e7476` →
+`20261010T162506Z-2d5ab44e`. Schema5/revision2264 is byte/structurally identical, retaining6 pieces,
+60 passages,55 historical sets plus1 **paused active set** (56 unique set IDs),37 sessions,321 unique
+attempts,274 ink rows (217 active),2 stamps and4 notes. Profile/privacy/preferences are exact. There
+are zero running sets; this is not an empty active slot. See [personal-preservation.json](personal-preservation.json).
+
+Independent checks of the actual signed artifact pass. The executable matches the friend’s actual
+installed binary (`ce2373e0e3a61116072ddddbd8e9e219f6faa8d025a528f7683a577d12daf0cd`); profile
+expiry is October17 at16:14:24 UTC. See [personal-signed-release.json](personal-signed-release.json).
+Automatic launch is denied; the latest fresh readback confirms installed11 and no running process.
+The user is asked to open it. Personal user-confirmed launch and post-launch retention remain pending
+in [personal-ipad-install.json](personal-ipad-install.json). No app-source change accompanies this refresh.
 
 ## Scoped verification plan and remaining acceptance
 
@@ -165,6 +184,7 @@ pass afterward; the failed attempt is retained rather than replaced by the succe
   for this friend target. Post-launch readback and physical note acceptance remain separate.
   Retain failed or zero-test attempts instead of replacing their record.
 
-**Next steps:** confirm the friend opens/trusts the installed app, then inspect the initial library
-and obtain the physical note verdict. B148 and unmatched UI/accessibility acceptance remain open.
-No full-app, zero-defect, responsiveness or week-long reliability claim is supported.
+**Next steps:** confirm personal launch and inspect post-launch retention separately. Friend opening
+is user-confirmed, but its unavailable-device initial-library readback remains unverified. B148 and
+unmatched UI/accessibility acceptance remain open. No full-app, zero-defect, responsiveness or
+week-long reliability claim is supported.

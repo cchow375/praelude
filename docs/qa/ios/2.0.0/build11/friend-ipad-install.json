@@ -44,18 +44,25 @@
     "automatic_launch": "denied",
     "first_running_process_readback": false,
     "user_open_trust_requested": true,
-    "confirmed_launch": false,
-    "initial_library_readback": "pending"
+    "confirmed_launch": true,
+    "initial_library_readback": "unverified; friend device now unavailable",
+    "confirmation_basis": "user statement",
+    "user_confirmation": "alr i launched it on his now ship it to mine"
   },
   "acceptance": {
     "physical_note_acceptance": "pending",
     "blanket_ui_pass": false,
     "zero_defect_or_weeklong_claim": false
   },
-  "other_devices": {
+  "other_devices_at_friend_install": {
     "personal_ipad_build": "10",
     "personal_ipad_changed": false,
     "mac_version": "11.1.0",
     "mac_changed": false
+  },
+  "subsequent_personal_update": {
+    "build": "11",
+    "same_source": true,
+    "details": "personal-ipad-install.json"
   }
 }
