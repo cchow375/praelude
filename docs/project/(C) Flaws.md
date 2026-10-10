@@ -6,9 +6,9 @@
 
 Christian's separate build10 response, “good it works better,” remains qualified selection/Cancel improvement (B146/B147). Build11's earlier formatting hit miss, glyph mismatch, Save-not-committed failure and stale consecutive-drag receipt are retained in QA alongside their source repairs. Fresh source review accepts the final fixes; failed and zero-test runs remain recorded.
 
-The user requests immediate build11 installation on the friend's connected `iPad (6)`. Developer Mode/DDI are ready and a fresh query confirms no Praelude installation. Fresh empty friend installation and target-specific signing/launch are pending, and the personal iPad remains build10. No personal data import is included. Optional phone/layout checks are deferred without claiming them passed.
+Build11’s source repair `646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9` is installed on the friend’s `iPad (6)` as a fresh generic empty app. There was no prior app-owned inventory to compare; no personal data was copied. Personal iPad remains10. Strict target/signature checks pass, including the actual helper-built artifact. Automatic launch is denied and readback finds no running process; launch/initial-library and physical note acceptance remain pending. B148 stays open at that physical boundary.
 
-**Next steps:** deliver the fresh empty app to the requested target after signed-artifact checks, then verify physical note readability, formatting, resizing and retention. Evidence: `docs/qa/ios/2.0.0/build11/sticky-notes.md`.
+**Next steps:** confirm the friend opens/trusts build11, inspect launch and the initial library separately, then obtain the physical note verdict. Keep the personal iPad on10 and unmatched UI/accessibility checks open. No zero-defect or week-long acceptance is claimed. Evidence: `docs/qa/ios/2.0.0/build11/friend-ipad-install.json`.
 
 ## October 10 — build10 installed; qualified physical improvement
 

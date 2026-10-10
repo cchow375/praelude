@@ -12,8 +12,9 @@ text/stamp kind constraints and tombstones retain their existing behavior.
 This is an optional nested extension, not an unknown-key-preserving merge protocol. Older native
 clients ignore `textStyle` on read and can remove it on later whole-row replacement; all editing
 clients must be updated for style retention. Source/DTO/core roundtrip checks do not prove a
-real-account two-device styled-note roundtrip. Native build11 is a candidate; build10 remains on the personal iPad. The requested friend’s
-fresh empty build11 install is pending final signing checks (Developer Mode/DDI ready) and does not include a personal-data import. Evidence: `docs/qa/ios/2.0.0/build11/sticky-notes.md`.
+real-account two-device styled-note roundtrip. Native build11 is first-installed on the friend’s iPad, with launch/initial-library readback pending;
+build10 remains on the personal iPad. No personal data was imported, and no two-device account
+convergence is established by installation. Evidence: `docs/qa/ios/2.0.0/build11/sticky-notes.md`.
 
 Current build5 additions: owner-keyed `account_preferences`; goals/routines are now wired in the
 native client with durable edit/deletion clocks; piece rows include `score_sections`,

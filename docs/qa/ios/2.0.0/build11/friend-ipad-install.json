@@ -1,0 +1,61 @@
+{
+  "recorded_date": "2026-10-10",
+  "evidence_source": "Guarded helper and independent reviewer results reported by the root runner; signed-artifact details retained in friend-signed-release.json.",
+  "source_commit": "646fd6cd26fd6fe6ef81df0dd22da9cdd59fb2d9",
+  "source_tag": "ios-v2.0.0-build11-candidate",
+  "version": "2.0.0",
+  "build": "11",
+  "library_schema_version_in_source": 5,
+  "device": {
+    "role": "friend",
+    "name": "iPad (6)",
+    "model": "iPad8,5",
+    "os_version": "18.7.8",
+    "developer_mode_enabled": true
+  },
+  "installation": {
+    "kind": "first_install",
+    "prior_app_absent": true,
+    "prior_owned_inventory_exists": false,
+    "preservation_comparison_performed": false,
+    "personal_data_copied": false,
+    "generic_empty_app": true,
+    "guarded_command": "npm run ios:install",
+    "helper_signature_target_version_checks": "passed",
+    "installed_build_readback": "11"
+  },
+  "signed_artifact": {
+    "independent_preinstall_checks": "passed",
+    "expected_bundle_file_count": 13,
+    "personal_resources_bundled": false,
+    "clean_rebuild_required": true,
+    "earlier_incremental_sealed_resource_failure": [
+      "Assets.car",
+      "embedded.mobileprovision"
+    ],
+    "independent_actual_posthelper_checks": "passed",
+    "same_executable_as_preinstall_verified_bundle": false,
+    "actual_executable_sha256": "ce2373e0e3a61116072ddddbd8e9e219f6faa8d025a528f7683a577d12daf0cd",
+    "profile_expires_utc": "2026-10-17T16:14:24Z",
+    "profile_expires_edt": "2026-10-17 12:14:24 EDT",
+    "details": "friend-signed-release.json"
+  },
+  "launch": {
+    "automatic_launch": "denied",
+    "first_running_process_readback": false,
+    "user_open_trust_requested": true,
+    "confirmed_launch": false,
+    "initial_library_readback": "pending"
+  },
+  "acceptance": {
+    "physical_note_acceptance": "pending",
+    "blanket_ui_pass": false,
+    "zero_defect_or_weeklong_claim": false
+  },
+  "other_devices": {
+    "personal_ipad_build": "10",
+    "personal_ipad_changed": false,
+    "mac_version": "11.1.0",
+    "mac_changed": false
+  }
+}
