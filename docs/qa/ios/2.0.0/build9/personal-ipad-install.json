@@ -235,7 +235,13 @@
     "runningReadback": true,
     "postLaunchBackupUTC": "2026-10-10T00:57:50Z"
   },
-  "physicalAcceptance": "Pending actual iPad Pencil, zoomed two-finger Undo, responsiveness and sustained practice; simulator results do not close these.",
+  "physicalAcceptance": {
+    "date": "2026-10-10",
+    "result": "User-accepted for score pinch-zoom, Pencil marks → Done, two-finger Undo, passage selection and button response",
+    "userReply": "Those actions work and feel responsive",
+    "evidence": "physical-user-acceptance.json",
+    "boundary": "Scoped physical user acceptance; no measured latency or week-long reliability claim."
+  },
   "postInstallBackupUTC": "2026-10-10T00:45:33Z",
   "postLaunchDeltaAudit": {
     "changedLedgerFields": [],

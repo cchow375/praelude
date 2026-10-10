@@ -22,5 +22,11 @@
     "lifecycle": "Unknown for entire attachment; no state transition observed.",
     "assessment": "Inconclusive for active responsiveness, speedup and physical crash-repair acceptance."
   },
-  "nextStep": "Await user feedback and active affected-flow exercise before further profiling."
+  "nextStep": "No repeated profiling is required for this accepted retry. Profile a reproducible regression if one is reported; longer-term reliability remains separate.",
+  "userAcceptance": {
+    "date": "2026-10-10",
+    "userReply": "Those actions work and feel responsive",
+    "evidence": "physical-user-acceptance.json",
+    "boundary": "User accepts the named interactions; the trace measurements remain inconclusive for active-use performance."
+  }
 }

@@ -1,6 +1,6 @@
 # Build9 — physical usability regressions and profiling
 
-October9, 2026. Native2.0.0/build9/schema5 is installed from `2de2444a782cb54a5cd31966ecc33257e4511dd0`,
+Updated October10, 2026. Native2.0.0/build9/schema5 is installed from `2de2444a782cb54a5cd31966ecc33257e4511dd0`,
 tag `ios-v2.0.0-build9-candidate`. Build8's physical failure remains historical evidence.
 The repaired actual pinch and independent score/ink alignment
 review pass below. Final gesture UI passes70.518s, including toolbar Undo/Redo at actual zoom and
@@ -10,6 +10,13 @@ unchanged by filename, size and SHA-256. After automatic launch was denied, the 
 build9 and read-only inspection confirmed it running. Independent complete post-launch readback at
 October10 00:57:50 UTC preserves all13 files/12,960,329 bytes, schema5/revision2167 and every original
 record including the paused active set. Physical two-finger Undo at zoom remains pending. No build9 measured speedup is claimed. The Mac remains v11.1.0/schema21.
+
+## October10 user acceptance
+
+On October10, the user confirms score pinch-zoom, Pencil marks → Done, two-finger Undo, passage selection and button response: “Those actions work and feel responsive.” These named interactions are user-accepted on source `2de2444`; measured latency, Undo specifically while zoomed, microphone/two-device behavior and sustained or week-long reliability remain unverified.
+
+This accepts the named repaired interactions tracked under B144/B145. Build8 failures and earlier
+failed test runs remain below; the idle traces do not become active-use performance evidence.
 
 ## Reported physical behavior
 
@@ -55,7 +62,8 @@ unknown, so this is not an active responsiveness test or evidence of a speedup. 
 shows Today with the paused set. The second120-second trace also completed effectively idle:
 15 all-thread samples,8 main-thread samples (8 milliseconds) and no potential hangs. Neither trace
 contains evidence of active score gestures; neither accepts responsiveness or demonstrates a speedup.
-Independent review agrees with this boundary. User gesture feedback remains pending.
+Independent review agrees with this boundary. The separate October10 user report accepts the named
+actions as working and responsive; it supplies no measured latency or active trace evidence.
 
 ## Verification checkpoints and retained failures
 
@@ -74,19 +82,20 @@ Independent review agrees with this boundary. User gesture feedback remains pend
 | Guarded installation / preservation |PASS:13 files/12,960,329 bytes identical by filename, size and SHA-256. Schema5/revision2167;6 pieces/53 passages/54 set IDs (53 historical plus1 paused active set)/35 sessions/317 attempts/259 ink records (202 active)/2 stamps/2 notes. The paused set remains active and preserved; no running set. See [sanitized build9 installation evidence](personal-ipad-install.json). |
 | Actual post-helper signed artifact |PASS strict signing/profile/fixture checks. Executable SHA-256 `cde90889055e808e7c9463dd8b54dea5aa9a283410f45585a072db5b3764a100`; profile expires October16 at23:56:11 UTC. Actual arm64 app/dSYM UUID match. |
 | Launch / post-launch preservation |PASS after user-confirmed opening: read-only process inspection confirms running. Independent complete October10 00:57:50 UTC backup retains all13 files/12,960,329 bytes exactly, schema5/revision2167, all original records and the paused active set. The earlier automatic-launch denial remains recorded. |
-| Completed build9 physical traces |45 seconds, effectively idle:12 all-thread samples,5 main-thread CPU milliseconds, no potential hangs; foreground lifecycle unknown. This cannot establish active responsiveness or a speedup. The completed120-second trace is also effectively idle:15 all-thread samples,8 main-thread samples/8 milliseconds, no potential hangs. Neither trace establishes active score gestures. User feedback and physical acceptance remain pending. |
+| Completed build9 physical traces |45 seconds, effectively idle:12 all-thread samples,5 main-thread CPU milliseconds, no potential hangs; foreground lifecycle unknown. This cannot establish active responsiveness or a speedup. The completed120-second trace is also effectively idle:15 all-thread samples,8 main-thread samples/8 milliseconds, no potential hangs. Neither trace establishes active score gestures. The separate October10 user report accepts the named actions, without supplying measured latency or sustained-use evidence. |
+| October10 physical user acceptance |PASS for score pinch-zoom, Pencil marks → Done, two-finger Undo, passage selection and button response on source `2de2444`: “Those actions work and feel responsive.” Undo specifically while zoomed, measured latency, microphone/two-device behavior and sustained/week-long reliability are not established. |
 
-## Source frozen for final verification
+## Installed source and remaining verification
 
 | Change | Required contract and remaining verification |
 | --- | --- |
-| PDFKit-only page pan/zoom; fixed drawing canvas | Actual UI5x pinch and independently reviewed score/ink alignment pass after recognizer-priority repair. Physical gesture acceptance remains pending. |
-| Bounded app-owned `PKDrawing` value history | Native tile Undo registration stays disabled. Native checkpoint,14 post-priority interaction tests and final gesture UI pass, including two-finger Undo in Draw/reading and toolbar Undo/Redo at zoom/relaunch. Physical two-finger Undo at zoom remains pending. |
-| Batched durable practice sync | Session/set/new-attempt/Undo queue entries retain parent-before-child order; local cursors advance only after persistence succeeds. Native checkpoint passes; final review and physical responsiveness remain pending. |
+| PDFKit-only page pan/zoom; fixed drawing canvas | Actual UI5x pinch and independently reviewed score/ink alignment pass after recognizer-priority repair. Score pinch-zoom is user-accepted October10; untested gesture combinations remain separate. |
+| Bounded app-owned `PKDrawing` value history | Native tile Undo registration stays disabled. Native checkpoint,14 post-priority interaction tests and final gesture UI pass, including two-finger Undo in Draw/reading and toolbar Undo/Redo at zoom/relaunch. Two-finger Undo and Pencil marks → Done are user-accepted October10; Undo specifically while zoomed remains unconfirmed. |
+| Batched durable practice sync | Session/set/new-attempt/Undo queue entries retain parent-before-child order; local cursors advance only after persistence succeeds. Native checkpoint passes; the user accepts named button response as responsive. Measured latency and sustained behavior remain unverified. |
 | Byte lookup for `praeludeHexLiteral` | Keep lowercase hex, the `\x` prefix, empty input and every byte value. Core checkpoint passes; physical performance verification remains pending. |
 
 Relevant modules: `PagedScoreView`, `ScorePageOverlay`, `ScoreInkHistory`, `SyncCoordinator`
-and `SyncCoding`. Source is frozen; verification scopes above do not establish physical acceptance.
+and `SyncCoding`. Source is unchanged; physical acceptance is limited to the named October10 user-confirmed actions.
 
 ## Regression gates
 
@@ -105,8 +114,9 @@ and `SyncCoding`. Source is frozen; verification scopes above do not establish p
 - [x] Independent signed-artifact verification passes.
 - [x] Build9 installed through guarded same-bundle refresh; all13 files/12,960,329 bytes and the paused set preserved exactly.
 - [x] User opening, running-process inspection and independent complete post-launch readback pass; all13 files and the paused set remain exact.
-- [ ] Physical Pencil/Undo and sustained practice acceptance; no week-long trial is implied by shorter tests.
+- [x] October10 user accepts score pinch-zoom, Pencil marks → Done, two-finger Undo, passage selection and button response on build9/source `2de2444`.
+- [ ] Undo specifically while zoomed, microphone/two-device behavior and sustained/week-long reliability; these are not inferred from the named-action confirmation.
 
-**Next steps:** obtain actual practice/Pencil/zoom/Undo feedback and capture verified active-use profiling if needed. Physical lag and zoomed two-finger Undo remain open. Preserve the paused practice set. Keep source tests,
-profiling, installation/preservation and musician acceptance separate; build8's reported failures
-are not closed by installation alone.
+**Next steps:** continue practice with the named accepted actions. Verify combined zoomed Undo,
+microphone/two-device paths and sustained use separately; capture active-use profiling if latency
+issues recur. Preserve the paused set and keep user acceptance distinct from measured performance.

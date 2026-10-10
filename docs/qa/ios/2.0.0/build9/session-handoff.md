@@ -1,6 +1,6 @@
-# Build9 opened — data preserved; active-use acceptance pending
+# Build9 — named physical interactions accepted
 
-October9,2026. Source `2de2444a782cb54a5cd31966ecc33257e4511dd0`, tag
+Updated October10,2026. Source `2de2444a782cb54a5cd31966ecc33257e4511dd0`, tag
 `ios-v2.0.0-build9-candidate`. Installed native2.0.0/build9/schema5 on the actual
 third-generation12.9-inch iPad Pro, iPad8,5, iOS18.7.8. Mac remains unchanged.
 
@@ -26,34 +26,31 @@ third-generation12.9-inch iPad Pro, iPad8,5, iOS18.7.8. Mac remains unchanged.
   counts, actual post-helper binary hash and signing checks. Profile expires October16
   at23:56:11UTC. Exact installed app/dSYM and full backups remain ignored outside Git.
 
-## Current stop point
+## Current acceptance
 
-The user confirms build9 is open; read-only process inspection confirms it running.
-The00:57:50UTC post-launch backup is still byte-identical to pre-install and post-install
-snapshots across all13 files. All original records and the paused set remain exact.
+On October10 the user confirms that score pinch-zoom, Pencil marks → Done, two-finger
+Undo, passage selection and button response **“work and feel responsive.”** Record this
+as scoped physical user acceptance of build9, separate from the earlier test/profile
+evidence. See `physical-user-acceptance.json` for the exact question and reply.
 
-Two physical Time Profiler attachments complete but are essentially idle:45seconds has
-12 total samples/5 main CPU ms;120seconds has15 total samples/8 main CPU ms at15-second
-timer intervals. Neither records a potential hang or identifiable affected-flow activity.
-Lifecycle stays Unknown in both attachments. No active responsiveness, speedup or physical
-crash-repair claim is supported. A device screenshot separately shows Today with the paused
-set. The user has been asked to try zoom, Pencil→Done, Undo, selection and button response;
-that feedback is pending. Stop repeating idle captures until active interaction is available.
+Opening/process inspection and the00:57:50UTC post-launch backup pass. Every one of the
+13 files remains byte-identical to the guarded pre/post-install snapshots, including the
+paused set, original history, annotations, account/privacy/preferences and score files.
 
-## Next steps after user feedback
+Both physical traces remain effectively idle and cannot establish measured active-use
+latency or speedup. The user report supplies physical acceptance for the named flows;
+it does not prove a week of reliability, every gesture combination, audio/microphone
+behavior or real-account two-device continuity. The specific zoomed two-finger Undo
+combination was not separately confirmed in the reply.
 
-1. Obtain the pending physical flow result and address any reported defect. Opening and
-   post-launch preservation already pass. Keep any later legitimate user edits separate
-   from installation loss; do not replay synthetic practice into the personal library.
-2. Attach a45-second Time Profiler recording to the actual running Praelude process. Use
-   the installed build9 dSYM. Inspect main-thread samples and potential hangs; compare
-   with build8 without treating unequal interaction workloads as controlled latency tests.
-3. Have the user try real Pencil marks → Done, pinch score, two-finger Undo at zoom,
-   passage selection, Clean, menus, scrolling and leaving warmup. Do not create synthetic
-   practice records in the personal library. Inspect any new crash evidence.
-4. Record the physical result honestly, update the living docs and commit the checkpoint.
-   Follow-up defects remain active work. Never uninstall/reset/restore-over or terminate
-   the app as a workaround.
+## Next steps
+
+1. Keep the accepted build9 installed for ordinary practice; no new deployment is needed.
+2. Investigate any reproducible new regression, preserving user data and the prior evidence.
+   Do not repeat idle profiling or create synthetic practice in the personal library.
+3. Revalidate signing before the recorded October16 23:56:11UTC profile expiry if refreshing.
+   Use the same bundle/team and the guarded update. No scheduled renewal was created.
+4. Keep sustained-use, audio/microphone and actual two-device acceptance separate.
 
 On this Mac the read-only helper `/tmp/praelude-build9-readback.py` and independent
 `/tmp/praelude-build9-verify-preservation-independent.py` are prepared. Private refresh log:

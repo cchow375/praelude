@@ -1,6 +1,6 @@
 # Build9 — physical Undo, score navigation and responsiveness repair
 
-October 9, 2026. Build9 is installed after the guarded update; actual opening and complete post-launch preservation pass; physical acceptance remains pending. Build8 failed physical acceptance.
+Updated October 10, 2026. Build9 is installed with complete post-launch preservation. The user accepts score pinch-zoom, Pencil marks → Done, two-finger Undo, passage selection and button response: “Those actions work and feel responsive.” Build8’s failed physical acceptance remains historical evidence.
 
 ## Actual device evidence
 
@@ -31,7 +31,7 @@ Private crash reports, complete backups and the exact build8 app/dSYM remain out
 
 The repair replaces native tile undo actions with app-owned `PKDrawing` value history,
 retaining two-finger, toolbar and system Undo/Redo. It must bound retained history, reset
-at external drawing boundaries and protect active/canceled/late Pencil callbacks. The source implementation and independent review pass; physical acceptance remains open.
+at external drawing boundaries and protect active/canceled/late Pencil callbacks. The source implementation and independent review pass; the named physical interactions are now user-accepted. Broader and sustained-use coverage remains separate.
 
 Apple's [Undo registration documentation](https://developer.apple.com/documentation/foundation/undomanager/disableundoregistration())
 defines balanced disable/enable registration. The installed SDK's public `PKCanvasView.h`
@@ -45,11 +45,12 @@ than treating tool-end as proof that the final drawing has arrived.
 - [ ] Physical two-finger Undo at zoom (XCTest cannot place its points on the clipped page).
 - [x] Signed build9, release fixture exclusion and actual profile/signature verification.
 - [x] Fresh guarded same-bundle update with complete owned-file preservation.
-- [ ] Physical Pencil/Done/Undo/Redo retry and post-launch evidence.
+- [x] Post-launch preservation and user-reported Pencil/Done, pinch, two-finger Undo, passage selection and button responsiveness (October 10).
+- [ ] Physical Redo, specific combined zoomed two-finger Undo and sustained-use coverage beyond the user’s named retry.
 
-**Next steps:** open installed build9, obtain a post-launch readback, then repeat physical
-Pencil/Done/Undo/zoom and profile responsiveness on the actual iPad. Simulator success is
-separate from physical iOS18.7.8 and does not establish a week of sustained reliability.
+**Next steps:** retain build9 for ordinary practice and investigate any reproducible new regression.
+The reported interactions are accepted; specific combined gestures and sustained reliability
+remain outside this confirmation. Do not repeat idle profiling or infer a measured speedup.
 
 ## Physical performance evidence
 
@@ -172,3 +173,12 @@ updates batch their ordered parent/set/attempt/Undo entries in one queue write.
   Independent analysis finds no identifiable score or practice action frames. Neither
   capture proves responsiveness, a speedup or physical crash repair. Further recording
   stops until the user exercises the affected flows; the feedback question remains pending.
+
+## October 10 — scoped physical acceptance
+
+Asked about score pinch-zoom, Pencil marks → Done, two-finger Undo, passage selection and
+button response, the user replies: **“Those actions work and feel responsive.”** This closes
+the pending user retry for those named flows on the actual iPad8,5/iOS18.7.8. The repair
+source is `2de2444a782cb54a5cd31966ecc33257e4511dd0`. The earlier failures and inconclusive
+traces above remain evidence; this confirmation does not turn them into measured latency
+results or establish zero defects over a week. Exact scope: [physical-user-acceptance.json](physical-user-acceptance.json).
