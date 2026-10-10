@@ -1,5 +1,9 @@
 # Using Praelude Mobile
 
+## Current selection issue — installed build9
+
+On October10, the user reports Prokofiev passage creation has no visible corner dots and severe lag, while Beethoven handles work smoothly. Earlier acceptance of the named build9 actions remains valid for those tested flows; it does not cover every score. Build10 repairs are implemented as a candidate and are not installed. The instructions below still match installed build9. Cross-score selection acceptance is pending (B146). Selection Cancel is also reported not working (B147); the candidate now discards the draft immediately while preserving saved passages. Empty/drawn Cancel and saved-edit baseline checks pass actual iPad/phone UI tests. This behavior is not yet installed.
+
 ## Build9 controls — installed October 9; named actions accepted October 10
 
 **Matches: installed native2.0.0/build9/schema5 and Macv11.1.0/schema21. Last updated:2026-10-10.** The guarded update preserves all13 owned files/12,960,329 bytes exactly, including the paused active practice set. Resume that set when ready. After iOS denied automatic launch, the user opened build9 and read-only inspection confirmed it running. The independent October10 00:57:50 UTC post-launch readback preserves all13 files, schema5/revision2167 and the paused set exactly. On October10, the user confirms score pinch-zoom, Pencil marks → Done, two-finger Undo, passage selection and button response: “Those actions work and feel responsive.” Undo specifically while zoomed, microphone/two-device behavior and sustained reliability remain unverified.

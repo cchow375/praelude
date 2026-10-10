@@ -3,10 +3,10 @@ import UIKit
 
 /// Native regressions for annotation transitions during a live set and low-friction passage save.
 final class ScoreWorkflowUITests: XCTestCase {
-    @MainActor private func openScore(_ app: XCUIApplication) {
+    @MainActor private func openScore(_ app: XCUIApplication, extraArguments: [String] = []) {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
-        app.launchArguments = ["--uitesting", "--reset", "--seed"]
+        app.launchArguments = ["--uitesting", "--reset", "--seed"] + extraArguments
         app.launch()
         let hide = app.buttons["Hide Sidebar"]
         if hide.waitForExistence(timeout: 1), hide.isHittable { hide.press(forDuration: 0.15) }
@@ -82,6 +82,61 @@ final class ScoreWorkflowUITests: XCTestCase {
         app.buttons["passages"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "savedPassage_")).count >= 2, app.debugDescription)
         shot("build5-grouped-passages")
+    }
+
+    @MainActor func testOversizedPDFSelectionHandlesUndoAndImmediateCancel() {
+        let app = XCUIApplication(); openScore(app, extraArguments: ["--seed-large-page"])
+        let select = app.buttons["drawPassageOnScore"]
+        let cancel = app.buttons["cancelScoreSelection"]
+        let done = app.buttons["finishScoreMarkup"]
+        select.tap()
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+        cancel.tap()
+        XCTAssertTrue(select.waitForExistence(timeout: 5), "Cancel must leave an empty selection immediately")
+        XCTAssertFalse(app.buttons["Discard edits"].exists)
+        select.tap()
+        let pdf = app.otherElements["scorePDF"]
+        let page = pdf.textViews.firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 5), app.debugDescription)
+        let from = page.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.3))
+        let to = page.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: 0.42))
+        from.press(forDuration: 0.15, thenDragTo: to)
+        XCTAssertTrue(done.isEnabled, app.debugDescription)
+        let diagnostic = pdf.value as? String ?? ""
+        let handle = diagnostic.components(separatedBy: "selectionHandleScreenDiameter=").dropFirst().first?.components(separatedBy: ",").first.flatMap(Double.init)
+        XCTAssertEqual(handle ?? 0, 8, accuracy: 0.01, diagnostic)
+        shot("build10-large-page-selection-handles")
+        cancel.tap()
+        XCTAssertTrue(select.waitForExistence(timeout: 5), "Cancel must discard a drawn selection immediately")
+        XCTAssertFalse(app.buttons["Discard edits"].exists)
+        select.tap()
+        XCTAssertFalse(done.isEnabled, "The canceled draft must not reappear or be saved")
+        from.press(forDuration: 0.15, thenDragTo: to)
+        XCTAssertTrue(done.isEnabled)
+        app.buttons["undoBox"].tap()
+        XCTAssertFalse(done.isEnabled)
+        app.buttons["redoBox"].tap()
+        XCTAssertTrue(done.isEnabled)
+        done.tap()
+        XCTAssertTrue(select.waitForExistence(timeout: 5))
+        app.buttons["Score options"].tap()
+        app.buttons["Edit passage boxes"].tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        let secondFrom = page.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.55))
+        let secondTo = page.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: 0.67))
+        secondFrom.press(forDuration: 0.15, thenDragTo: secondTo)
+        XCTAssertTrue(app.staticTexts["2 boxes"].waitForExistence(timeout: 5), app.debugDescription)
+        cancel.tap()
+        XCTAssertTrue(select.waitForExistence(timeout: 5))
+        app.buttons["Score options"].tap()
+        app.buttons["Edit passage boxes"].tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        XCTAssertTrue(done.isEnabled)
+        XCTAssertTrue(app.staticTexts["1 box"].exists, "Cancel must preserve the saved passage without the extra draft box")
+        cancel.tap()
+        app.buttons["passages"].tap()
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "savedPassage_")).count, 2,
+                       "Only the confirmed draft should join the original fixture passage")
     }
 
     @MainActor func testAnnotationControlsPreserveScoreAndReturnAfterRotation() {

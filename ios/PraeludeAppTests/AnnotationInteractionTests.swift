@@ -31,7 +31,7 @@ final class AnnotationInteractionTests: XCTestCase {
                 XCTAssertTrue(overlay.canvas.transform.isIdentity)
                 XCTAssertFalse(overlay.canvas.panGestureRecognizer.isEnabled)
                 XCTAssertFalse(overlay.canvas.pinchGestureRecognizer?.isEnabled ?? false)
-                XCTAssertLessThanOrEqual(overlay.renderedInkScale * overlay.renderedInkScale * overlay.sourceCanvasFrame.width * overlay.sourceCanvasFrame.height, max(4_000_001, overlay.sourceCanvasFrame.width * overlay.sourceCanvasFrame.height))
+                XCTAssertLessThanOrEqual(overlay.renderedInkScale * overlay.renderedInkScale * overlay.sourceCanvasFrame.width * overlay.sourceCanvasFrame.height, 4_000_001)
                 for canvas in [overlay.canvas, overlay.otherLayersCanvas] {
                     let shown = canvas.convert(source, to: overlay)
                     XCTAssertEqual(shown.x, expected.x, accuracy: 0.02)

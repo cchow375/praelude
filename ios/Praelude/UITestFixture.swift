@@ -38,11 +38,16 @@ enum UITestFixture {
             ensureOnboarded(into: store)
             try store.seedWarmupsIfNeeded(family: .keyboard)
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("Praelude UI study.pdf")
-            let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842))
+            // Some imported scans use image-sized PDF points rather than paper-sized points.
+            // Keep identical visible content while exercising that geometry in native UI tests.
+            let oversized = ProcessInfo.processInfo.arguments.contains("--seed-large-page")
+            let pageSize = oversized ? CGSize(width: 5609.6, height: 7764.01) : CGSize(width: 595, height: 842)
+            let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: pageSize))
             let data = renderer.pdfData { context in
                 for page in 1...4 {
                     context.beginPage()
                     let cg = context.cgContext
+                    cg.scaleBy(x: pageSize.width / 595, y: pageSize.height / 842)
                     let title = page == 1 ? "Practice study" : "Practice study · \(page)"
                     (title as NSString).draw(at: CGPoint(x: 52, y: 42), withAttributes: [.font: UIFont(name: "NewYork-Regular", size: 26) ?? UIFont.systemFont(ofSize: 26, weight: .medium)])
                     ("Praelude · original test score" as NSString).draw(at: CGPoint(x: 52, y: 78), withAttributes: [.font: UIFont.systemFont(ofSize: 11), .foregroundColor: UIColor.darkGray])

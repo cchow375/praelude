@@ -654,8 +654,12 @@ struct ScoreWorkspace: View {
     }
     private var selectionCompletionButtons: some View {
         HStack(spacing: 12) {
-            Button("Cancel") { confirmDiscardSelection = true }
+            Button("Cancel") {
+                closeAfterDiscard = false
+                markup.finish()
+            }
                 .padding(.horizontal, 6).frame(minWidth: 44, minHeight: 44)
+                .accessibilityIdentifier("cancelScoreSelection")
             Button("Done") { saveSelection() }.fontWeight(.semibold)
                 .padding(.horizontal, 6).frame(minWidth: 52, minHeight: 44)
                 .disabled(markup.regions.isEmpty).accessibilityIdentifier("finishScoreMarkup")

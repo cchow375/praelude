@@ -66,7 +66,7 @@ final class ZoomableScorePDFView: PDFView {
                 if let overlay = root as? ScorePageOverlay {
                     let canvas = overlay.canvas
                     let stampWidth = overlay.markup.stampDraft?.page == overlay.pageNumber ? overlay.markup.stampDraft?.position.width ?? 0 : 0
-                    return ["stampPreviewWidth=\(stampWidth),stampCountPage\(overlay.pageNumber)=\(overlay.displayedStamps.filter { $0.page == overlay.pageNumber }.count),inkPage\(overlay.pageNumber)=\(canvas.drawing.strokes.count),canvasBounds=\(canvas.bounds),canvasFrame=\(canvas.frame),contentSize=\(canvas.contentSize),contentOffset=\(canvas.contentOffset),canvasZoom=\(canvas.zoomScale),drawingBounds=\(canvas.drawing.bounds);\(overlay.noteGestureDiagnostic)"]
+                    return ["selectionHandleScreenDiameter=\(overlay.selectionHandleDiameter * overlay.pageDisplayScale),stampPreviewWidth=\(stampWidth),stampCountPage\(overlay.pageNumber)=\(overlay.displayedStamps.filter { $0.page == overlay.pageNumber }.count),inkPage\(overlay.pageNumber)=\(canvas.drawing.strokes.count),canvasBounds=\(canvas.bounds),canvasFrame=\(canvas.frame),contentSize=\(canvas.contentSize),contentOffset=\(canvas.contentOffset),canvasZoom=\(canvas.zoomScale),drawingBounds=\(canvas.drawing.bounds);\(overlay.noteGestureDiagnostic)"]
                 }
                 return root.subviews.flatMap(inkCounts)
             }

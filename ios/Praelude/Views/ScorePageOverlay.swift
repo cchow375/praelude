@@ -156,7 +156,18 @@ enum ScorePassageBoxStyle {
     private var drawingID = UUID()
     private var resizeCorner: Int?
     private(set) var selectionTap: UITapGestureRecognizer!
-    private var quickBoxPreview: PassageRegion?
+    private var selectionPreview: PassageRegion?
+    private let selectionPreviewBox = CAShapeLayer()
+    private let selectionPreviewHandles = CAShapeLayer()
+    private var selectionGestureIsQuick: Bool?
+    private var selectionGestureDraftID: UUID?
+    private var selectionGestureRegions: [PassageRegion] = []
+    private var requestedDisplayScale: CGFloat = 1
+    private(set) var pageDisplayScale: CGFloat = 1
+    var selectionHandleDiameter: CGFloat { 8 / pageDisplayScale }
+    var selectionLineWidth: CGFloat { 1.25 / pageDisplayScale }
+    var selectionHitRadius: CGFloat { 22 / pageDisplayScale }
+    var selectionPreviewRect: CGRect? { selectionPreview?.rect(in: bounds.size) }
     private struct Appearance: Equatable {
         let mode: ScoreMarkupState.Mode
         let regions: [PassageRegion]
@@ -257,6 +268,9 @@ enum ScorePassageBoxStyle {
             addGestureRecognizer(recognizer)
         }
         noteEditTap.require(toFail: noteDictateTap)
+        for preview in [selectionPreviewBox, selectionPreviewHandles] {
+            preview.isHidden = true; layer.addSublayer(preview)
+        }
         configureNotePanel()
         refreshNoteAccessibility()
     }
@@ -279,6 +293,8 @@ enum ScorePassageBoxStyle {
             layoutInkCanvases()
             onCanvasLayout()
         }
+        updateInkResolution(displayScale: requestedDisplayScale)
+        updateSelectionPreviewLayers()
         layoutNotePanel()
         if laidOutSize != bounds.size { laidOutSize = bounds.size; setNeedsDisplay(); refreshNoteAccessibility() }
     }
@@ -286,14 +302,32 @@ enum ScorePassageBoxStyle {
     /// allowed ink and score to move independently on iOS 18. Keep source geometry fixed and
     /// bound flat backing resolution, without changing PencilKit's zoom/content offset.
     func updateInkResolution(displayScale: CGFloat) {
-        let desired = (window?.screen.scale ?? UIScreen.main.scale) * (displayScale.isFinite ? max(1, displayScale) : 1)
-        let area = max(1, sourceCanvasFrame.width * sourceCanvasFrame.height)
-        let scale = max(1, min(desired, sqrt(4_000_000 / area)))
-        guard abs(renderedInkScale - scale) > 0.05 else { return }
-        renderedInkScale = scale
-        contentScaleFactor = scale
-        for layerCanvas in [otherLayersCanvas, canvas] { layerCanvas.contentScaleFactor = scale }
-        setNeedsDisplay()
+        requestedDisplayScale = displayScale.isFinite && displayScale > 0 ? displayScale : 1
+        var actualScale = requestedDisplayScale
+        if let window {
+            let origin = convert(CGPoint.zero, to: window)
+            let x = convert(CGPoint(x: 1, y: 0), to: window)
+            let y = convert(CGPoint(x: 0, y: 1), to: window)
+            let measured = min(hypot(x.x - origin.x, x.y - origin.y), hypot(y.x - origin.x, y.y - origin.y))
+            if measured.isFinite && measured > 0 { actualScale = measured }
+        }
+        let previousPageScale = pageDisplayScale
+        pageDisplayScale = actualScale
+        let desired = (window?.screen.scale ?? UIScreen.main.scale) * actualScale
+        func boundedScale(for size: CGSize) -> CGFloat {
+            min(desired, sqrt(4_000_000 / max(1, size.width * size.height)))
+        }
+        // Imported PDF coordinates may be thousands of points wide. A floor of 1 allocates
+        // tens of millions of pixels and makes 8-source-point handles almost invisible.
+        let canvasScale = boundedScale(for: sourceCanvasFrame.size)
+        let overlayScale = boundedScale(for: bounds.size)
+        let needsRedraw = pageDisplayScale != previousPageScale || contentScaleFactor != overlayScale
+        renderedInkScale = canvasScale
+        if contentScaleFactor != overlayScale { contentScaleFactor = overlayScale }
+        for layerCanvas in [otherLayersCanvas, canvas] {
+            if layerCanvas.contentScaleFactor != canvasScale { layerCanvas.contentScaleFactor = canvasScale }
+        }
+        if needsRedraw { updateSelectionPreviewLayers(); setNeedsDisplay() }
     }
     private func layoutInkCanvases() {
         guard sourceCanvasFrame.width > 0, sourceCanvasFrame.height > 0 else { return }
@@ -335,6 +369,7 @@ enum ScorePassageBoxStyle {
     }
 
     func refresh() {
+        if selectionGestureIsQuick != nil && !selectionGestureIsCurrent { clearSelectionPreview() }
         let policy: PKCanvasViewDrawingPolicy = markup.mode == .writing && markup.fingerDrawing ? .anyInput : .pencilOnly
         if canvas.drawingPolicy != policy { canvas.drawingPolicy = policy }
         // Input routing owns read-only and placement state. Never disable the live canvas or
@@ -392,6 +427,7 @@ enum ScorePassageBoxStyle {
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
         for region in visibleRegions {
+            if selectionPreview != nil && originalRegion?.id == region.id { continue }
             guard let box = displayRect(for: region) else { continue }
             let selected = markup.mode == .selecting && markup.selectedRegionID == region.id
             let emphasized = emphasizedIDs.contains(region.id) || markup.mode == .selecting
@@ -400,23 +436,17 @@ enum ScorePassageBoxStyle {
             context.setFillColor(ScorePassageBoxStyle.fillColor(practiced: practiced, emphasized: emphasized, recolor: recolor).cgColor)
             context.fill(box)
             context.setStrokeColor(ScorePassageBoxStyle.strokeColor(practiced: practiced, selected: selected, recolor: recolor).cgColor)
-            context.setLineWidth(selected ? 1.25 : 0.6); context.stroke(box)
+            context.setLineWidth((selected ? 1.25 : 0.6) / pageDisplayScale); context.stroke(box)
             if selected {
                 for corner in corners(box) {
                     context.setFillColor(UIColor.white.cgColor)
-                    context.fillEllipse(in: CGRect(x: corner.x-4, y: corner.y-4, width: 8, height: 8))
+                    let diameter = selectionHandleDiameter
+                    let handle = CGRect(x: corner.x - diameter / 2, y: corner.y - diameter / 2, width: diameter, height: diameter)
+                    context.fillEllipse(in: handle)
                     context.setStrokeColor(ScorePassageBoxStyle.handleRingColor().cgColor)
-                    context.strokeEllipse(in: CGRect(x: corner.x-4, y: corner.y-4, width: 8, height: 8))
+                    context.strokeEllipse(in: handle)
                 }
             }
-        }
-        if let preview = quickBoxPreview {
-            let box = preview.rect(in: bounds.size)
-            context.setFillColor(ScorePassageBoxStyle.fillColor(practiced: false, emphasized: true).cgColor)
-            context.fill(box)
-            context.setStrokeColor(UIColor(PraeludeColor.scoreInk).cgColor)
-            context.setLineDash(phase: 0, lengths: [4, 3]); context.setLineWidth(1.25); context.stroke(box)
-            context.setLineDash(phase: 0, lengths: [])
         }
         for textBox in visibleTextBoxes {
             let position = movingNote?.id == textBox.id ? (movedNotePosition ?? textBox.region) : textBox.region
@@ -752,57 +782,102 @@ enum ScorePassageBoxStyle {
     }
     @objc private func closeExpandedNote() { expandedNoteID = nil; layoutNotePanel() }
     @objc private func pan(_ recognizer: UIPanGestureRecognizer) {
-        if markup.quickBoxArmed { quickBoxPan(recognizer); return }
-        let point = recognizer.location(in: self)
-        switch recognizer.state {
-        case .began:
-            origin = point; resizeCorner = nil; originalRegion = nil; drawingID = UUID()
-            if let selected = visibleRegions.first(where: { $0.id == markup.selectedRegionID }), let box = displayRect(for: selected) {
-                let threshold = max(12, bounds.width * 0.025)
-                if let corner = corners(box).enumerated().first(where: { hypot($0.element.x-point.x, $0.element.y-point.y) < threshold }) {
+        handleSelectionPan(state: recognizer.state, location: recognizer.location(in: self))
+    }
+    private var selectionGestureIsCurrent: Bool {
+        if selectionGestureIsQuick == true { return markup.quickBoxArmed && markup.mode != .selecting }
+        return selectionGestureIsQuick == false && markup.mode == .selecting
+            && markup.draft?.id == selectionGestureDraftID && markup.regions == selectionGestureRegions
+    }
+    /// Drag geometry stays local until lift. Publishing the entire observed passage each sample
+    /// needlessly rebuilt the score workspace, while a shape layer can move only the visible box.
+    func handleSelectionPan(state: UIGestureRecognizer.State, location point: CGPoint) {
+        if state == .began {
+            clearSelectionPreview()
+            guard markup.quickBoxArmed || (markup.mode == .selecting && markup.draft != nil) else { return }
+            selectionGestureIsQuick = markup.quickBoxArmed && markup.mode != .selecting
+            selectionGestureDraftID = markup.draft?.id
+            selectionGestureRegions = markup.regions
+            origin = point; drawingID = UUID()
+            if selectionGestureIsQuick == false {
+                if let selected = visibleRegions.first(where: { $0.id == markup.selectedRegionID }), let box = displayRect(for: selected),
+                   let corner = corners(box).enumerated().first(where: { hypot($0.element.x-point.x, $0.element.y-point.y) < selectionHitRadius }) {
                     originalRegion = selected; resizeCorner = corner.offset
                 }
+                if originalRegion == nil { originalRegion = visibleRegions.reversed().first { displayRect(for: $0)?.contains(point) ?? false } }
             }
-            if originalRegion == nil { originalRegion = visibleRegions.reversed().first { displayRect(for: $0)?.contains(point) ?? false } }
-            markup.rememberSelection()
-        case .changed, .ended:
-            var box: CGRect
-            if let existing = originalRegion, let old = displayRect(for: existing) {
-                if let resizeCorner {
-                    let opposite = corners(old)[3 - resizeCorner]
-                    box = CGRect(x: min(point.x, opposite.x), y: min(point.y, opposite.y), width: abs(point.x-opposite.x), height: abs(point.y-opposite.y))
-                } else {
-                    box = old.offsetBy(dx: point.x-origin.x, dy: point.y-origin.y)
-                    box.origin.x = min(max(0, box.minX), max(0, bounds.width-box.width))
-                    box.origin.y = min(max(0, box.minY), max(0, bounds.height-box.height))
-                }
-            } else { box = CGRect(x: min(origin.x, point.x), y: min(origin.y, point.y), width: abs(point.x-origin.x), height: abs(point.y-origin.y)) }
-            if let region = PassageRegion.clamped(id: originalRegion?.id ?? drawingID, page: pageNumber, rect: box, size: bounds.size) {
-                markup.update(storageRegion(fromDisplay: region))
-            }
-            refresh()
-        case .cancelled: markup.undoSelection(); refresh()
-        default: break
+            return
         }
+        if state == .cancelled || state == .failed {
+            let cancelQuick = selectionGestureIsQuick == true && selectionGestureIsCurrent
+            clearSelectionPreview()
+            if cancelQuick { markup.quickBoxArmed = false }
+            return
+        }
+        guard state == .changed || state == .ended, selectionGestureIsCurrent else { clearSelectionPreview(); return }
+        let displayRegion: PassageRegion?
+        let storedRegion: PassageRegion?
+        if let existing = originalRegion, resizeCorner == nil, sourceCanvasFrame.width > 0, sourceCanvasFrame.height > 0 {
+            // Move the original source rectangle, including any part hidden by the crop.
+            var moved = existing
+            moved.x = min(max(0, existing.x + (point.x - origin.x) / sourceCanvasFrame.width), 1 - existing.width)
+            moved.y = min(max(0, existing.y + (point.y - origin.y) / sourceCanvasFrame.height), 1 - existing.height)
+            storedRegion = moved
+            if let activeCrop { displayRegion = moved.croppedForDisplay(within: activeCrop) }
+            else { displayRegion = moved }
+        } else {
+            let anchor: CGPoint
+            if let existing = originalRegion, let corner = resizeCorner, let old = displayRect(for: existing) { anchor = corners(old)[3 - corner] }
+            else { anchor = origin }
+            let box = CGRect(x: min(anchor.x, point.x), y: min(anchor.y, point.y), width: abs(point.x - anchor.x), height: abs(point.y - anchor.y))
+            displayRegion = PassageRegion.clamped(id: originalRegion?.id ?? drawingID, page: pageNumber, rect: box, size: bounds.size)
+            storedRegion = displayRegion.map(storageRegion(fromDisplay:))
+        }
+        if state == .changed {
+            let wasHidden = selectionPreview == nil
+            selectionPreview = displayRegion
+            updateSelectionPreviewLayers()
+            if wasHidden != (selectionPreview == nil) { setNeedsDisplay() }
+            return
+        }
+        let quick = selectionGestureIsQuick == true
+        clearSelectionPreview()
+        if quick {
+            markup.pendingQuickBox = storedRegion; markup.quickBoxArmed = false
+        } else if let storedRegion, markup.regions.first(where: { $0.id == storedRegion.id }) != storedRegion {
+            markup.rememberSelection(); markup.update(storedRegion)
+        }
+        refresh()
     }
-    /// §8 "quick-create a sub-passage by drawing a box while practicing": a single, self-contained
-    /// box draw that never touches `markup.draft` (there may be none — practice does not open the
-    /// full passage-selecting editor). One box only; lifting the finger commits it and disarms.
-    private func quickBoxPan(_ recognizer: UIPanGestureRecognizer) {
-        let point = recognizer.location(in: self)
-        switch recognizer.state {
-        case .began: origin = point; drawingID = UUID(); quickBoxPreview = nil
-        case .changed:
-            let box = CGRect(x: min(origin.x, point.x), y: min(origin.y, point.y), width: abs(point.x-origin.x), height: abs(point.y-origin.y))
-            quickBoxPreview = PassageRegion.clamped(id: drawingID, page: pageNumber, rect: box, size: bounds.size)
-            setNeedsDisplay()
-        case .ended:
-            let box = CGRect(x: min(origin.x, point.x), y: min(origin.y, point.y), width: abs(point.x-origin.x), height: abs(point.y-origin.y))
-            markup.pendingQuickBox = PassageRegion.clamped(id: drawingID, page: pageNumber, rect: box, size: bounds.size).map(storageRegion(fromDisplay:))
-            markup.quickBoxArmed = false; quickBoxPreview = nil; setNeedsDisplay()
-        case .cancelled: markup.quickBoxArmed = false; quickBoxPreview = nil; setNeedsDisplay()
-        default: break
+    private func clearSelectionPreview() {
+        let hadPreview = selectionPreview != nil
+        selectionPreview = nil; selectionGestureIsQuick = nil; selectionGestureDraftID = nil
+        selectionGestureRegions = []; originalRegion = nil; resizeCorner = nil
+        updateSelectionPreviewLayers()
+        if hadPreview { setNeedsDisplay() }
+    }
+    private func updateSelectionPreviewLayers() {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        selectionPreviewBox.frame = bounds; selectionPreviewHandles.frame = bounds
+        guard let box = selectionPreviewRect else {
+            selectionPreviewBox.isHidden = true; selectionPreviewHandles.isHidden = true
+            return
         }
+        let recolor = selectionPreview.flatMap { regionColors[$0.id] }.flatMap(AnnotationColor.init(rawValue:))
+        selectionPreviewBox.isHidden = false
+        selectionPreviewBox.path = UIBezierPath(rect: box).cgPath
+        selectionPreviewBox.fillColor = ScorePassageBoxStyle.fillColor(practiced: false, emphasized: true, recolor: recolor).cgColor
+        selectionPreviewBox.strokeColor = ScorePassageBoxStyle.strokeColor(practiced: false, selected: true, recolor: recolor).cgColor
+        selectionPreviewBox.lineWidth = selectionLineWidth
+        let path = UIBezierPath(); let diameter = selectionHandleDiameter
+        for corner in corners(box) {
+            path.append(UIBezierPath(ovalIn: CGRect(x: corner.x - diameter / 2, y: corner.y - diameter / 2, width: diameter, height: diameter)))
+        }
+        selectionPreviewHandles.isHidden = false; selectionPreviewHandles.path = path.cgPath
+        selectionPreviewHandles.fillColor = UIColor.white.cgColor
+        selectionPreviewHandles.strokeColor = ScorePassageBoxStyle.handleRingColor().cgColor
+        selectionPreviewHandles.lineWidth = 1 / pageDisplayScale
     }
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         // Placement (stamp/text) only ever needs a tap, never a drag — a finger drag while a
@@ -828,7 +903,7 @@ enum ScorePassageBoxStyle {
             traceNoteGesture("receive\(touch.type.rawValue)-\(touch.view.map { String(describing: type(of: $0)) } ?? "none")", point: touch.location(in: self))
         }
         #endif
-        if touch.type == .pencil, markup.mode != .selecting, !placementToolArmed, !markup.breakPointArmed {
+        if touch.type == .pencil, markup.mode != .selecting, !markup.quickBoxArmed, !placementToolArmed, !markup.breakPointArmed {
             // A real Pencil stroke crossing a yellow note must stay a stroke. Merely having a
             // note somewhere on this page must not let a tap recognizer cancel PencilKit input.
             return false

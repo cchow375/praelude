@@ -96,6 +96,7 @@ import PencilKit
 
     func begin(_ passage: Passage, baseline: Passage? = nil) {
         guard flushInk() else { return }
+        quickBoxArmed = false; pendingQuickBox = nil; breakPointArmed = false
         draft = passage; self.baseline = baseline; selectedRegionID = nil
         undoRegions = []; redoRegions = []; mode = .selecting
     }
