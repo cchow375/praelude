@@ -13,7 +13,7 @@ final class AnnotationInteractionTests: XCTestCase {
         return PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: .now))])
     }
 
-    @MainActor func testNativeInkZoomChangesRendererWithoutMovingOrRewritingSavedStrokeCoordinates() throws {
+    @MainActor func testPDFZoomKeepsInkInFixedSourceCoordinatesWithNoInnerNavigation() throws {
         for crop: NormalizedRect? in [nil, NormalizedRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6)] {
             let state = ScoreMarkupState()
             let overlay = ScorePageOverlay(page: 1, markup: state)
@@ -27,9 +27,13 @@ final class AnnotationInteractionTests: XCTestCase {
             for scale: CGFloat in [1, 2, 4, 6, 1] {
                 overlay.updateInkResolution(displayScale: scale)
                 overlay.layoutIfNeeded()
-                XCTAssertEqual(overlay.canvas.zoomScale, scale, accuracy: 0.001, "PencilKit itself must zoom; an outer view transform alone pixelates ink")
+                XCTAssertEqual(overlay.canvas.zoomScale, 1, accuracy: 0.001, "PDFKit alone owns zoom; an inner scroll view must not move ink independently")
+                XCTAssertTrue(overlay.canvas.transform.isIdentity)
+                XCTAssertFalse(overlay.canvas.panGestureRecognizer.isEnabled)
+                XCTAssertFalse(overlay.canvas.pinchGestureRecognizer?.isEnabled ?? false)
+                XCTAssertLessThanOrEqual(overlay.renderedInkScale * overlay.renderedInkScale * overlay.sourceCanvasFrame.width * overlay.sourceCanvasFrame.height, max(4_000_001, overlay.sourceCanvasFrame.width * overlay.sourceCanvasFrame.height))
                 for canvas in [overlay.canvas, overlay.otherLayersCanvas] {
-                    let shown = canvas.convert(CGPoint(x: source.x * scale, y: source.y * scale), to: overlay)
+                    let shown = canvas.convert(source, to: overlay)
                     XCTAssertEqual(shown.x, expected.x, accuracy: 0.02)
                     XCTAssertEqual(shown.y, expected.y, accuracy: 0.02)
                 }
@@ -41,7 +45,7 @@ final class AnnotationInteractionTests: XCTestCase {
         }
     }
 
-    @MainActor func testDrawingCanvasKeepsLocalUndoAcrossModeChangesAndCanYieldNativeFocusToTextEditor() throws {
+    @MainActor func testDrawingCanvasKeepsLocalUndoAcrossModeChangesAndCanYieldNativeFocusToTextEditor() async throws {
         let state = ScoreMarkupState()
         let overlay = ScorePageOverlay(page: 1, markup: state)
         let second = ScorePageOverlay(page: 2, markup: state)
@@ -50,8 +54,11 @@ final class AnnotationInteractionTests: XCTestCase {
         controller.view.addSubview(overlay); overlay.frame = controller.view.bounds; window.isHidden = false
         defer { window.isHidden = true }
         let manager = try XCTUnwrap(overlay.canvas.undoManager)
-        var undone = false
-        manager.registerUndo(withTarget: overlay) { _ in undone = true }
+        overlay.canvas.inkHistory.acceptsRequest = { true }; overlay.canvas.inkHistory.mayRestore = { true }
+        XCTAssertFalse(manager.isUndoRegistrationEnabled)
+        overlay.canvas.inkHistory.beginTool()
+        overlay.canvas.drawing = ink(); overlay.canvas.inkHistory.drawingChanged(); overlay.canvas.inkHistory.endTool()
+        await Task.yield()
         XCTAssertTrue(overlay.canvas.becomeFirstResponder(), "Native lasso/edit commands retain responder support")
         for _ in 0..<30 {
             for kind in AnnotationToolKind.allCases {
@@ -66,7 +73,10 @@ final class AnnotationInteractionTests: XCTestCase {
         XCTAssertFalse(overlay.canvas.isFirstResponder, "A note editor must be allowed to take focus without fighting an app-forced canvas responder")
         XCTAssertTrue(manager.canUndo)
         XCTAssertFalse(try XCTUnwrap(second.canvas.undoManager).canUndo, "Another PDF page must not inherit this page's undo history")
-        manager.undo(); XCTAssertTrue(undone)
+        manager.undo()
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertTrue(overlay.canvas.drawing.strokes.isEmpty)
+        XCTAssertTrue(manager.canRedo)
     }
 
     @MainActor func testTwoFingerUndoTargetsSelectionOrInkWithoutChangingModesAndRespectsPerformanceLock() {
@@ -87,6 +97,21 @@ final class AnnotationInteractionTests: XCTestCase {
         coordinator.parent.focusPageTurns = true
         state.mode = .reading; coordinator.undoFromTouch()
         XCTAssertEqual(inkUndos, 2)
+    }
+
+    @MainActor func testTwoFingerUndoNeverSharesThePDFPinchSequenceInAnyMarkupMode() {
+        let state = ScoreMarkupState()
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/pinch-undo.pdf"), page: .constant(1), twoPages: false,
+                                   markup: state, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator()
+        let undo = UITapGestureRecognizer(); undo.numberOfTouchesRequired = 2
+        coordinator.undoTap = undo
+        let pinch = UIPinchGestureRecognizer()
+        for mode: ScoreMarkupState.Mode in [.reading, .writing, .selecting] {
+            state.mode = mode
+            XCTAssertFalse(coordinator.gestureRecognizer(undo, shouldRecognizeSimultaneouslyWith: pinch))
+            XCTAssertFalse(coordinator.gestureRecognizer(pinch, shouldRecognizeSimultaneouslyWith: undo))
+        }
     }
 
     @MainActor func testNoteMoveOnlyChangesPositionAfterSuccessfulSaveAndRejectsOtherLayers() {

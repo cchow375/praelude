@@ -6,11 +6,12 @@ import Foundation
 /// `Date`'s raw reference-seconds `Double`. Every sync DTO in `SyncDTO.swift` is encoded/decoded
 /// through these, never through a type's own ad hoc `JSONEncoder()`.
 public enum SyncCoding {
+    private static let dates = SyncDateCodec()
     public static var encoder: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .custom { date, encoder in
             var container = encoder.singleValueContainer()
-            try container.encode(iso8601Formatter.string(from: date))
+            try container.encode(dates.string(from: date))
         }
         return encoder
     }
@@ -39,8 +40,25 @@ public enum SyncCoding {
         return formatter
     }
     public static func parseDate(_ value: String) -> Date? {
-        if let date = iso8601Formatter.date(from: value) { return date }
-        return ISO8601DateFormatter().date(from: value)
+        dates.date(from: value)
+    }
+    public static func string(from date: Date) -> String { dates.string(from: date) }
+}
+
+/// Reuse ICU formatter setup without exposing mutable formatters across executors. Every access
+/// to these private instances holds the same lock; the wire format and parsing fallback are unchanged.
+private final class SyncDateCodec: @unchecked Sendable {
+    private let lock = NSLock()
+    private let fractional = SyncCoding.iso8601Formatter
+    private let wholeSeconds = ISO8601DateFormatter()
+
+    func string(from date: Date) -> String {
+        lock.lock(); defer { lock.unlock() }
+        return fractional.string(from: date)
+    }
+    func date(from value: String) -> Date? {
+        lock.lock(); defer { lock.unlock() }
+        return fractional.date(from: value) ?? wholeSeconds.date(from: value)
     }
 }
 
@@ -50,7 +68,17 @@ extension Data {
     /// against a live copy of this schema, see "(C) Sync Protocol.md" §3. Used for
     /// `ink_strokes.data`/`.fingerprint`, the only `bytea` columns this sync engine touches.
     public var praeludeHexLiteral: String {
-        "\\x" + map { String(format: "%02x", $0) }.joined()
+        // Ink can contain megabytes. Formatting every byte through NSString/locale machinery
+        // occupied the physical iPad's UI thread for seconds during a library sync.
+        let digits = Array("0123456789abcdef".utf8)
+        var encoded = [UInt8]()
+        encoded.reserveCapacity(2 + count * 2)
+        encoded.append(92); encoded.append(120) // Postgres bytea prefix: \\x
+        for byte in self {
+            encoded.append(digits[Int(byte >> 4)])
+            encoded.append(digits[Int(byte & 15)])
+        }
+        return String(decoding: encoded, as: UTF8.self)
     }
     /// The inverse of `praeludeHexLiteral`. Accepts the `\x`-prefixed form this app always writes,
     /// and the bare hex form Postgres may hand back on read (`bytea`'s default output style already

@@ -26,18 +26,22 @@ public final class SyncCoordinator {
     private var wasSatisfied = true
     private var isSyncing = false
     @ObservationIgnored private var scheduledSync: Task<Void, Never>?
-    private var requestedDuringSync = false
+    @ObservationIgnored private var requestedDuringSync = false
+    @ObservationIgnored private var scheduledNeedsLibrarySnapshot = false
+    @ObservationIgnored private var scheduledForceSnapshot = false
+    @ObservationIgnored private var lastLibrarySnapshot: (owner: UUID, revision: Int)?
     /// Debounce ordinary local edits, including score organization and annotations whose views
     /// have no explicit push hook. Never cancel an in-flight pull just because it adopted a row.
-    public func scheduleLibrarySync() {
+    public func scheduleLibrarySync(reconcileLibrary: Bool = true) {
         guard canSync else { return }
+        scheduledNeedsLibrarySnapshot = scheduledNeedsLibrarySnapshot || reconcileLibrary
         if isSyncing { requestedDuringSync = true; return }
         scheduledSync?.cancel()
         scheduledSync = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(800))
             guard !Task.isCancelled, let self else { return }
-            if self.isSyncing { self.requestedDuringSync = true; return }
-            await self.syncAll()
+            self.scheduledSync = nil
+            await self.syncAll(reconcileLibrary: false, forceReconciliation: false)
         }
     }
     private var canSync: Bool {
@@ -78,6 +82,9 @@ public final class SyncCoordinator {
     /// nothing queued for account A is ever sent under account B's session, and so a signed-back-in
     /// account pulls fresh rather than trusting a cursor left over from whoever was signed in last.
     public func resetLocalAccountState() {
+        scheduledSync?.cancel(); scheduledSync = nil
+        requestedDuringSync = false; scheduledNeedsLibrarySnapshot = false; scheduledForceSnapshot = false
+        lastLibrarySnapshot = nil
         do { try engine.resetLocalAccountState(preservingProfileFor: store.state.profile.ownerID) }
         catch { engine.reportFailure(error) }
         pushedAttemptCounts.removeAll(); pushedUndoIDs.removeAll()
@@ -157,12 +164,26 @@ public final class SyncCoordinator {
     /// won the server's own LWW comparison against whatever this device last pushed for it; the only
     /// remaining question is whether this device has an even-newer local edit still ahead of it in
     /// the queue, which `LastWriteWins.shouldApplyPulled` answers per record). No-ops in guest mode.
-    public func syncAll() async {
-        guard canSync, !isSyncing, case .signedIn(let userID, _) = auth.state else { return }
+    public func syncAll(reconcileLibrary: Bool = true, forceReconciliation: Bool = true) async {
+        guard canSync, case .signedIn(let userID, _) = auth.state else { return }
+        if isSyncing {
+            requestedDuringSync = true
+            scheduledNeedsLibrarySnapshot = scheduledNeedsLibrarySnapshot || reconcileLibrary
+            scheduledForceSnapshot = scheduledForceSnapshot || (reconcileLibrary && forceReconciliation)
+            return
+        }
+        scheduledSync?.cancel(); scheduledSync = nil
+        let needsSnapshot = reconcileLibrary || scheduledNeedsLibrarySnapshot
+        let forceSnapshot = (reconcileLibrary && forceReconciliation) || scheduledForceSnapshot
+        scheduledNeedsLibrarySnapshot = false; scheduledForceSnapshot = false
+        var snapshotRequestSatisfied = !needsSnapshot
         isSyncing = true
         defer {
             isSyncing = false
-            if requestedDuringSync { requestedDuringSync = false; scheduleLibrarySync() }
+            if requestedDuringSync {
+                requestedDuringSync = false
+                scheduleLibrarySync(reconcileLibrary: false)
+            }
         }
         do {
             try engine.bindAccount(userID)
@@ -170,7 +191,26 @@ public final class SyncCoordinator {
                 guard self.canSync else { throw SyncError.transport("Account changed during profile sync.") }
                 try self.store.applySyncedProfile(profile)
             }
-            try engine.enqueueLibrarySnapshot(store.state)
+            guard canSync, case .signedIn(let currentUserID, _) = auth.state, currentUserID == userID else { return }
+            // Incremental pushes already own a durable ordered queue entry. Full reconciliation
+            // remains mandatory for unhooked library edits and explicit launch/manual sync.
+            if needsSnapshot && (forceSnapshot || lastLibrarySnapshot?.owner != userID || lastLibrarySnapshot?.revision != store.state.revision) {
+                let revision = store.state.revision
+                let prepared = try await engine.prepareLibrarySnapshot(store.state)
+                guard canSync, case .signedIn(let currentUserID, _) = auth.state,
+                      currentUserID == userID else { return }
+                guard store.state.revision == revision else {
+                    // Never queue an older full snapshot after a newer incremental edit made
+                    // during encoding. The next idle pass captures the current library.
+                    scheduledNeedsLibrarySnapshot = true
+                    scheduledForceSnapshot = scheduledForceSnapshot || forceSnapshot
+                    requestedDuringSync = true
+                    return
+                }
+                try engine.enqueuePreparedLibrarySnapshot(prepared)
+                lastLibrarySnapshot = (userID, revision)
+            }
+            snapshotRequestSatisfied = true
             guard await engine.drain(applyPulledRow: applyAdoptedRow, adoptPracticeSnapshot: pullPracticeSnapshot) else { return }
             for entry in Self.pullTables {
                 // Full paginated reads preserve late offline uploads and remote Undo until the
@@ -187,7 +227,17 @@ public final class SyncCoordinator {
                 }
             }
             if let storage, canSync { await storage.reconcileFiles(library: store.state, directory: store.directory) }
-        } catch { engine.reportFailure(error) }
+        } catch {
+            // Keep an unmet full snapshot request for the next real trigger. A failed write or
+            // hydration must not turn the next incremental sync into an incomplete drain; it
+            // also must not create an endless retry loop while offline or out of disk space.
+            if !snapshotRequestSatisfied, canSync,
+               case .signedIn(let currentUserID, _) = auth.state, currentUserID == userID {
+                scheduledNeedsLibrarySnapshot = true
+                scheduledForceSnapshot = scheduledForceSnapshot || forceSnapshot
+            }
+            engine.reportFailure(error)
+        }
     }
 
     private func pullPracticeSnapshot() async throws {
@@ -287,8 +337,8 @@ public final class SyncCoordinator {
     // MARK: Push — practice sets and the append-only rep log (spec §9/§10)
     //
     // Call `syncActiveSetProgress()`/`syncMostRecentFinishedSet()` reactively (see this type's own
-    // doc comment) rather than `pushSet`/`pushAttempt` directly from a View — they are `private`
-    // below precisely so every attempt push is reachable only through the path that also pushes its
+    // doc comment) rather than enqueueing attempts directly from a View, so every attempt push
+    // is reachable only through the path that also pushes its
     // set first in the same call, which is the actual ordering contract (`attempts.set_id references
     // public.sets(id)`, spec §4d/`(C) Sync Protocol.md`).
 
@@ -308,60 +358,56 @@ public final class SyncCoordinator {
 
     private func syncSet(_ set: ActiveSet?) {
         guard canSync, let set else { return }
-        // sets.session_id is a hard FK (references public.practice_sessions(id)) exactly like
-        // attempts.set_id -> sets(id) — push the session first, every time, the same "cheap and
-        // idempotent, so just always do it" reasoning pushSet/pushAttempt already use.
-        if let session = store.state.sessions.first(where: { $0.id == set.sessionID }) { pushSession(session) }
-        pushSet(set)
-        // Unconditional on `undoneAt`, deliberately: this loop is keyed by *position*
-        // (`pushedAttemptCounts`, how many of `set.attempts` have been enqueued), not by undo state,
-        // so even an attempt that gets recorded and undone between two observed states of this hook
-        // (SwiftUI coalesced both transitions into one `onChange`) still has its base `sync_append`
-        // enqueued here, strictly before the matching `sync_undo_attempt` the loop below enqueues for
-        // it — `sync_undo_attempt` no-ops server-side if the row it targets was never inserted, which
-        // would silently drop the undo forever if the ordering ran the other way.
-        let alreadyPushed = pushedAttemptCounts[set.id] ?? 0
-        if set.attempts.count > alreadyPushed {
-            for attempt in set.attempts[alreadyPushed...] { pushAttempt(attempt, setID: set.id) }
-            pushedAttemptCounts[set.id] = set.attempts.count
+        do {
+            try enqueuePracticeProgress(set, session: store.state.sessions.first { $0.id == set.sessionID })
+            scheduleLibrarySync(reconcileLibrary: false)
+        } catch { engine.reportFailure(error) }
+    }
+
+    /// One durable write for a repetition's session, set, new attempts and Undo records. Parent
+    /// rows precede children; local cursors advance only after the whole batch is persisted.
+    /// Kept internal so failure-injected tests exercise this transaction without authenticating.
+    func enqueuePracticeProgress(_ set: ActiveSet, session: PracticeSession?) throws {
+        var entries: [SyncQueueEntry] = []
+        let sessionDTO = session.map { PracticeSessionSyncRow($0) }
+        let setDTO = SetSyncRow(set)
+        func row<T: Encodable>(_ value: T) throws -> [String: SyncJSON] {
+            guard let row = try SyncJSON(encoding: value).objectValue else { throw SyncError.invalidRemoteRow("practice progress") }
+            return row
         }
-        for attempt in set.attempts where attempt.undoneAt != nil && !pushedUndoIDs.contains(attempt.id) {
-            pushedUndoIDs.insert(attempt.id)
-            try? engine.enqueueUndoAttempt(attemptID: attempt.id, undoneAt: attempt.undoneAt)
-            Task { await syncAll() }
+        if let sessionDTO { entries.append(.upsert(table: "practice_sessions", row: try row(sessionDTO))) }
+        entries.append(.upsert(table: "sets", row: try row(setDTO)))
+        let alreadyPushed = min(pushedAttemptCounts[set.id] ?? 0, set.attempts.count)
+        for attempt in set.attempts.dropFirst(alreadyPushed) {
+            entries.append(.append(table: "attempts", row: try row(AttemptSyncRow(attempt, setID: set.id))))
         }
-    }
-    private func pushSession(_ session: PracticeSession) {
-        guard canSync else { return }
-        let dto = PracticeSessionSyncRow(session)
-        guard let object = try? SyncJSON(encoding: dto).objectValue else { return }
-        lastKnownSessionUpdatedAt[session.id] = dto.updated_at
-        try? engine.enqueueUpsert(table: "practice_sessions", row: object)
-        Task { await syncAll() }
-    }
-    private func pushSet(_ set: ActiveSet) {
-        guard canSync else { return }
-        let dto = SetSyncRow(set)
-        guard let object = try? SyncJSON(encoding: dto).objectValue else { return }
-        lastKnownSetUpdatedAt[set.id] = dto.updated_at
-        try? engine.enqueueUpsert(table: "sets", row: object)
-        Task { await syncAll() }
-    }
-    private func pushAttempt(_ attempt: Attempt, setID: UUID) {
-        guard canSync, let object = try? SyncJSON(encoding: AttemptSyncRow(attempt, setID: setID)).objectValue else { return }
-        try? engine.enqueueAppend(table: "attempts", row: object)
-        Task { await syncAll() }
+        var undoIDs: Set<UUID> = []
+        for attempt in set.attempts where !pushedUndoIDs.contains(attempt.id) {
+            if let undoneAt = attempt.undoneAt {
+                entries.append(.undoAttempt(attemptID: attempt.id, undoneAt: undoneAt))
+                undoIDs.insert(attempt.id)
+            }
+        }
+        try engine.enqueueSnapshot(entries)
+        pushedAttemptCounts[set.id] = set.attempts.count
+        pushedUndoIDs.formUnion(undoIDs)
+        if let sessionDTO { lastKnownSessionUpdatedAt[sessionDTO.id] = sessionDTO.updated_at }
+        lastKnownSetUpdatedAt[set.id] = setDTO.updated_at
     }
 
     private func enqueueUpsert<T: Encodable>(table: String, encoding value: T) {
         guard canSync, let object = try? SyncJSON(encoding: value).objectValue else { return }
-        try? engine.enqueueUpsert(table: table, row: object)
-        Task { await syncAll() }
+        do {
+            try engine.enqueueUpsert(table: table, row: object)
+            scheduleLibrarySync(reconcileLibrary: false)
+        } catch { engine.reportFailure(error) }
     }
     private func enqueueAppend<T: Encodable>(table: String, encoding value: T) {
         guard canSync, let object = try? SyncJSON(encoding: value).objectValue else { return }
-        try? engine.enqueueAppend(table: table, row: object)
-        Task { await syncAll() }
+        do {
+            try engine.enqueueAppend(table: table, row: object)
+            scheduleLibrarySync(reconcileLibrary: false)
+        } catch { engine.reportFailure(error) }
     }
 
     // MARK: Applying a pulled (or "you lost, adopt this" rejected-push) row back into PracticeStore

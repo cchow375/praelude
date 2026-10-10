@@ -1,5 +1,13 @@
 # Praelude — How To Use
 
+## Build9 repair in progress — installed controls remain build8
+
+**Known installed failures:** on the actual iPad Pro12.9-inch (3rd generation), iOS18.7.8, the user reports broken score zoom/ink alignment and delays in Clean, scrolling, menus, mode changes, passage selection and warmup exit. A native two-finger Undo crash is confirmed; a Pencil crash is also reported. Build9 core412/native258 (1 live-account skip,0 failures) and two practice/selection cases pass before its final gesture-priority change. The repair then passes14 native interaction tests and actual pinch with independently verified score/ink alignment. The final gesture UI passes70.518 seconds, including two-finger Undo in Draw/reading, real pinch, toolbar Undo/Redo at zoom and saved ink after relaunch. Physical two-finger Undo at zoom remains pending. Signed device build9 Release and strict signing/fixture checks pass; independent artifact verification also passes and installation remains pending. Build9 is not installed, and none of the installed build8 physical failures is accepted as fixed.
+
+The build8 controls below still describe the installed version. Build9's intended changes keep the same practice and drawing actions; their reliability and performance remain pending verification.
+
+**Next steps:** finish build9 regression/review gates, then the guarded update and the same physical practice flows. The installed tutorial will change only after installation is confirmed.
+
 ## Build8 controls — installed October 9; reported failure under diagnosis
 
 **INSTALLED — PHYSICAL FAILURE REPORTED 2.0.0/build8/schema5, October 9.** The physical iPad now runs build8; these controls describe the installed build. The post-update native Undo crash is confirmed and remains unresolved. Final native verification passes245 tests with1 live-account skip/0 failures. UI15 actual sticky double/triple-tap and permission-denied recovery passes on the same production source. Phone3 largest-text portrait/landscape and independent layout review pass. Exact tempo/goals/hands, movement editing, warmup Finish, selection/annotation continuity and Undo have scoped native UI passes. Source and signed Release checks pass; the guarded update is installed with helper-verified file preservation. These are installed controls, not a claim that the unresolved failure or sustained-use acceptance is closed.

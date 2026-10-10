@@ -78,6 +78,31 @@ final class AsyncInkCheckpointTests: XCTestCase {
         XCTAssertTrue(coordinator.dirtyPages.isEmpty)
     }
 
+    @MainActor func testOlderSaveCannotClearToolThatEndedBeforeItsFirstDrawingCallback() async throws {
+        let state = ScoreMarkupState(); let gate = Gate(); var saved: Data?
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/async-late-tool.pdf"), page: .constant(1), twoPages: false,
+                                   markup: state, drawingData: { _ in saved }, saveDrawing: { _, data, expected in
+            guard expected == saved else { return false }; saved = data; return true
+        }, saveDrawingAsync: { _, data, expected in
+            await gate.wait()
+            guard expected == saved else { return nil }
+            saved = data; return ScoreInkSaveReceipt(data: data)
+        }, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator(); coordinator.connectControls()
+        defer { coordinator.autosave?.cancel(); gate.release() }
+        let overlay = try attach(coordinator)
+        edit(1, overlay: overlay, coordinator: coordinator)
+        let task = startIdle(coordinator); try await awaitEntry(gate)
+        coordinator.canvasViewDidBeginUsingTool(overlay.canvas)
+        coordinator.canvasViewDidEndUsingTool(overlay.canvas)
+        gate.release(); await task.value
+        XCTAssertTrue(coordinator.dirtyPages.contains(1), "A completed older save cannot clear an unpublished newer tool generation")
+        coordinator.loading = true; overlay.canvas.drawing = drawing(2); coordinator.loading = false
+        coordinator.canvasViewDrawingDidChange(overlay.canvas)
+        XCTAssertTrue(coordinator.flush())
+        XCTAssertEqual(try PKDrawing(data: XCTUnwrap(saved)).strokes.count, 2)
+    }
+
     @MainActor func testSynchronousFailedTransitionCancelsIdlePreparationAndKeepsLatestInkForRetry() async throws {
         let state = ScoreMarkupState(); state.mode = .writing
         let gate = Gate(); var saved: Data?; var allowSync = false; var asyncCommits = 0

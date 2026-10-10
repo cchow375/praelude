@@ -90,6 +90,45 @@ final class GestureErgonomicsUITests: XCTestCase {
         redo.tap()
         waitForInk(1, app: app)
         shot("build8-real-two-finger-undo-redo")
+        // Undo must retain value history after leaving drawing and must not invoke a stale
+        // PencilKit tile action when the native canvas is resized by PDF zoom.
+        app.buttons["finishScoreMarkup"].tap()
+        page.tap(withNumberOfTaps: 1, numberOfTouches: 2)
+        waitForInk(0, app: app)
+        app.buttons["annotateScore"].tap()
+        XCTAssertTrue(redo.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(redo.isEnabled, "Leaving and returning to Draw must preserve Redo")
+        redo.tap()
+        waitForInk(1, app: app)
+        app.buttons["toggleAnnotationPalette"].tap()
+        let pdf = app.otherElements["scorePDF"]
+        // XCTest starts fingers only a few points apart. Cross the native recognition
+        // threshold before lifting, as in the existing focus-mode pinch regression.
+        page.pinch(withScale: 5, velocity: 1)
+        shot("build9-score-pinch-with-ink")
+        print("After actual pinch: \(pdf.value as? String ?? "missing PDF diagnostics")")
+        waitForInk(1, app: app)
+        let zoomed = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            guard let value = (object as? XCUIElement)?.value as? String,
+                  let scalePart = value.components(separatedBy: ";scale=").dropFirst().first,
+                  let scale = Double(scalePart.components(separatedBy: ",")[0]),
+                  let minimumPart = value.components(separatedBy: ",min=").dropFirst().first,
+                  let minimum = Double(minimumPart.components(separatedBy: ",")[0]) else { return false }
+            return scale > minimum * 1.2
+        }, object: pdf)
+        XCTAssertEqual(XCTWaiter.wait(for: [zoomed], timeout: 5), .completed,
+                       "The regression must exercise an actually zoomed canvas: \(pdf.value as? String ?? "missing PDF diagnostics")")
+        // XCTest cannot place its two widely separated tap points on this clipped page.
+        // Real two-finger Undo is exercised above in Draw and reading; at actual zoom,
+        // exercise the same value-history operation through its visible toolbar button.
+        // Physical two-finger Undo at zoom remains a separate device acceptance check.
+        app.buttons["toggleAnnotationPalette"].tap()
+        app.buttons["Undo ink"].tap()
+        waitForInk(0, app: app)
+        XCTAssertTrue(redo.isEnabled, "Zoomed Undo must retain Redo")
+        redo.tap()
+        waitForInk(1, app: app)
+        shot("build9-real-undo-after-mode-change-and-zoom")
         app.buttons["finishScoreMarkup"].tap()
         app.buttons["closeScore"].tap()
         app.terminate(); openScore(app, reset: false)

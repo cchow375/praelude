@@ -783,16 +783,26 @@ final class ScoreMarkupTests: XCTestCase {
         }
         let resolved = try XCTUnwrap(overlay, "PDFKit should request the overlay for the first displayed page")
         XCTAssertEqual(resolved.pageNumber, 2, "The overlay for the first displayed page must be keyed by its actual source page")
-        // PencilKit only registers a real undo action on `canvas.undoManager` for an interactive
-        // (gesture-driven) stroke, not a programmatic `canvas.drawing =` assignment — proven live by
-        // `MobileMarkupUITests.testFingerInkUndoAndRelaunch`. What this test isolates instead is
-        // exactly what changed: whether `undoInk` resolves to *this* overlay's undo manager at all.
-        var undone = false
         let manager = try XCTUnwrap(resolved.canvas.undoManager)
-        manager.registerUndo(withTarget: resolved) { _ in undone = true }
+        XCTAssertFalse(manager.isUndoRegistrationEnabled, "PencilKit's private tile targets must not enter Undo history")
+        let points = [CGPoint(x: 10, y: 20), CGPoint(x: 90, y: 30)].enumerated().map { index, point in
+            PKStrokePoint(location: point, timeOffset: Double(index) / 10, size: CGSize(width: 2, height: 2),
+                          opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        }
+        let drawing = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black),
+                                                   path: PKStrokePath(controlPoints: points, creationDate: .now))])
+        coordinator.canvasViewDidBeginUsingTool(resolved.canvas)
+        resolved.canvas.drawing = drawing; coordinator.canvasViewDrawingDidChange(resolved.canvas)
+        coordinator.canvasViewDidEndUsingTool(resolved.canvas)
+        for _ in 0..<20 { await Task.yield() }
         XCTAssertTrue(manager.canUndo)
         state.undoInk()
-        XCTAssertTrue(undone, "Undo must target the overlay for the *displayed* page (source 2), not overlays[parent.page] (source 1)")
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertTrue(resolved.canvas.drawing.strokes.isEmpty, "Undo must target displayed page 1's source page 2")
+        state.redoInk()
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(resolved.canvas.drawing, drawing)
+
     }
 
     /// Minor regression (verifier "reader lens", 2026-09-29): only the tap zones and buttons turned

@@ -18,11 +18,11 @@ public struct PostgRESTSyncTransport: SyncTransport {
     }
     public func updateLastPage(pieceID: UUID, lastPage: Int, at: Date) async throws -> SyncRPCResult {
         try await callRPC("sync_update_last_page", params: LastPageParams(
-            p_id: pieceID, p_last_page: lastPage, p_at: SyncCoding.iso8601Formatter.string(from: at)))
+            p_id: pieceID, p_last_page: lastPage, p_at: SyncCoding.string(from: at)))
     }
     public func undoAttempt(attemptID: UUID, undoneAt: Date) async throws -> SyncRPCResult {
         try await callRPC("sync_undo_attempt", params: UndoParams(
-            p_id: attemptID, p_undone_at: SyncCoding.iso8601Formatter.string(from: undoneAt)))
+            p_id: attemptID, p_undone_at: SyncCoding.string(from: undoneAt)))
     }
 
     /// Every one of the caller's own rows in `table` with `field > since`. RLS already scopes
@@ -38,7 +38,7 @@ public struct PostgRESTSyncTransport: SyncTransport {
             let orderColumn = table == "rule_settings" || table == "rewards_state" ? "owner_id" : "id"
             return try await SyncPagination.collect { offset, pageSize in
                 var query = postgrest.from(table).select()
-                if let updatedSince { query = query.gt(field, value: SyncCoding.iso8601Formatter.string(from: updatedSince)) }
+                if let updatedSince { query = query.gt(field, value: SyncCoding.string(from: updatedSince)) }
                 let response: [SyncJSON] = try await query.order(orderColumn).range(from: offset, to: offset + pageSize - 1).execute().value
                 return try response.map { value -> [String: SyncJSON] in
                     guard let row = value.objectValue else { throw SyncError.invalidRemoteRow(table) }

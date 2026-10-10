@@ -42,7 +42,17 @@ final class ScoreWorkflowUITests: XCTestCase {
         XCTAssertEqual(app.otherElements["scorePDF"].frame, scoreFrame, "Minimizing tools must not move the notation")
         XCTAssertTrue(app.buttons["verdict_clean"].isHittable)
         app.buttons["toggleAnnotationPalette"].tap()
-        shot("build8-score-annotation-during-practice")
+        // A screenshot immediately after tap can capture the 0.2s expansion mask partway
+        // through its animation. Verify the final controls and retain settled visual evidence.
+        let expanded = expectation(description: "Palette expansion completes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { expanded.fulfill() }
+        wait(for: [expanded], timeout: 2)
+        let palette = app.descendants(matching: .any).matching(identifier: "annotationControls").firstMatch
+        let pen = app.buttons["annotationTool_pen"], black = app.buttons["annotationColor_graphite"]
+        XCTAssertTrue(pen.isHittable); XCTAssertTrue(black.isHittable)
+        XCTAssertGreaterThanOrEqual(pen.frame.minX, palette.frame.minX)
+        XCTAssertGreaterThanOrEqual(black.frame.minX, palette.frame.minX)
+        shot("build9-score-annotation-during-practice-expanded")
         app.buttons["finishScoreMarkup"].press(forDuration: 0.15)
         let closed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !app.buttons["toggleAnnotationPalette"].exists }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 8), .completed, app.debugDescription)

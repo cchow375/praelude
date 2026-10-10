@@ -107,4 +107,72 @@ final class SyncCoordinatorCoverageTests: XCTestCase {
         coordinator.resetLocalAccountState()
         XCTAssertEqual(coordinator.pendingCount, 0)
     }
+
+    func testPracticeProgressQueuesParentsAttemptsAndUndoInOneDurableWrite() throws {
+        let localStore = store()
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-batch-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: path) }
+        var queueWrites = 0, stateWrites = 0
+        let syncEngine = SyncEngine(transport: NeverCalledTransport(), directory: path, writeData: { data, url in
+            if url.lastPathComponent == "sync-queue.json" { queueWrites += 1 }
+            if url.lastPathComponent == "sync-state.json" { stateWrites += 1 }
+            try data.write(to: url, options: .atomic)
+        })
+        let coordinator = SyncCoordinator(engine: syncEngine, auth: AuthManager(services: SupabaseServices(), store: localStore), store: localStore)
+        let piece = Piece(title: "Batch score")
+        try localStore.addPiece(piece)
+        try localStore.startSet(PracticeConfiguration(pieceID: piece.id))
+        try localStore.record(.clean)
+        try localStore.record(.again)
+        try localStore.undo()
+        let set = try XCTUnwrap(localStore.activeSet)
+        let session = try XCTUnwrap(localStore.state.sessions.first { $0.id == set.sessionID })
+        let previousQueueWrites = queueWrites, previousStateWrites = stateWrites
+        try coordinator.enqueuePracticeProgress(set, session: session)
+        XCTAssertEqual(queueWrites - previousQueueWrites, 1)
+        XCTAssertEqual(stateWrites - previousStateWrites, 1)
+        let saved = try SyncQueue(directory: path).entries
+        XCTAssertEqual(saved.map(\.table), ["practice_sessions", "sets", "attempts", "attempts", ""])
+        XCTAssertEqual(saved.map(\.kind), [.upsert, .upsert, .append, .append, .undoAttempt])
+        XCTAssertEqual(saved.last?.attemptID, set.attempts.last?.id)
+        let savedWrites = queueWrites
+        try coordinator.enqueuePracticeProgress(set, session: session)
+        XCTAssertEqual(queueWrites, savedWrites, "Repeating an unchanged reactive callback performs no queue write.")
+        XCTAssertEqual(try SyncQueue(directory: path).entries, saved)
+    }
+
+    func testFailedPracticeProgressBatchRetainsAttemptAndUndoForRetry() throws {
+        let localStore = store()
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("praelude-sync-batch-failure-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: path) }
+        var failQueue = false
+        let syncEngine = SyncEngine(transport: NeverCalledTransport(), directory: path, writeData: { data, url in
+            if failQueue && url.lastPathComponent == "sync-queue.json" { throw SyncError.transport("Injected full disk") }
+            try data.write(to: url, options: .atomic)
+        })
+        let coordinator = SyncCoordinator(engine: syncEngine, auth: AuthManager(services: SupabaseServices(), store: localStore), store: localStore)
+        let piece = Piece(title: "Retry score")
+        try localStore.addPiece(piece)
+        try localStore.startSet(PracticeConfiguration(pieceID: piece.id))
+        try localStore.record(.clean)
+        try coordinator.enqueuePracticeProgress(try XCTUnwrap(localStore.activeSet), session: localStore.state.sessions.last)
+        let saved = try SyncQueue(directory: path).entries
+        try localStore.record(.again)
+        try localStore.undo()
+        let changed = try XCTUnwrap(localStore.activeSet)
+        let newAttempt = try XCTUnwrap(changed.attempts.last)
+        failQueue = true
+        XCTAssertThrowsError(try coordinator.enqueuePracticeProgress(changed, session: localStore.state.sessions.last))
+        XCTAssertEqual(try SyncQueue(directory: path).entries, saved)
+        failQueue = false
+        try coordinator.enqueuePracticeProgress(changed, session: localStore.state.sessions.last)
+        let retried = try SyncQueue(directory: path).entries
+        let tail = Array(retried.dropFirst(saved.count))
+        let attemptIDs = tail.filter { $0.kind == .append }.compactMap { $0.row["id"]?.stringValue?.lowercased() }
+        XCTAssertEqual(attemptIDs, [newAttempt.id.uuidString.lowercased()])
+        XCTAssertEqual(tail.last?.kind, .undoAttempt)
+        XCTAssertEqual(tail.last?.attemptID, newAttempt.id)
+        XCTAssertEqual(Array(retried.prefix(saved.count)), saved)
+    }
+
 }

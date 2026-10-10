@@ -29,8 +29,24 @@ enum ScorePassageBoxStyle {
 /// Native focus remains available for PencilKit's lasso/edit menu. The app never forces focus
 /// or installs a hidden tool picker; UIKit can hand focus to a note editor normally.
 @MainActor final class ScoreInkCanvas: PKCanvasView {
-    private let inkUndoManager = UndoManager()
-    override var undoManager: UndoManager? { inkUndoManager }
+    let inkHistory = ScoreInkHistory()
+    var onDetached: () -> Void = {}
+    override var undoManager: UndoManager? { inkHistory.undoManager }
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        inkHistory.drawing = { [weak self] in self?.drawing ?? PKDrawing() }
+        inkHistory.applyDrawing = { [weak self] in self?.drawing = $0 }
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func replaceDrawing(_ value: PKDrawing) {
+        inkHistory.reset(to: value)
+        drawing = value
+    }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { inkHistory.detach(); onDetached() }
+        else { inkHistory.resumePendingRequest() }
+    }
 }
 
 /// A drawn note has no backing UILabel. Give VoiceOver and other accessibility clients the
@@ -197,7 +213,9 @@ enum ScorePassageBoxStyle {
             layerCanvas.backgroundColor = .clear; layerCanvas.isOpaque = false
             layerCanvas.overrideUserInterfaceStyle = .light
             layerCanvas.isScrollEnabled = false
-            layerCanvas.minimumZoomScale = 1; layerCanvas.maximumZoomScale = 32
+            layerCanvas.minimumZoomScale = 1; layerCanvas.maximumZoomScale = 1
+            layerCanvas.panGestureRecognizer.isEnabled = false
+            layerCanvas.pinchGestureRecognizer?.isEnabled = false
             layerCanvas.contentInsetAdjustmentBehavior = .never
             addSubview(layerCanvas)
         }
@@ -264,31 +282,24 @@ enum ScorePassageBoxStyle {
         layoutNotePanel()
         if laidOutSize != bounds.size { laidOutSize = bounds.size; setNeedsDisplay(); refreshNoteAccessibility() }
     }
-    /// PDFKit applies a transform to its overlay, but that does not change PencilKit's own zoom.
-    /// Increase the canvas's real zoom and counter-scale its view. This asks PencilKit to rerender
-    /// its vector strokes at the visible scale, while a point in saved page coordinates stays put.
-    /// Neither PKDrawing nor its source-page coordinates are ever transformed/reassigned.
+    /// PDFKit is the sole navigation owner. A second zooming scroll view inside its overlay
+    /// allowed ink and score to move independently on iOS 18. Keep source geometry fixed and
+    /// bound flat backing resolution, without changing PencilKit's zoom/content offset.
     func updateInkResolution(displayScale: CGFloat) {
-        let scale = displayScale.isFinite ? min(32, max(1, displayScale)) : 1
-        guard abs(renderedInkScale - scale) > 0.001 else { return }
+        let desired = (window?.screen.scale ?? UIScreen.main.scale) * (displayScale.isFinite ? max(1, displayScale) : 1)
+        let area = max(1, sourceCanvasFrame.width * sourceCanvasFrame.height)
+        let scale = max(1, min(desired, sqrt(4_000_000 / area)))
+        guard abs(renderedInkScale - scale) > 0.05 else { return }
         renderedInkScale = scale
-        layoutInkCanvases()
-        // The annotation chrome is a flat UIView; bound its backing bitmap separately from
-        // PencilKit's tiled ink so a deep zoom never allocates an enormous full-page image.
-        contentScaleFactor = min((window?.screen.scale ?? UIScreen.main.scale) * scale,
-                                 sqrt(4_000_000 / max(1, bounds.width * bounds.height)))
+        contentScaleFactor = scale
+        for layerCanvas in [otherLayersCanvas, canvas] { layerCanvas.contentScaleFactor = scale }
         setNeedsDisplay()
     }
     private func layoutInkCanvases() {
         guard sourceCanvasFrame.width > 0, sourceCanvasFrame.height > 0 else { return }
-        let scale = renderedInkScale
         for layerCanvas in [otherLayersCanvas, canvas] {
-            layerCanvas.transform = CGAffineTransform(scaleX: 1 / scale, y: 1 / scale)
-            layerCanvas.bounds = CGRect(origin: .zero, size: CGSize(width: sourceCanvasFrame.width * scale, height: sourceCanvasFrame.height * scale))
-            layerCanvas.center = CGPoint(x: sourceCanvasFrame.midX, y: sourceCanvasFrame.midY)
-            if abs(layerCanvas.zoomScale - scale) > 0.001 { layerCanvas.setZoomScale(scale, animated: false) }
-            layerCanvas.contentSize = CGSize(width: sourceCanvasFrame.width * scale, height: sourceCanvasFrame.height * scale)
-            if layerCanvas.contentOffset != .zero { layerCanvas.contentOffset = .zero }
+            if layerCanvas.frame != sourceCanvasFrame { layerCanvas.frame = sourceCanvasFrame }
+            if layerCanvas.contentSize != sourceCanvasFrame.size { layerCanvas.contentSize = sourceCanvasFrame.size }
         }
     }
     func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {

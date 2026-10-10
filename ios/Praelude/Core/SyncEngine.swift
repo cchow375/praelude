@@ -139,6 +139,7 @@ public final class SyncEngine {
     private let stuckThreshold: TimeInterval
     private var firstFailureAt: Date?
     private var storageIsUnavailable = false
+    private let snapshotEngineID = UUID()
     private var accountGeneration = 0
 
     public var pendingCount: Int { queue.entries.count }
@@ -223,7 +224,7 @@ public final class SyncEngine {
     public func hasSnapshot(table: String) -> Bool {
         (state.outboundSnapshots ?? [:]).keys.contains { $0.hasPrefix("upsert#\(table)#") }
     }
-    private func differsFromDefault<T: Encodable>(_ value: T, _ defaultValue: T, ignoring extraKeys: Set<String> = []) throws -> Bool {
+    nonisolated private static func differsFromDefault<T: Encodable>(_ value: T, _ defaultValue: T, ignoring extraKeys: Set<String> = []) throws -> Bool {
         func content(_ object: T) throws -> [String: SyncJSON] {
             let row = try SyncJSON(encoding: object).objectValue ?? [:]
             return row.filter { !extraKeys.union(["created_at", "updated_at"]).contains($0.key) }
@@ -232,8 +233,11 @@ public final class SyncEngine {
     }
     public func bindAccount(_ userID: UUID) throws {
         if let owner = state.accountOwnerID, owner != userID { throw SyncError.transport("This sync queue belongs to a different account.") }
+        guard state.accountOwnerID != userID else { return }
+        let previous = state.accountOwnerID
         state.accountOwnerID = userID
-        try persistState()
+        do { try persistState() }
+        catch { state.accountOwnerID = previous; throw error }
     }
     public var hasHydratedProfile: Bool {
         state.accountOwnerID != nil && state.profileHydratedOwnerID == state.accountOwnerID
@@ -436,22 +440,72 @@ public final class SyncEngine {
                 row.removeValue(forKey: "updated_at")
             }
             return row
-        case .updateLastPage: return ["last_page": .number(Double(entry.lastPage ?? 1)), "at": .string(SyncCoding.iso8601Formatter.string(from: entry.at))]
-        case .undoAttempt: return ["undone_at": .string(SyncCoding.iso8601Formatter.string(from: entry.at))]
+        case .updateLastPage: return ["last_page": .number(Double(entry.lastPage ?? 1)), "at": .string(SyncCoding.string(from: entry.at))]
+        case .undoAttempt: return ["undone_at": .string(SyncCoding.string(from: entry.at))]
         }
     }
 
     /// Reconciles offline/guest/imported data as well as edits from views that do not push explicitly.
     /// Dependencies precede child rows and every rep; signatures prevent unchanged history writes.
     public func enqueueLibrarySnapshot(_ library: LibraryState) throws {
+        try enqueueSnapshot(Self.librarySnapshotEntries(library, context: librarySnapshotContext()))
+    }
+
+    /// A prepared value cannot cross accounts, queue resets or engine instances. Its fields are
+    /// intentionally private: only preparation can create a receipt suitable for publication.
+    public struct PreparedLibrarySnapshot: Sendable {
+        fileprivate let engineID: UUID
+        fileprivate let generation: Int
+        fileprivate let owner: UUID?
+        fileprivate let entries: [SyncQueueEntry]
+    }
+    private struct LibrarySnapshotContext: Sendable {
+        let at: Date
+        let profileBackendFields: ProfileBackendFields
+        let snapshotTables: Set<String>
+    }
+    private func librarySnapshotContext() -> LibrarySnapshotContext {
+        LibrarySnapshotContext(at: now(), profileBackendFields: state.profileBackendFields,
+                               snapshotTables: Set(["rule_settings", "rewards_state", "account_preferences", "profiles"].filter { hasSnapshot(table: $0) }))
+    }
+
+    public func prepareLibrarySnapshot(_ library: LibraryState) async throws -> PreparedLibrarySnapshot {
+        let context = librarySnapshotContext()
+        let engineID = snapshotEngineID, generation = accountGeneration, owner = state.accountOwnerID
+        let work = Task.detached(priority: .utility) {
+            try Task.checkCancellation()
+            return try Self.librarySnapshotEntries(library, context: context)
+        }
+        let entries = try await withTaskCancellationHandler {
+            try await work.value
+        } onCancel: { work.cancel() }
+        try Task.checkCancellation()
+        return PreparedLibrarySnapshot(engineID: engineID, generation: generation, owner: owner, entries: entries)
+    }
+
+    public func enqueuePreparedLibrarySnapshot(_ prepared: PreparedLibrarySnapshot) throws {
+        try Task.checkCancellation()
+        guard prepared.engineID == snapshotEngineID, prepared.generation == accountGeneration,
+              prepared.owner == state.accountOwnerID else { throw SyncError.transport("Account changed during snapshot preparation.") }
+        try enqueueSnapshot(prepared.entries)
+    }
+
+    public func enqueueLibrarySnapshotAsync(_ library: LibraryState) async throws {
+        let prepared = try await prepareLibrarySnapshot(library)
+        try enqueuePreparedLibrarySnapshot(prepared)
+    }
+
+    nonisolated private static func librarySnapshotEntries(_ library: LibraryState, context: LibrarySnapshotContext) throws -> [SyncQueueEntry] {
         var entries: [SyncQueueEntry] = []
         func upsert<T: Encodable>(_ table: String, _ value: T) throws {
+            try Task.checkCancellation()
             guard let row = try SyncJSON(encoding: value).objectValue else { throw SyncError.invalidRemoteRow(table) }
-            entries.append(.upsert(table: table, row: row, enqueuedAt: now()))
+            entries.append(.upsert(table: table, row: row, enqueuedAt: context.at))
         }
         func append<T: Encodable>(_ table: String, _ value: T) throws {
+            try Task.checkCancellation()
             guard let row = try SyncJSON(encoding: value).objectValue else { throw SyncError.invalidRemoteRow(table) }
-            entries.append(.append(table: table, row: row, enqueuedAt: now()))
+            entries.append(.append(table: table, row: row, enqueuedAt: context.at))
         }
         for value in library.instruments { try upsert("instruments", InstrumentSyncRow(value)) }
         for value in library.pieces { try upsert("pieces", PieceSyncRow(value)) }
@@ -483,33 +537,33 @@ public final class SyncEngine {
         for value in library.notebookEntries { try upsert("notebook_entries", NotebookEntrySyncRow(value)) }
         for value in library.goals { try upsert("practice_goals", PracticeGoalSyncRow(value)) }
         for value in library.routines { try upsert("practice_routines", PracticeRoutineSyncRow(value)) }
-        for value in library.sessions { try upsert("practice_sessions", PracticeSessionSyncRow(value, pushedAt: now())) }
+        for value in library.sessions { try upsert("practice_sessions", PracticeSessionSyncRow(value, pushedAt: context.at)) }
         let sets = library.history + (library.activeSet.map { [$0] } ?? [])
-        for value in sets { try upsert("sets", SetSyncRow(value, pushedAt: now())) }
+        for value in sets { try upsert("sets", SetSyncRow(value, pushedAt: context.at)) }
         // Skip fresh-device defaults until the first server copy is received. User-customized
         // guest state and later changes still enqueue, including views without explicit hooks.
         let ruleSettings = RuleSettingsSyncRow(library.ruleSettings)
-        if try hasSnapshot(table: "rule_settings") || differsFromDefault(ruleSettings, RuleSettingsSyncRow(RuleSettings())) {
+        if try context.snapshotTables.contains("rule_settings") || differsFromDefault(ruleSettings, RuleSettingsSyncRow(RuleSettings())) {
             try upsert("rule_settings", ruleSettings)
         }
         let rewardsState = RewardsStateSyncRow(library.rewardsState)
-        if try hasSnapshot(table: "rewards_state") || differsFromDefault(rewardsState, RewardsStateSyncRow(RewardsState())) {
+        if try context.snapshotTables.contains("rewards_state") || differsFromDefault(rewardsState, RewardsStateSyncRow(RewardsState())) {
             try upsert("rewards_state", rewardsState)
         }
         let preferences = AccountPreferencesSyncRow(library.preferences)
-        if try hasSnapshot(table: "account_preferences") || differsFromDefault(preferences, AccountPreferencesSyncRow(Preferences())) {
+        if try context.snapshotTables.contains("account_preferences") || differsFromDefault(preferences, AccountPreferencesSyncRow(Preferences())) {
             try upsert("account_preferences", preferences)
         }
         if library.profile.ownerID != nil {
-            let profile = ProfileSyncRow(library.profile, extras: state.profileBackendFields)
-            if try hasSnapshot(table: "profiles") || differsFromDefault(profile, ProfileSyncRow(Profile(), extras: ProfileBackendFields()), ignoring: ["join_date"]) {
+            let profile = ProfileSyncRow(library.profile, extras: context.profileBackendFields)
+            if try context.snapshotTables.contains("profiles") || differsFromDefault(profile, ProfileSyncRow(Profile(), extras: ProfileBackendFields()), ignoring: ["join_date"]) {
                 try upsert("profiles", profile)
             }
         }
         for set in sets {
             for attempt in set.attempts {
                 try append("attempts", AttemptSyncRow(attempt, setID: set.id))
-                if let undoneAt = attempt.undoneAt { entries.append(.undoAttempt(attemptID: attempt.id, undoneAt: undoneAt)) }
+                if let undoneAt = attempt.undoneAt { entries.append(.undoAttempt(attemptID: attempt.id, undoneAt: undoneAt, enqueuedAt: context.at)) }
             }
         }
         for value in library.ruleEvents { try append("rule_events", RuleEventSyncRow(value)) }
@@ -519,9 +573,9 @@ public final class SyncEngine {
         for value in library.coldGrades { try append("cold_grades", ColdGradeRecordSyncRow(value)) }
         for value in library.breakPointTaps { try append("break_point_taps", BreakPointTapSyncRow(value)) }
         for piece in library.pieces {
-            entries.append(.updateLastPage(pieceID: piece.id, lastPage: piece.lastPage, at: piece.lastPageUpdatedAt))
+            entries.append(.updateLastPage(pieceID: piece.id, lastPage: piece.lastPage, at: piece.lastPageUpdatedAt, enqueuedAt: context.at))
         }
-        try enqueueSnapshot(entries)
+        return entries
     }
 
     /// Drops every queued write without sending it. Used only on sign-out: the queue is per-account

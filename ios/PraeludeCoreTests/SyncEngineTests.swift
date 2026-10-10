@@ -617,6 +617,91 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(server.count(table: "practice_sessions"), 1)
     }
 
+    func testAccountBindingSkipsUnchangedWritesAndRetriesAfterFailedPersistence() throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        var failWrite = true, stateWrites = 0
+        let engine = SyncEngine(transport: FakeSyncTransport(server: FakeSyncServer()), directory: path, writeData: { data, url in
+            if url.lastPathComponent == "sync-state.json" {
+                stateWrites += 1
+                if failWrite { throw SyncError.transport("Injected write failure") }
+            }
+            try data.write(to: url, options: .atomic)
+        })
+        let owner = UUID()
+        XCTAssertThrowsError(try engine.bindAccount(owner))
+        XCTAssertNil(engine.state.accountOwnerID)
+        failWrite = false
+        try engine.bindAccount(owner)
+        let successfulWrites = stateWrites
+        try engine.bindAccount(owner)
+        XCTAssertEqual(stateWrites, successfulWrites, "The already durable account binding must not re-encode the full sync state.")
+        let reopened = SyncEngine(transport: FakeSyncTransport(server: FakeSyncServer()), directory: path)
+        XCTAssertEqual(reopened.state.accountOwnerID, owner)
+        XCTAssertThrowsError(try engine.bindAccount(UUID()))
+        XCTAssertEqual(engine.state.accountOwnerID, owner)
+    }
+
+    func testAsyncLibraryPreparationMatchesSynchronousPayloadsAndKeepsEveryAttempt() async throws {
+        let firstPath = directory(), secondPath = directory()
+        defer { try? FileManager.default.removeItem(at: firstPath); try? FileManager.default.removeItem(at: secondPath) }
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let transport = FakeSyncTransport(server: FakeSyncServer())
+        let first = SyncEngine(transport: transport, directory: firstPath, now: { timestamp })
+        let second = SyncEngine(transport: transport, directory: secondPath, now: { timestamp })
+        var library = LibraryState()
+        let piece = Piece(title: "Prepared score", pageCount: 2)
+        let session = PracticeSession(pieceID: piece.id, focus: "Pulse")
+        var set = ActiveSet(sessionID: session.id, configuration: PracticeConfiguration(pieceID: piece.id, targetCount: 2000))
+        set.attempts = (0..<305).map { Attempt(verdict: .clean, date: timestamp.addingTimeInterval(Double($0)), bpm: 72) }
+        set.attempts[0].undoneAt = timestamp.addingTimeInterval(400)
+        library.pieces = [piece]; library.sessions = [session]; library.history = [set]
+        library.inkStrokes = [InkStroke(pieceID: piece.id, page: 1, data: Data((0...255).map(UInt8.init)))]
+        library.ruleSettings.r1MaxMeasures += 1
+        try first.enqueueLibrarySnapshot(library)
+        try await second.enqueueLibrarySnapshotAsync(library)
+        XCTAssertEqual(second.state.outboundSnapshots, first.state.outboundSnapshots)
+        let synchronous = try SyncQueue(directory: firstPath).entries
+        let asynchronous = try SyncQueue(directory: secondPath).entries
+        XCTAssertEqual(asynchronous.map(\.kind), synchronous.map(\.kind))
+        XCTAssertEqual(asynchronous.map(\.table), synchronous.map(\.table))
+        XCTAssertEqual(asynchronous.filter { $0.table == "attempts" }.count, 305)
+        XCTAssertEqual(asynchronous.first { $0.kind == .undoAttempt }?.attemptID, set.attempts[0].id)
+        let originalCount = second.pendingCount
+        try await second.enqueueLibrarySnapshotAsync(library)
+        XCTAssertEqual(second.pendingCount, originalCount, "Repeated preparation must retain existing snapshot deduplication.")
+    }
+
+    func testPreparedSnapshotCannotPublishAfterSameAccountResetOrThroughAnotherEngine() async throws {
+        let path = directory(), otherPath = directory()
+        defer { try? FileManager.default.removeItem(at: path); try? FileManager.default.removeItem(at: otherPath) }
+        let transport = FakeSyncTransport(server: FakeSyncServer()), owner = UUID()
+        let engine = SyncEngine(transport: transport, directory: path)
+        let other = SyncEngine(transport: transport, directory: otherPath)
+        try engine.bindAccount(owner); try other.bindAccount(owner)
+        var library = LibraryState(); library.profile.ownerID = owner
+        library.pieces = [Piece(title: "Old captured account")]
+        let prepared = try await engine.prepareLibrarySnapshot(library)
+        XCTAssertThrowsError(try other.enqueuePreparedLibrarySnapshot(prepared))
+        XCTAssertEqual(other.pendingCount, 0)
+        try engine.resetLocalAccountState()
+        try engine.bindAccount(owner)
+        XCTAssertThrowsError(try engine.enqueuePreparedLibrarySnapshot(prepared))
+        XCTAssertEqual(engine.pendingCount, 0, "An old snapshot must not repopulate a reset queue, even after signing into the same account.")
+        XCTAssertTrue(engine.state.outboundSnapshots?.isEmpty == true)
+    }
+
+    func testCancelledSnapshotPreparationNeverEnqueuesItsCapturedLibrary() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let engine = SyncEngine(transport: FakeSyncTransport(server: FakeSyncServer()), directory: path)
+        var library = LibraryState(); library.pieces = [Piece(title: "Cancelled")]
+        let work = Task { try await engine.enqueueLibrarySnapshotAsync(library) }
+        work.cancel()
+        do { try await work.value; XCTFail("Expected cancelled preparation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertEqual(engine.pendingCount, 0)
+        XCTAssertTrue(engine.state.outboundSnapshots?.isEmpty == true)
+    }
+
     func testCorruptQueueIsPreservedAndNeverReplacedWithAnEmptyQueue() throws {
         let directory = directory()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

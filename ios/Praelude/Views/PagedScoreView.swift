@@ -214,6 +214,7 @@ struct PagedScoreView: UIViewRepresentable {
         view.addGestureRecognizer(pageTap)
         let undoTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.twoFingerTapped(_:)))
         undoTap.numberOfTouchesRequired = 2
+        undoTap.cancelsTouchesInView = false
         undoTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         undoTap.delegate = context.coordinator
         view.addGestureRecognizer(undoTap); context.coordinator.undoTap = undoTap
@@ -376,6 +377,13 @@ struct PagedScoreView: UIViewRepresentable {
         private var idleSnapshots: [Int: IdleSnapshot] = [:]
         init(parent: PagedScoreView) { self.parent = parent }
         var otherLayersDrawingCache: [Int: [Data]] = [:]
+        private var observedZoomGestures: Set<ObjectIdentifier> = []
+        @objc private func pdfZoomEnded(_ recognizer: UIPinchGestureRecognizer) {
+            guard recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.overlays.values.forEach { $0.canvas.inkHistory.resumePendingRequest() }
+            }
+        }
         func enqueueViewUpdate(_ updated: PagedScoreView, view: ZoomableScorePDFView) {
             guard !viewIsDismantled else { return }
             pendingViewUpdate = updated
@@ -515,10 +523,10 @@ struct PagedScoreView: UIViewRepresentable {
                     loading = true
                     do {
                         let drawing = try decodeDrawing(saved)
-                        overlay?.canvas.drawing = drawing; committed[number] = saved
+                        overlay?.canvas.replaceDrawing(drawing); committed[number] = saved
                     }
                     catch { parent.markup.errorMessage = "The saved drawing could not be opened."; loading = false; return }
-                    loading = false; overlay?.canvas.undoManager?.removeAllActions()
+                    loading = false
                 }
                 canvasBaseline[number] = overlay.flatMap { encodedInk($0.canvas) }
                 dirtyPages.remove(number); parent.markup.clearPendingInk(page: number)
@@ -572,7 +580,7 @@ struct PagedScoreView: UIViewRepresentable {
                 do {
                     let baseline = try decodeDrawing(pending.expected)
                     canvasBaseline[number] = baseline.strokes.isEmpty ? nil : baseline.dataRepresentation()
-                    overlay.canvas.drawing = pending.data.isEmpty ? PKDrawing() : try decodeDrawing(pending.data)
+                    overlay.canvas.replaceDrawing(pending.data.isEmpty ? PKDrawing() : try decodeDrawing(pending.data))
                     committed[number] = pending.expected
                     dirtyPages.insert(number)
                 } catch {
@@ -580,12 +588,33 @@ struct PagedScoreView: UIViewRepresentable {
                     overlay.contentReadOnly = true
                 }
             } else if let data = parent.drawingData(number) {
-                do { overlay.canvas.drawing = try decodeDrawing(data); committed[number] = data }
+                do { overlay.canvas.replaceDrawing(try decodeDrawing(data)); committed[number] = data }
                 catch { parent.markup.errorMessage = "The saved ink on page \(number) could not be read. It has been preserved."; overlay.contentReadOnly = true }
             }
             loading = false
             if !dirtyPages.contains(number) { canvasBaseline[number] = encodedInk(overlay.canvas) }
             overlay.canvas.delegate = self
+            overlay.canvas.inkHistory.acceptsRequest = { [weak self, weak overlay] in
+                guard let self, let overlay else { return false }
+                return !self.viewIsDismantled && self.overlays[number] === overlay && overlay.canvas.window != nil
+                    && self.sourcePage(forDisplayIndex: self.parent.page) == number
+                    && self.parent.allowsInk && !overlay.inkReadOnly && !overlay.contentReadOnly
+            }
+            overlay.canvas.inkHistory.mayRestore = { [weak self] in
+                guard let self, let view = self.pdfView else { return false }
+                return !self.isApplyingViewUpdate && !self.hasActiveZoomGesture(in: view)
+            }
+            overlay.canvas.onDetached = { [weak self, weak overlay] in
+                guard let self, let overlay, self.overlays[number] === overlay else { return }
+                self.activeToolPages.remove(number)
+                self.scheduleAutosave()
+            }
+            overlay.canvas.inkHistory.onStateChanged = { [weak self] in self?.updateUndoState() }
+            overlay.canvas.inkHistory.onRestored = { [weak self, weak overlay] in
+                guard let self, let overlay else { return }
+                // Mark the restored value dirty immediately, before a page/save action can run.
+                self.canvasViewDrawingDidChange(overlay.canvas)
+            }
             overlays[number] = overlay
             refresh(overlay)
             return overlay
@@ -595,6 +624,13 @@ struct PagedScoreView: UIViewRepresentable {
             func configure(_ view: UIView) {
                 guard !(view is ScorePageOverlay), !(view is PKCanvasView) else { return }
                 if let scrollView = view as? UIScrollView {
+                    if let pinch = scrollView.pinchGestureRecognizer,
+                       observedZoomGestures.insert(ObjectIdentifier(pinch)).inserted {
+                        // A pinch also contains two fingers. It must win the complete sequence;
+                        // simultaneous recognition previously fired Undo during actual PDF zoom.
+                        undoTap?.require(toFail: pinch)
+                        pinch.addTarget(self, action: #selector(pdfZoomEnded(_:)))
+                    }
                     scrollView.panGestureRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
                     scrollView.panGestureRecognizer.require(toFail: overlay.selectionPan)
                     scrollView.panGestureRecognizer.require(toFail: overlay.stampPan)
@@ -617,9 +653,13 @@ struct PagedScoreView: UIViewRepresentable {
             }
         }
         func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
+            guard let overlay = overlayView as? ScorePageOverlay, overlays[overlay.pageNumber] === overlay else { return }
+            // Removal cancels this tool even if PencilKit omits its end callback. Checkpoint its
+            // current value; a failed write still pins this exact canvas for retry.
+            overlay.canvas.inkHistory.detach()
+            activeToolPages.remove(overlay.pageNumber)
             _ = flush()
-            guard let overlay = overlayView as? ScorePageOverlay, overlays[overlay.pageNumber] === overlay,
-                  !dirtyPages.contains(overlay.pageNumber) else { return }
+            guard !dirtyPages.contains(overlay.pageNumber) else { return }
             overlays.removeValue(forKey: overlay.pageNumber); committed.removeValue(forKey: overlay.pageNumber)
             canvasBaseline.removeValue(forKey: overlay.pageNumber)
             activeToolPages.remove(overlay.pageNumber)
@@ -649,7 +689,7 @@ struct PagedScoreView: UIViewRepresentable {
                 loading = true
                 do {
                     let data = stored
-                    overlay.canvas.drawing = try decodeDrawing(data)
+                    overlay.canvas.replaceDrawing(try decodeDrawing(data))
                     committed[number] = data
                     canvasBaseline[number] = encodedInk(overlay.canvas)
                 } catch { parent.markup.errorMessage = "Saved ink could not be reopened. The original is preserved."; overlay.contentReadOnly = true }
@@ -664,7 +704,10 @@ struct PagedScoreView: UIViewRepresentable {
         }
         func refreshInkResolution() {
             guard let pdfView else { return }
-            for overlay in overlays.values { overlay.updateInkResolution(displayScale: pdfView.scaleFactor) }
+            for overlay in overlays.values {
+                overlay.updateInkResolution(displayScale: pdfView.scaleFactor)
+                overlay.canvas.inkHistory.resumePendingRequest()
+            }
         }
         /// Keep inactive ink as native PencilKit drawing, so zoom rerenders its vectors too.
         /// The canvas rejects every touch and has no delegate/undo observer; other layers cannot edit.
@@ -674,7 +717,7 @@ struct PagedScoreView: UIViewRepresentable {
             guard otherLayersDrawingCache[number] != blobs else { return }
             do {
                 let drawing = try InkPerStroke.merge(blobs)
-                overlay.otherLayersCanvas.drawing = drawing
+                overlay.otherLayersCanvas.replaceDrawing(drawing)
                 otherLayersDrawingCache[number] = blobs
             } catch {
                 parent.markup.errorMessage = "A hidden ink layer could not be read. Its original marks are preserved."
@@ -683,6 +726,9 @@ struct PagedScoreView: UIViewRepresentable {
         func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
             if let number = overlays.first(where: { $0.value.canvas === canvasView })?.key {
                 activeToolPages.insert(number)
+                dirtyPages.insert(number)
+                editGenerations[number, default: 0] &+= 1
+                (canvasView as? ScoreInkCanvas)?.inkHistory.beginTool()
                 // Cancel the idle delay, but let an already prepared older snapshot finish safely.
                 // Its generation cannot clear a newer stroke or replace the live canvas.
                 if runningIdleEpoch == nil { autosave?.cancel() }
@@ -696,6 +742,7 @@ struct PagedScoreView: UIViewRepresentable {
             logCanvas("drawingDidChange", canvas: canvasView)
             #endif
             guard !loading, let number = overlays.first(where: { $0.value.canvas === canvasView })?.key else { return }
+            (canvasView as? ScoreInkCanvas)?.inkHistory.drawingChanged()
             dirtyPages.insert(number)
             editGenerations[number, default: 0] &+= 1
             // Undo/Redo also emits drawing changes, without begin/end tool callbacks.
@@ -707,6 +754,8 @@ struct PagedScoreView: UIViewRepresentable {
             #endif
             guard let number = overlays.first(where: { $0.value.canvas === canvasView })?.key else { return }
             activeToolPages.remove(number)
+            let state = canvasView.drawingGestureRecognizer.state
+            (canvasView as? ScoreInkCanvas)?.inkHistory.endTool(cancelled: state == .cancelled || state == .failed)
             updateUndoState()
             scheduleAutosave()
             // Do not refit the PDF underneath the first Pencil stroke.
@@ -815,10 +864,13 @@ struct PagedScoreView: UIViewRepresentable {
             idleSnapshots.removeAll()
             saveEpoch &+= 1; runningIdleEpoch = nil
         }
-        #if DEBUG
         func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
+            (canvasView as? ScoreInkCanvas)?.inkHistory.finishedRendering()
+            #if DEBUG
             logCanvas("didFinishRendering", canvas: canvasView)
+            #endif
         }
+        #if DEBUG
         private func logCanvas(_ event: String, canvas: PKCanvasView) {
             guard ProcessInfo.processInfo.arguments.contains("--uitesting") else { return }
             let number = overlays.first(where: { $0.value.canvas === canvas })?.key ?? 0
@@ -831,7 +883,7 @@ struct PagedScoreView: UIViewRepresentable {
         #endif
         @discardableResult func flush() -> Bool {
             cancelIdleSave()
-            guard !flushing,
+            guard !flushing, activeToolPages.isEmpty,
                   parent.markup.pendingInkDocument == nil || parent.markup.pendingInkDocument == parent.url,
                   parent.markup.pendingInkLayer == nil || parent.markup.pendingInkLayer == parent.activeLayer else { return false }
             flushing = true
@@ -1010,7 +1062,9 @@ struct PagedScoreView: UIViewRepresentable {
             return parent.markup.mode == .reading
         }
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            if gestureRecognizer === undoTap || otherGestureRecognizer === undoTap { return otherGestureRecognizer is UIPinchGestureRecognizer }
+            if gestureRecognizer === undoTap || otherGestureRecognizer === undoTap {
+                return false
+            }
             return true
         }
 

@@ -339,6 +339,40 @@ final class SyncCoverageTests: XCTestCase {
         XCTAssertEqual(roundTripped.data, stroke.data)
     }
 
+    func testInkWireHexPreservesEveryByteAndLargeSlicedData() throws {
+        XCTAssertEqual(Data().praeludeHexLiteral, "\\x")
+        XCTAssertEqual(Data([0, 1, 15, 16, 127, 128, 254, 255]).praeludeHexLiteral,
+                       "\\x00010f107f80feff")
+        let bytes = Data((0..<131_072).map { UInt8(truncatingIfNeeded: $0) })
+        let slice = bytes.dropFirst(17).dropLast(11)
+        let encoded = slice.praeludeHexLiteral
+        XCTAssertEqual(encoded.utf8.count, slice.count * 2 + 2)
+        XCTAssertEqual(Data(praeludeHexLiteral: encoded), slice)
+        XCTAssertEqual(Data(praeludeHexLiteral: String(encoded.dropFirst(2))), slice)
+    }
+
+    func testConcurrentSyncDateCodingKeepsTheExistingWireFormat() async throws {
+        let dates = (0..<128).map { Date(timeIntervalSince1970: 1_700_000_000 + Double($0) * 0.123456) }
+        let expected = dates.map { SyncCoding.iso8601Formatter.string(from: $0) }
+        let encoded = try await withThrowingTaskGroup(of: (Int, String).self) { group in
+            for (index, date) in dates.enumerated() {
+                group.addTask {
+                    let bytes = try SyncCoding.encoder.encode(["date": date])
+                    let row = try JSONDecoder().decode([String: String].self, from: bytes)
+                    return (index, try XCTUnwrap(row["date"]))
+                }
+            }
+            var values = [String](repeating: "", count: dates.count)
+            for try await (index, value) in group { values[index] = value }
+            return values
+        }
+        XCTAssertEqual(encoded, expected)
+        for (date, text) in zip(dates, encoded) {
+            XCTAssertEqual(try XCTUnwrap(SyncCoding.parseDate(text)).timeIntervalSince1970,
+                           date.timeIntervalSince1970, accuracy: 0.001)
+        }
+    }
+
     /// A row written before this fix — or by the whole-page compatibility shim, which never computes
     /// a fingerprint at all — has none. It must still decode, with `fingerprint == nil`, not fail.
     func testInkStrokeSyncRowWithNoFingerprintStillDecodes() throws {
