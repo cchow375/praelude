@@ -1,6 +1,6 @@
 # Build9 — physical Undo, score navigation and responsiveness repair
 
-October 9, 2026. Work in progress. Build8 remains installed; physical acceptance failed.
+October 9, 2026. Build9 is installed after the guarded update; actual opening and physical acceptance remain pending. Build8 failed physical acceptance.
 
 ## Actual device evidence
 
@@ -44,11 +44,12 @@ than treating tool-end as proof that the final drawing has arrived.
 - [x] Actual two-finger Undo in Draw and reading; actual pinch, toolbar Undo/Redo at zoom and reopening saved ink.
 - [ ] Physical two-finger Undo at zoom (XCTest cannot place its points on the clipped page).
 - [x] Signed build9, release fixture exclusion and actual profile/signature verification.
-- [ ] Fresh guarded same-bundle update with complete owned-file preservation.
+- [x] Fresh guarded same-bundle update with complete owned-file preservation.
 - [ ] Physical Pencil/Done/Undo/Redo retry and post-launch evidence.
 
-**Next steps:** finish the focused Undo repair, resolve regression failures, then repeat the
-guarded update and physical acceptance. Simulator success is separate from physical iOS18.7.8.
+**Next steps:** open installed build9, obtain a post-launch readback, then repeat physical
+Pencil/Done/Undo/zoom and profile responsiveness on the actual iPad. Simulator success is
+separate from physical iOS18.7.8 and does not establish a week of sustained reliability.
 
 ## Physical performance evidence
 
@@ -146,3 +147,12 @@ updates batch their ordered parent/set/attempt/Undo entries in one queue write.
   exclusion. Profile expires October16 at23:56:11UTC. This is a local package gate,
   separate from installation and physical acceptance. Sanitized details:
   [signed-release.json](signed-release.json).
+
+- Guarded build9 installation completes at00:45UTC October10 (October9 local). All13
+  owned files/12,960,329 bytes match exactly by filename, size and SHA-256. Schema5/
+  revision2167 retains6 pieces,53 passages,54 set IDs including the paused active set,
+ 35 sessions,317 unique attempts,259 ink rows (202 active),2 stamps and2 notes.
+  The helper-rebuilt installed binary passes independent strict signing again; its
+  actual executable hash is recorded in [personal-ipad-install.json](personal-ipad-install.json),
+  distinct from the earlier package-only hash. Automatic launch was declined by iOS;
+  user opening, post-launch readback and physical profiling remain pending.

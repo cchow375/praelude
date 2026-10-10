@@ -1,11 +1,14 @@
 # Build9 — physical usability regressions and profiling
 
-October9, 2026. Source2.0.0/build9/schema5 is frozen for final verification. Build8 remains installed
-and physical acceptance has failed. The repaired actual pinch and independent score/ink alignment
+October9, 2026. Native2.0.0/build9/schema5 is installed from `2de2444a782cb54a5cd31966ecc33257e4511dd0`,
+tag `ios-v2.0.0-build9-candidate`. Build8's physical failure remains historical evidence.
+The repaired actual pinch and independent score/ink alignment
 review pass below. Final gesture UI passes70.518s, including toolbar Undo/Redo at actual zoom and
 saved ink after relaunch. Signed device Release and strict signing/fixture checks and independent
-artifact verification pass; installation and physical two-finger Undo at zoom remain pending. No build9
-measured speedup is claimed. The Mac remains v11.1.0/schema21.
+artifact verification pass. Independent installation review verifies13 owned files/12,960,329 bytes
+unchanged by filename, size and SHA-256. Automatic launch was denied, and read-only inspection reports
+the app not running; the user has been asked to open it. Launch/readback and physical two-finger Undo
+at zoom remain pending. No build9 measured speedup is claimed. The Mac remains v11.1.0/schema21.
 
 ## Reported physical behavior
 
@@ -59,7 +62,9 @@ and cannot be added together. Private device traces stay outside Git. No build9 
 | Final gesture / zoom / relaunch UI |PASS70.518s: actual stroke; two-finger Undo in Draw/reading; Redo; mode change; strict real PDF pinch (scale2.3177427145 vs minimum1.0255516841) with unchanged ink; toolbar Undo/Redo at zoom; Done and saved ink after relaunch. Local log: `/tmp/praelude-build9-gesture-final.log`. |
 | Palette visual review |Independent settled-pixel review passes. The earlier clipped capture was taken during a transition and does not establish settled-layout clipping. |
 | Signed device Release |PASS; strict app/profile/team/device/signer certificate trust and Release fixture/debug-exclusion checks pass. Same bundle; profile expires October16 at23:56:11 UTC (7:56 PM EDT). Independent signed-artifact verification also passes. |
-| Physical repeat / installation |Pending. Build8 remains installed and physically unaccepted; source tests and signature checks do not establish a speedup or crash closure. |
+| Guarded installation / preservation |PASS:13 files/12,960,329 bytes identical by filename, size and SHA-256. Schema5/revision2167;6 pieces/53 passages/54 set IDs (53 historical plus1 paused active set)/35 sessions/317 attempts/259 ink records (202 active)/2 stamps/2 notes. The paused set remains active and preserved; no running set. See [sanitized build9 installation evidence](personal-ipad-install.json). |
+| Actual post-helper signed artifact |PASS strict signing/profile/fixture checks. Executable SHA-256 `cde90889055e808e7c9463dd8b54dea5aa9a283410f45585a072db5b3764a100`; profile expires October16 at23:56:11 UTC. Actual arm64 app/dSYM UUID match. |
+| Launch / physical repeat |iOS automatic launch denied; running readback false; user opening requested. Post-launch readback, physical zoomed two-finger Undo, responsiveness and sustained use remain pending. No speedup or physical crash closure is claimed. |
 
 ## Source frozen for final verification
 
@@ -88,9 +93,11 @@ and `SyncCoding`. Source is frozen; verification scopes above do not establish p
 - [ ] Compare the same physical Clean, scroll/menu/mode, selection, zoom and drawing flows with a repeat profile; report observed results rather than an assumed speedup.
 - [x] Signed build9 Release and strict app/profile/team/device/signer trust and fixture/debug-exclusion checks pass.
 - [x] Independent signed-artifact verification passes.
-- [ ] Fresh guarded same-bundle preservation before recording installation.
+- [x] Build9 installed through guarded same-bundle refresh; all13 files/12,960,329 bytes and the paused set preserved exactly.
+- [ ] User opening and post-launch readback; automatic launch was denied and app was not running at inspection.
 - [ ] Physical Pencil/Undo and sustained practice acceptance; no week-long trial is implied by shorter tests.
 
-**Next steps:** commit the verified candidate source and perform the guarded same-bundle update. Repeat physical flows and profiling, including two-finger Undo
-at zoom. Keep source tests, profiling, installation/preservation and musician acceptance separate.
-Build8's physical failures remain open.
+**Next steps:** confirm opening and retain a post-launch readback, then repeat physical flows and
+profiling, including two-finger Undo at zoom. Preserve the paused practice set. Keep source tests,
+profiling, installation/preservation and musician acceptance separate; build8's reported failures
+are not closed by installation alone.
