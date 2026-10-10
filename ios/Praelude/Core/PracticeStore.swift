@@ -1585,6 +1585,7 @@ import Observation
         for annotation in state.textAnnotations {
             let piece = piecesByID[annotation.pieceID]
             try require(piece != nil && annotation.page >= 1 && annotation.page <= max(1, piece?.pageCount ?? 0) && annotation.region.isValid && text(annotation.text, maximum: 2000, blank: true), "A text annotation references a missing piece/page or has invalid text/region.")
+            try require(annotation.style.isValid, "A note's text size must be between 12 and 48 points.")
         }
         try require(unique(state.stampAnnotations.map(\.id)) && state.stampAnnotations.count <= 50000, "The library contains duplicate or too many stamps.")
         for stamp in state.stampAnnotations {

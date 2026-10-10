@@ -175,7 +175,8 @@ final class ScoreExportTests: XCTestCase {
         try store.saveStampAnnotation(StampAnnotation(pieceID: piece.id, page: 1,
             position: NormalizedRect(x: 0.6, y: 0.6, width: 0.12, height: 0.12), kind: .circle))
         try store.saveTextAnnotation(TextBoxAnnotation(pieceID: piece.id, page: 1,
-            region: NormalizedRect(x: 0.1, y: 0.78, width: 0.35, height: 0.1), text: "BREATHE"))
+            region: NormalizedRect(x: 0.1, y: 0.78, width: 0.35, height: 0.1), text: "BREATHE",
+            style: TextAnnotationStyle(fontSize: 24, fontFamily: .serif, isBold: true, textColor: .blue)))
         let exportedURL = try ScoreExport.annotatedPDF(pieceID: piece.id, store: store)
         addTeardownBlock {
             try? FileManager.default.removeItem(at: baselineURL.deletingLastPathComponent())
@@ -183,6 +184,7 @@ final class ScoreExportTests: XCTestCase {
         }
         let page = try XCTUnwrap(PDFDocument(url: exportedURL)?.page(at: 0))
         let thumbnail = page.thumbnail(of: CGSize(width: 400, height: 400), for: .cropBox)
+        XCTAssertTrue(page.string?.contains("BREATHE") == true, "Note text must remain readable vector text in the shared PDF")
         XCTAssertNotNil(try centroid(thumbnail, red: true), "Teacher-layer ink must appear in the export, not only the .mine layer")
         let annotatedPixels = try nonBackgroundPixelCount(thumbnail)
         XCTAssertGreaterThan(annotatedPixels, baselinePixels + 200, "The stamp and text box must actually be rendered onto the exported page")

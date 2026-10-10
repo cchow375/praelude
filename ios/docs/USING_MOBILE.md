@@ -1,20 +1,28 @@
 # Using Praelude Mobile
 
-## Build10 controls — installed October 10; physical selection comparison pending
+## Build10 controls — installed October 10; qualified physical improvement
 
-**Matches: installed native2.0.0/build10/schema5 and Macv11.1.0/schema21. Last updated:2026-10-10.** Build10 is installed from `b22d4bf`. Independent pre/post/post-launch review verifies all13 owned files/13,350,814 bytes unchanged, including schema5/revision2198 and all history/marks. The October10 14:58:32 UTC snapshot has no active set or added persisted activity. A read-only process inspection confirms build10 running after automatic launch was denied. The user has not yet confirmed the actual Prokofiev/Beethoven selection and Cancel result; that specific physical verdict remains pending.
+**Matches: personal iPad installed native2.0.0/build10/schema5 and Macv11.1.0/schema21; friend’s build11 installation pending. Last updated:2026-10-10.** Build10 is installed from `b22d4bf`. Independent pre/post/post-launch review verifies all13 owned files/13,350,814 bytes unchanged, including schema5/revision2198 and all history/marks. The October10 14:58:32 UTC snapshot has no active set or added persisted activity. A read-only process inspection confirms build10 running after automatic launch was denied. Christian subsequently replies “good it works better” to the selection/Cancel comparison. This records qualified improvement, with no zero-defect or sustained-use claim.
 
-Build10 keeps selection handles and borders visible across ordinary and oversized page coordinates and limits overlay raster work. Explicit selection Cancel immediately discards the draft and returns to the score; existing saved passages stay unchanged. Navigating away retains a separate confirmation guard. These flows pass scoped native and actual iPad/phone UI checks; real-score responsiveness remains to be confirmed. Earlier build9 user acceptance and the later score-specific failure remain in QA.
+Build10 keeps selection handles and borders visible across ordinary and oversized page coordinates and limits overlay raster work. Explicit selection Cancel immediately discards the draft and returns to the score; existing saved passages stay unchanged. Navigating away retains a separate confirmation guard. These flows pass scoped native and actual iPad/phone UI checks; the user now reports qualified improvement in the real-score comparison. Earlier build9 user acceptance and the later score-specific failure remain in QA.
 
 - **Tempo:** compact numbers show BPM and the Start/Goal controls have distinct spoken labels. Tap the BPM number to replace it with an exact value, use ±1/±5 or Tap tempo, then Apply. Cancel leaves the current value unchanged. Dragging the number previews the change and applies it on release. The supported range is 20–300 BPM.
 - **Tempo goal and hands:** before starting, open the visible Tempo goal action in its large sheet, choose Start and Goal, a BPM/percent increase and the clean target, then Use goal. A passage can also retain that goal for future practice; the compact running controls show the full goal value. Choose L, Both or R directly. Techniques shows an ordered sequence with per-stage clean counts; changes describe the next set and do not invent attempts. Explore remains the ungraded start action.
-- **Passage selection:** draw a box in Select, drag a corner to resize or the box to move, then choose Done. Cancel discards only the current draft, including an added box while editing an existing passage. The original saved passage remains intact. The oversized Prokofiev/ordinary Beethoven comparison is still awaiting the user verdict.
+- **Passage selection:** draw a box in Select, drag a corner to resize or the box to move, then choose Done. Cancel discards only the current draft, including an added box while editing an existing passage. The original saved passage remains intact. The response to the Prokofiev/Beethoven selection and Cancel comparison is “good it works better”; broader reliability remains unverified.
 - **Marking while practicing:** Draw keeps practice controls available. In Select, Done stays above scrolling practice controls; narrow large-text layouts reflow. All six drawing tools have44-point targets. Drag or collapse the palette to uncover notation. Pinch and pan move the score and ink together. Two-finger tap undoes a drawing edit; visible Undo/Redo is available, including while zoomed. The pinch recognizer has priority over two-finger Undo. Fine/medium/broad widths and lighter highlighting support small marks. Pencil marks → Done and two-finger Undo were user-accepted on build9; Undo specifically while zoomed is not separately confirmed.
 - **Names and notes:** double-tap a selected passage to rename, or triple-tap to dictate a draft. The passage list also offers a pencil button and Rename swipe action. Double-tap a sticky note to edit, triple-tap to dictate, or hold and drag to move it. VoiceOver identifies visible notes and opens their panel. Review text and Save; microphone errors leave keyboard entry available. Score gestures lists the shortcuts.
 - **Movements:** use Movements & pieces in the score or the library's movement entries. Name the movement and set its first/last PDF pages with the large number fields or adjacent steppers. Typing replaces the selected page number; empty, zero or out-of-range pages keep Save disabled until corrected. An entry opens that source-page range and shows its own practice target. The PDF and annotations remain shared; saved practice retains the movement name and source range even if the label later changes. Actual saved passages keep their own identity and history.
 - **Warmups:** adjust tempo or metronome without leaving the exercise. Pause & close preserves unfinished practice; Finish ends the session. Failed saves stay visible so work is not silently discarded.
 
-**Next steps:** compare Prokofiev and Beethoven selection/resize/Cancel in the installed build10. Installation, observed running state and exact post-launch data retention pass; keep the physical verdict and longer-term reliability separate.
+**Next steps:** retain the qualified build10 feedback and verify the new sticky-note work separately. Installation, observed running state and exact post-launch data retention pass; keep qualified improvement and longer-term reliability separate.
+
+## Build11 note controls — candidate preview, not installed
+
+The personal iPad controls above still match build10. Build11's candidate adds readable on-score notes with drag-to-resize corners. Its note editor places size, font, bold/italic, text color and alignment below the writing area in a scrollable formatting section; review the preview and Save. Cancel preserves the original note. Core420/native64 and the final oversized UI flow pass; ordinary UI fails before note entry amid extreme host load. Physical note acceptance remains open. `docs/qa/ios/2.0.0/build11/sticky-notes.md` retains the exact limits.
+
+Christian requests immediate delivery to the friend's connected `iPad (6)`. Developer Mode/DDI are now ready; a fresh query confirms no Praelude installation. The requested delivery is a fresh generic empty app after target-specific signing checks. This does not copy Christian's personal library or account.
+
+**Next steps:** complete the requested target's signed installation and separate launch/readback, then update that device's installed Matches line. The personal iPad remains build10.
 
 ## Historical build8 installation and failure
 
@@ -33,7 +41,7 @@ In short landscape drawing windows, notation initially fits the score width. Pin
 Build7 is installed on the personal iPad with exact complete-file preservation; Praelude is running and schema5 readback passes. Earlier build6 instructions below are historical. Physical sustained drawing and higher-refresh-rate acceptance remain open.
 
 
-**Matches: installed2.0.0/build10/schema5. Last updated:2026-10-10. Build10 is observed running with exact post-launch preservation; physical selection comparison remains pending.**
+**Matches: installed2.0.0/build10/schema5. Last updated:2026-10-10. Build10 is observed running with exact post-launch preservation; the user reports qualified improvement in the selection/Cancel comparison.**
 
 ## October2 build5 — score workflow and shared data
 

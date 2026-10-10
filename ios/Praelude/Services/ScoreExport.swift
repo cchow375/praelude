@@ -212,18 +212,10 @@ import UIKit
             guard crop.intersects(destination) else { continue }
             context.saveGState()
             context.clip(to: crop)
-            context.setFillColor(UIColor(PraeludeColor.scorePaper).withAlphaComponent(0.92).cgColor)
-            context.fill(destination)
-            context.setStrokeColor(UIColor(PraeludeColor.scoreInk).withAlphaComponent(0.4).cgColor)
-            context.setLineWidth(0.75); context.stroke(destination)
-            if !box.text.isEmpty {
-                let inset = destination.insetBy(dx: 2, dy: 2)
-                if inset.width > 0, inset.height > 0,
-                   let cgImage = renderedImage(Text(box.text).font(.system(size: max(9, rect.height * 0.32)))
-                       .foregroundStyle(PraeludeColor.scoreInk).lineLimit(3).minimumScaleFactor(0.55).padding(2), size: inset.size) {
-                    context.draw(cgImage, in: inset)
-                }
-            }
+            context.translateBy(x: destination.minX, y: destination.maxY)
+            context.scaleBy(x: 1, y: -1)
+            TextAnnotationRenderer.draw(note: box, in: CGRect(origin: .zero, size: destination.size),
+                                        pageWidth: reference.width, context: context)
             context.restoreGState()
         }
     }

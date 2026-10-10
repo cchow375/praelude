@@ -74,6 +74,17 @@ enum ScorePassageBoxStyle {
     override func accessibilityActivate() -> Bool { overlay?.activateAccessibleNote(noteID) ?? false }
 }
 
+/// Moving a note only translates this small surface. Resizing redraws the note, never the
+/// full PDF overlay; even a source PDF with enormous coordinates has a bounded backing.
+@MainActor private final class ScoreNotePreview: UIView {
+    var note: TextBoxAnnotation?
+    var pageWidth: CGFloat = 595
+    override func draw(_ rect: CGRect) {
+        guard let note, let context = UIGraphicsGetCurrentContext() else { return }
+        TextAnnotationRenderer.draw(note: note, in: bounds, pageWidth: pageWidth, context: context)
+    }
+}
+
 @MainActor final class ScorePageOverlay: UIView, UIGestureRecognizerDelegate, UIPencilInteractionDelegate {
     let pageNumber: Int
     let canvas = ScoreInkCanvas()
@@ -83,7 +94,14 @@ enum ScorePassageBoxStyle {
     /// Passage id -> the recolor token it was saved with, if any (§8).
     var regionColors: [UUID: String] = [:] { didSet { if regionColors != oldValue { setNeedsDisplay() } } }
     var displayedStamps: [StampAnnotation] = [] { didSet { if displayedStamps != oldValue { setNeedsDisplay() } } }
-    var displayedTextBoxes: [TextBoxAnnotation] = [] { didSet { if displayedTextBoxes != oldValue { setNeedsDisplay(); refreshNoteAccessibility() } } }
+    var displayedTextBoxes: [TextBoxAnnotation] = [] {
+        didSet {
+            if displayedTextBoxes != oldValue {
+                if movingNote != nil && !noteGestureIsCurrent { clearNotePreview() }
+                setNeedsDisplay(); updateNoteHandles(); layoutNotePanel(); refreshNoteAccessibility()
+            }
+        }
+    }
     /// Set by `PagedScoreView.Coordinator.refresh(_:)`, which runs on every SwiftUI update pass —
     /// far more often than the tool actually changes. Reassigning `canvas.tool` unconditionally on
     /// every one of those passes was observed to disrupt `canvas.undoManager`'s redo stack after a
@@ -106,6 +124,22 @@ enum ScorePassageBoxStyle {
     private var movingNote: TextBoxAnnotation?
     private var movedNotePosition: NormalizedRect?
     private var notePanTouchStart: CGPoint?
+    private var notePanTarget: TextBoxAnnotation?
+    private var noteResizeCorner: Int?
+    private var noteGestureMode: ScoreMarkupState.Mode?
+    private var noteGestureCrop: NormalizedRect?
+    private let notePreview = ScoreNotePreview()
+    private let noteHandles = CAShapeLayer()
+    private(set) var selectedNoteID: UUID?
+    var notePreviewRect: CGRect? { movedNotePosition.map { fullDisplayRect(for: $0) } }
+    var noteHandleRects: [CGRect] {
+        guard notesEditable, let note = visibleTextBoxes.first(where: { $0.id == selectedNoteID && $0.layer == markup.activeLayer }) else { return [] }
+        let rect = movingNote?.id == note.id ? (notePreviewRect ?? fullDisplayRect(for: note.region)) : fullDisplayRect(for: note.region)
+        let diameter = selectionHandleDiameter
+        return corners(rect).filter { bounds.contains($0) }.map {
+            CGRect(x: $0.x - diameter / 2, y: $0.y - diameter / 2, width: diameter, height: diameter)
+        }
+    }
     private(set) var renderedInkScale: CGFloat = 1
     private(set) var sourceCanvasFrame: CGRect = .zero
     private var previousPencilTool = AnnotationToolKind.pen
@@ -136,7 +170,7 @@ enum ScorePassageBoxStyle {
     var onPlaceBreakPoint: (Int, NormalizedRect) -> Void = { _, _ in }
     var onEditTextBox: (TextBoxAnnotation) -> Void = { _ in }
     var onDictateTextBox: (TextBoxAnnotation) -> Void = { _ in }
-    var onMoveTextBox: (TextBoxAnnotation, NormalizedRect) -> Bool = { _, _ in false }
+    var onMoveTextBox: (TextBoxAnnotation, NormalizedRect) -> TextBoxAnnotation? = { _, _ in nil }
     var inkReadOnly = false { didSet { if inkReadOnly != oldValue { refreshNoteAccessibility() } } }
     /// Invalid saved/pending bytes stay protected across ordinary permission/appearance refreshes.
     /// Recreate this page after explicit recovery before allowing replacement strokes.
@@ -149,7 +183,7 @@ enum ScorePassageBoxStyle {
     /// through `croppedForDisplay`/`uncroppedFromDisplay` at the boundary between the two. Set once by
     /// `PagedScoreView.Coordinator` when an overlay is created (a crop change always tears down and
     /// rebuilds every overlay — see `updateUIView`'s `sourceChanged` check).
-    var activeCrop: NormalizedRect? { didSet { guard activeCrop != oldValue else { return }; setNeedsLayout(); setNeedsDisplay(); refreshNoteAccessibility() } }
+    var activeCrop: NormalizedRect? { didSet { guard activeCrop != oldValue else { return }; clearNotePreview(); setNeedsLayout(); setNeedsDisplay(); refreshNoteAccessibility() } }
     private(set) var selectionPan: UIPanGestureRecognizer!
     private var origin = CGPoint.zero
     private var originalRegion: PassageRegion?
@@ -271,10 +305,18 @@ enum ScorePassageBoxStyle {
         for preview in [selectionPreviewBox, selectionPreviewHandles] {
             preview.isHidden = true; layer.addSublayer(preview)
         }
+        notePreview.isHidden = true; notePreview.isOpaque = false
+        notePreview.isUserInteractionEnabled = false; notePreview.accessibilityElementsHidden = true
+        notePreview.contentMode = .redraw; addSubview(notePreview)
+        noteHandles.isHidden = true; layer.addSublayer(noteHandles)
         configureNotePanel()
         refreshNoteAccessibility()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { clearNotePreview() }
+    }
     override func layoutSubviews() {
         super.layoutSubviews()
         // Ink stroke points are canvas-local and have no normalized-rect representation to remap the
@@ -295,6 +337,7 @@ enum ScorePassageBoxStyle {
         }
         updateInkResolution(displayScale: requestedDisplayScale)
         updateSelectionPreviewLayers()
+        updateNotePreview(); updateNoteHandles()
         layoutNotePanel()
         if laidOutSize != bounds.size { laidOutSize = bounds.size; setNeedsDisplay(); refreshNoteAccessibility() }
     }
@@ -327,7 +370,7 @@ enum ScorePassageBoxStyle {
         for layerCanvas in [otherLayersCanvas, canvas] {
             if layerCanvas.contentScaleFactor != canvasScale { layerCanvas.contentScaleFactor = canvasScale }
         }
-        if needsRedraw { updateSelectionPreviewLayers(); setNeedsDisplay() }
+        if needsRedraw { updateSelectionPreviewLayers(); updateNotePreview(); updateNoteHandles(); layoutNotePanel(); setNeedsDisplay() }
     }
     private func layoutInkCanvases() {
         guard sourceCanvasFrame.width > 0, sourceCanvasFrame.height > 0 else { return }
@@ -358,6 +401,15 @@ enum ScorePassageBoxStyle {
         guard let activeCrop else { return normalized.rect(in: bounds.size) }
         return normalized.croppedForDisplay(within: activeCrop)?.rect(in: bounds.size)
     }
+    /// Keep the hidden part of a cropped note: clipping may hide text/handles, but must not
+    /// reflow its text or move the opposite resize anchor into the crop boundary.
+    private func fullDisplayRect(for normalized: NormalizedRect) -> CGRect {
+        let crop = activeCrop ?? NormalizedRect(x: 0, y: 0, width: 1, height: 1)
+        return CGRect(x: (normalized.x - crop.x) / crop.width * bounds.width,
+                      y: (normalized.y - crop.y) / crop.height * bounds.height,
+                      width: normalized.width / crop.width * bounds.width,
+                      height: normalized.height / crop.height * bounds.height)
+    }
     /// The inverse: a freshly drawn/placed mark, normalized against this overlay's *current* (display)
     /// bounds, remapped back to the original-page basis every stored mark uses — the write-side
     /// counterpart to `displayRect(for:)` above.
@@ -370,6 +422,7 @@ enum ScorePassageBoxStyle {
 
     func refresh() {
         if selectionGestureIsQuick != nil && !selectionGestureIsCurrent { clearSelectionPreview() }
+        if movingNote != nil && !noteGestureIsCurrent { clearNotePreview() }
         let policy: PKCanvasViewDrawingPolicy = markup.mode == .writing && markup.fingerDrawing ? .anyInput : .pencilOnly
         if canvas.drawingPolicy != policy { canvas.drawingPolicy = policy }
         // Input routing owns read-only and placement state. Never disable the live canvas or
@@ -378,6 +431,8 @@ enum ScorePassageBoxStyle {
             markup.confirmStamp = { [weak self] in self?.commitStampDraft() }
         }
         if inkReadOnly || !visibleTextBoxes.contains(where: { $0.id == expandedNoteID }) { expandedNoteID = nil }
+        if !notesEditable || !visibleTextBoxes.contains(where: { $0.id == selectedNoteID && $0.layer == markup.activeLayer }) { selectedNoteID = nil }
+        updateNoteHandles()
         layoutNotePanel()
         if accessibleNoteLayers != markup.visibleLayers || accessibleNoteActiveLayer != markup.activeLayer {
             refreshNoteAccessibility()
@@ -405,16 +460,17 @@ enum ScorePassageBoxStyle {
         // Performance mode routes every score touch to page turning / hold-to-exit. A note
         // cannot intercept that escape gesture or remain editable behind the performance lock.
         guard !inkReadOnly else { return nil }
-        if !notePanel.isHidden, notePanel.frame.contains(point) {
+        let pencil = event?.allTouches?.contains { $0.type == .pencil } == true
+        if !pencil, !notePanel.isHidden, notePanel.frame.contains(point) {
             return notePanel.hitTest(convert(point, to: notePanel), with: event)
         }
+        if !pencil, selectedNoteCorner(at: point) != nil { return self }
         if markup.mode == .selecting || markup.quickBoxArmed || markup.breakPointArmed { return self }
         if placementToolArmed { return self }
         if note(at: point) != nil, event?.allTouches?.contains(where: { $0.type == .pencil }) != true { return self }
         if let touches = event?.allTouches, touches.filter({ $0.type == .direct }).count >= 2 { return self }
         guard !inkReadOnly, !contentReadOnly else { return nil }
         let touches = event?.allTouches
-        let pencil = touches?.contains { $0.type == .pencil } == true
         // UIKit can hit-test before it populates allTouches. Retain the canvas route on that
         // first pass; PencilKit's pencilOnly recognizer still rejects finger ink.
         // The PDF's ancestor finger pan and pinch recognizers continue to navigate the page.
@@ -449,17 +505,10 @@ enum ScorePassageBoxStyle {
             }
         }
         for textBox in visibleTextBoxes {
-            let position = movingNote?.id == textBox.id ? (movedNotePosition ?? textBox.region) : textBox.region
-            guard let box = displayRect(for: position), box.width > 4, box.height > 4 else { continue }
-            context.setFillColor(UIColor(red: 1, green: 0.91, blue: 0.43, alpha: 0.95).cgColor)
-            context.fill(box)
-            context.setStrokeColor(UIColor(red: 0.62, green: 0.47, blue: 0.10, alpha: 0.7).cgColor)
-            context.setLineWidth(0.75); context.stroke(box)
-            let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
-            (textBox.text as NSString).draw(in: box.insetBy(dx: 4, dy: 3), withAttributes: [
-                .font: UIFont.systemFont(ofSize: max(9, min(13, box.height * 0.55))),
-                .foregroundColor: UIColor(PraeludeColor.scoreInk), .paragraphStyle: paragraph
-            ])
+            if movingNote?.id == textBox.id { continue }
+            guard displayRect(for: textBox.region) != nil else { continue }
+            TextAnnotationRenderer.draw(note: textBox, in: fullDisplayRect(for: textBox.region),
+                                        pageWidth: fullPageWidth, context: context)
         }
         drawStampGlyphs(context: context)
         drawStampPreview(context: context)
@@ -526,13 +575,15 @@ enum ScorePassageBoxStyle {
             handleStampTap(at: point); return
         }
         if markup.mode != .selecting, let note = note(at: point), !(markup.mode == .writing && markup.tool.kind == .text) {
+            selectedNoteID = note.layer == markup.activeLayer ? note.id : nil
             expandedNoteID = expandedNoteID == note.id ? nil : note.id
-            layoutNotePanel(); return
+            updateNoteHandles(); layoutNotePanel(); return
         }
         if markup.mode == .writing, markup.tool.kind == .text {
             handleTextTap(at: point); return
         }
         markup.selectedRegionID = visibleRegions.reversed().first { displayRect(for: $0)?.contains(point) ?? false }?.id
+        selectedNoteID = nil; expandedNoteID = nil; updateNoteHandles(); layoutNotePanel()
         setNeedsDisplay()
     }
     private func handleStampTap(at point: CGPoint) {
@@ -548,9 +599,13 @@ enum ScorePassageBoxStyle {
     }
     private func handleTextTap(at point: CGPoint) {
         if let existing = visibleTextBoxes.reversed().first(where: { displayRect(for: $0.region)?.contains(point) ?? false }) {
-            onEditTextBox(existing); return
+            if existing.layer == markup.activeLayer { onEditTextBox(existing) }
+            return
         }
-        guard let region = NormalizedRect.centered(at: point, width: 0.18, height: 0.035, in: bounds.size) else { return }
+        guard !inkReadOnly, bounds.width > 0, bounds.height > 0 else { return }
+        let width = min(1, 240 / pageDisplayScale / bounds.width)
+        let height = min(1, 100 / pageDisplayScale / bounds.height)
+        guard let region = NormalizedRect.centered(at: point, width: width, height: height, in: bounds.size) else { return }
         onPlaceTextBox(pageNumber, storageRect(fromDisplay: region))
     }
     @objc private func confirmSelection(_ recognizer: UITapGestureRecognizer) {
@@ -589,37 +644,98 @@ enum ScorePassageBoxStyle {
     /// Capture the real touch-down point. UIKit can report zero pan translation at recognition,
     /// even after the finger has moved beyond the chip, so location-minus-translation is too late.
     @discardableResult func captureNotePanStart(at point: CGPoint) -> Bool {
-        notePanTouchStart = nil
-        guard !inkReadOnly, markup.mode != .selecting, note(at: point)?.layer == markup.activeLayer else { return false }
-        notePanTouchStart = point
+        notePanTouchStart = nil; notePanTarget = nil; noteResizeCorner = nil
+        guard let note = editableNote(at: point) else { return false }
+        notePanTouchStart = point; notePanTarget = note
+        noteResizeCorner = selectedNoteCorner(at: point)?.corner
+        noteGestureMode = markup.mode; noteGestureCrop = activeCrop
         return true
     }
     func movableNoteAtPanStart() -> TextBoxAnnotation? {
-        guard !inkReadOnly, markup.mode != .selecting, let start = notePanTouchStart,
-              let note = note(at: start),
-              note.layer == markup.activeLayer else { return nil }
+        guard notePanTouchStart != nil, let note = notePanTarget, noteGestureIsCurrent else { return nil }
         return note
+    }
+    private var notesEditable: Bool { !inkReadOnly && markup.mode != .selecting && !markup.quickBoxArmed && !markup.breakPointArmed }
+    private var noteGestureIsCurrent: Bool {
+        guard notesEditable, noteGestureMode == markup.mode, noteGestureCrop == activeCrop,
+              let note = notePanTarget, note.layer == markup.activeLayer else { return false }
+        return visibleTextBoxes.contains(note)
     }
     func handleNotePan(state: UIGestureRecognizer.State, location: CGPoint) {
         switch state {
         case .began:
-            guard let start = notePanTouchStart, let note = movableNoteAtPanStart() else { return }
-            movingNote = note
-            movedNotePosition = translatedNotePosition(note, by: CGSize(width: location.x - start.x, height: location.y - start.y))
+            guard let note = movableNoteAtPanStart() else { clearNotePreview(); return }
+            movingNote = note; selectedNoteID = note.id
+            movedNotePosition = notePosition(at: location)
             expandedNoteID = nil; layoutNotePanel()
-            setNeedsDisplay()
+            updateNotePreview(); updateNoteHandles(); setNeedsDisplay()
         case .changed, .ended:
-            guard let note = movingNote, let start = notePanTouchStart else { return }
-            movedNotePosition = translatedNotePosition(note, by: CGSize(width: location.x - start.x, height: location.y - start.y))
+            guard let note = movingNote, noteGestureIsCurrent else { clearNotePreview(); return }
+            movedNotePosition = notePosition(at: location)
+            updateNotePreview(); updateNoteHandles()
             if state == .ended {
                 if let position = movedNotePosition, position != note.region { _ = commitNoteMove(note, to: position) }
-                movingNote = nil; movedNotePosition = nil; notePanTouchStart = nil
+                clearNotePreview()
             }
-            setNeedsDisplay()
         case .cancelled, .failed:
-            movingNote = nil; movedNotePosition = nil; notePanTouchStart = nil; setNeedsDisplay()
+            clearNotePreview()
         default: break
         }
+    }
+    private var fullPageWidth: CGFloat { bounds.width / (activeCrop?.width ?? 1) }
+    private func notePosition(at location: CGPoint) -> NormalizedRect? {
+        guard let note = movingNote, let start = notePanTouchStart else { return nil }
+        let delta = CGSize(width: location.x - start.x, height: location.y - start.y)
+        guard let corner = noteResizeCorner else { return translatedNotePosition(note, by: delta) }
+        let crop = activeCrop ?? NormalizedRect(x: 0, y: 0, width: 1, height: 1)
+        guard bounds.width > 0, bounds.height > 0, delta.width.isFinite, delta.height.isFinite else { return nil }
+        let dx = delta.width / bounds.width * crop.width, dy = delta.height / bounds.height * crop.height
+        let region = note.region
+        // Resize the original corner by the full touch delta, so a finger inside the generous
+        // target does not jump the box. Minimums cannot enlarge an old smaller box by themselves.
+        let minimumWidth = min(region.width, 80 / pageDisplayScale / bounds.width * crop.width)
+        let minimumHeight = min(region.height, 44 / pageDisplayScale / bounds.height * crop.height)
+        var left = region.x, right = region.x + region.width
+        var top = region.y, bottom = region.y + region.height
+        if corner == 0 || corner == 2 { left = min(max(0, left + dx), right - minimumWidth) }
+        else { right = max(min(1, right + dx), left + minimumWidth) }
+        if corner == 0 || corner == 1 { top = min(max(0, top + dy), bottom - minimumHeight) }
+        else { bottom = max(min(1, bottom + dy), top + minimumHeight) }
+        return NormalizedRect(x: left, y: top, width: right - left, height: bottom - top)
+    }
+    private func clearNotePreview() {
+        let wasMoving = movingNote != nil
+        movingNote = nil; movedNotePosition = nil; notePanTouchStart = nil; notePanTarget = nil
+        noteResizeCorner = nil; noteGestureMode = nil; noteGestureCrop = nil
+        notePreview.isHidden = true; notePreview.note = nil; updateNoteHandles()
+        if wasMoving { setNeedsDisplay() }
+    }
+    private func updateNotePreview() {
+        guard let note = movingNote, let rect = notePreviewRect else { notePreview.isHidden = true; return }
+        let changed = notePreview.note != note || notePreview.bounds.size != rect.size || notePreview.pageWidth != fullPageWidth
+        notePreview.note = note; notePreview.pageWidth = fullPageWidth
+        notePreview.frame = rect
+        notePreview.contentScaleFactor = min((window?.screen.scale ?? UIScreen.main.scale) * pageDisplayScale,
+                                            sqrt(1_000_000 / max(1, rect.width * rect.height)))
+        notePreview.isHidden = false
+        if changed { notePreview.setNeedsDisplay() }
+    }
+    private func selectedNoteCorner(at point: CGPoint) -> (note: TextBoxAnnotation, corner: Int)? {
+        guard notesEditable, let note = visibleTextBoxes.first(where: { $0.id == selectedNoteID && $0.layer == markup.activeLayer }) else { return nil }
+        let candidates = corners(fullDisplayRect(for: note.region)).enumerated().filter { bounds.contains($0.element) }
+        guard let closest = candidates.min(by: { hypot(point.x - $0.element.x, point.y - $0.element.y) < hypot(point.x - $1.element.x, point.y - $1.element.y) }),
+              hypot(point.x - closest.element.x, point.y - closest.element.y) <= selectionHitRadius else { return nil }
+        return (note, closest.offset)
+    }
+    private func updateNoteHandles() {
+        CATransaction.begin(); CATransaction.setDisableActions(true); defer { CATransaction.commit() }
+        let handles = noteHandleRects
+        guard !handles.isEmpty else { noteHandles.isHidden = true; return }
+        let path = UIBezierPath()
+        for handle in handles { path.append(UIBezierPath(ovalIn: handle)) }
+        noteHandles.path = path.cgPath; noteHandles.fillColor = UIColor.white.cgColor
+        noteHandles.strokeColor = ScorePassageBoxStyle.handleRingColor().cgColor
+        noteHandles.lineWidth = 1 / pageDisplayScale; noteHandles.isHidden = false
     }
     /// A crop clips the note's visible rectangle, but moving that visible portion must preserve
     /// the full source-page note. Translate only its origin; never round-trip the clipped size.
@@ -636,8 +752,11 @@ enum ScorePassageBoxStyle {
     }
     /// The durable callback fires once on release. A failed save immediately displays the original.
     @discardableResult func commitNoteMove(_ note: TextBoxAnnotation, to position: NormalizedRect) -> Bool {
-        guard !inkReadOnly, note.layer == markup.activeLayer, position.isValid, onMoveTextBox(note, position) else { return false }
-        if let index = displayedTextBoxes.firstIndex(where: { $0.id == note.id }) { displayedTextBoxes[index].region = position }
+        guard notesEditable, note.layer == markup.activeLayer, visibleTextBoxes.contains(note),
+              position.isValid, let saved = onMoveTextBox(note, position) else { return false }
+        // The store stamps its own updatedAt. Keep its complete receipt immediately so a
+        // second gesture can compare against the durable row before SwiftUI refreshes us.
+        if let index = displayedTextBoxes.firstIndex(where: { $0.id == note.id }) { displayedTextBoxes[index] = saved }
         return true
     }
     @objc private func moveStamp(_ recognizer: UIPanGestureRecognizer) {
@@ -715,7 +834,8 @@ enum ScorePassageBoxStyle {
         !inkReadOnly && (note(at: point) != nil || (!notePanel.isHidden && notePanel.frame.contains(point)))
     }
     func note(at point: CGPoint) -> TextBoxAnnotation? {
-        visibleTextBoxes.reversed().first { displayRect(for: $0.region)?.insetBy(dx: -4, dy: -4).contains(point) ?? false }
+        if let corner = selectedNoteCorner(at: point) { return corner.note }
+        return visibleTextBoxes.reversed().first { displayRect(for: $0.region)?.insetBy(dx: -4 / pageDisplayScale, dy: -4 / pageDisplayScale).contains(point) ?? false }
     }
     private func refreshNoteAccessibility() {
         accessibleNoteLayers = markup.visibleLayers; accessibleNoteActiveLayer = markup.activeLayer
@@ -742,11 +862,12 @@ enum ScorePassageBoxStyle {
         guard !inkReadOnly, markup.mode != .selecting, !markup.quickBoxArmed, !markup.breakPointArmed,
               let note = visibleTextBoxes.first(where: { $0.id == id }),
               let frame = displayRect(for: note.region), !frame.isEmpty else { return false }
-        expandedNoteID = id; layoutNotePanel()
+        expandedNoteID = id; selectedNoteID = note.layer == markup.activeLayer ? id : nil
+        updateNoteHandles(); layoutNotePanel()
         return true
     }
     private func configureNotePanel() {
-        notePanel.backgroundColor = UIColor(red: 1, green: 0.93, blue: 0.58, alpha: 1)
+        notePanel.backgroundColor = TextAnnotationRenderer.paperColor
         notePanel.layer.cornerRadius = 8; notePanel.layer.borderWidth = 0.5
         notePanel.layer.borderColor = UIColor.brown.withAlphaComponent(0.5).cgColor
         notePanel.isHidden = true; notePanel.accessibilityIdentifier = "expandedScoreNote"
@@ -754,20 +875,46 @@ enum ScorePassageBoxStyle {
         noteEdit.setTitle("Edit", for: .normal); noteEdit.accessibilityIdentifier = "editScoreNote"
         noteEdit.addTarget(self, action: #selector(editExpandedNote), for: .touchUpInside)
         noteClose.setTitle("Close", for: .normal)
+        noteClose.accessibilityIdentifier = "closeScoreNote"
         noteClose.addTarget(self, action: #selector(closeExpandedNote), for: .touchUpInside)
         noteScroll.addSubview(noteLabel)
         [noteScroll, noteEdit, noteClose].forEach { notePanel.addSubview($0) }
         addSubview(notePanel)
     }
     private func layoutNotePanel() {
-        guard let note = visibleTextBoxes.first(where: { $0.id == expandedNoteID }),
-              let anchor = displayRect(for: note.region), bounds.width > 20, bounds.height > 60 else { notePanel.isHidden = true; return }
-        notePanel.isHidden = false; noteLabel.text = note.text
-        let width = min(280, bounds.width - 16)
+        guard !inkReadOnly, markup.mode != .selecting, !markup.quickBoxArmed, !markup.breakPointArmed,
+              let note = visibleTextBoxes.first(where: { $0.id == expandedNoteID }),
+              let anchor = displayRect(for: note.region) else { notePanel.isHidden = true; return }
+        // UI controls use screen points, not the imported PDF's arbitrary source units.
+        // Intersect clipping ancestors so zooming does not place the panel off the viewport.
+        var visible = bounds
+        var ancestor = superview
+        while let view = ancestor {
+            if view.clipsToBounds || view is UIWindow { visible = visible.intersection(convert(view.bounds, from: view)) }
+            ancestor = view.superview
+        }
+        let availableWidth = visible.width * pageDisplayScale - 16
+        let availableHeight = visible.height * pageDisplayScale - 16
+        guard !visible.isNull, availableWidth > 120, availableHeight > 60 else { notePanel.isHidden = true; return }
+        notePanel.isHidden = false
+        noteLabel.attributedText = NSAttributedString(string: note.text, attributes: TextAnnotationRenderer.attributes(for: note.style))
+        let width = min(320, availableWidth)
         let textSize = noteLabel.sizeThatFits(CGSize(width: width - 24, height: .greatestFiniteMagnitude))
-        let height = min(max(100, textSize.height + 58), min(bounds.height - 16, 260))
-        let y = anchor.maxY + height + 8 < bounds.height ? anchor.maxY + 8 : max(8, anchor.minY - height - 8)
-        notePanel.frame = CGRect(x: min(max(8, anchor.minX), bounds.width - width - 8), y: y, width: width, height: height)
+        let height = min(max(100, textSize.height + 58), min(availableHeight, 260))
+        let inverse = 1 / pageDisplayScale, gap = 28 * inverse, margin = 8 * inverse
+        let sourceWidth = width * inverse, sourceHeight = height * inverse
+        let left = min(max(visible.minX + margin, anchor.minX), visible.maxX - sourceWidth - margin)
+        let below = CGRect(x: left, y: anchor.maxY + gap, width: sourceWidth, height: sourceHeight)
+        let above = CGRect(x: left, y: anchor.minY - gap - sourceHeight, width: sourceWidth, height: sourceHeight)
+        let top = min(max(visible.minY + margin, anchor.minY), visible.maxY - sourceHeight - margin)
+        let right = CGRect(x: anchor.maxX + gap, y: top, width: sourceWidth, height: sourceHeight)
+        let leftSide = CGRect(x: anchor.minX - gap - sourceWidth, y: top, width: sourceWidth, height: sourceHeight)
+        let inset = visible.insetBy(dx: margin, dy: margin)
+        let preferred = [below, above, right, leftSide].first { inset.contains($0) }
+        let frame = preferred ?? CGRect(x: left, y: top, width: sourceWidth, height: sourceHeight)
+        notePanel.transform = CGAffineTransform(scaleX: inverse, y: inverse)
+        notePanel.bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        notePanel.center = CGPoint(x: frame.midX, y: frame.midY)
         noteScroll.frame = CGRect(x: 12, y: 8, width: width - 24, height: height - 52)
         noteLabel.frame = CGRect(x: 0, y: 0, width: width - 24, height: textSize.height)
         noteScroll.contentSize = noteLabel.bounds.size
@@ -777,7 +924,7 @@ enum ScorePassageBoxStyle {
         bringSubviewToFront(notePanel)
     }
     @objc private func editExpandedNote() {
-        guard let note = visibleTextBoxes.first(where: { $0.id == expandedNoteID && $0.layer == markup.activeLayer }) else { return }
+        guard notesEditable, let note = visibleTextBoxes.first(where: { $0.id == expandedNoteID && $0.layer == markup.activeLayer }) else { return }
         onEditTextBox(note)
     }
     @objc private func closeExpandedNote() { expandedNoteID = nil; layoutNotePanel() }
@@ -898,6 +1045,9 @@ enum ScorePassageBoxStyle {
         return markup.mode == .selecting || markup.quickBoxArmed
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // The expanded panel owns its buttons and scrolling. Ancestor note gestures must not
+        // capture the underlying note when the panel needs to overlap it in a small viewport.
+        if touch.view?.isDescendant(of: notePanel) == true { return false }
         #if DEBUG
         if gestureRecognizer === notePan {
             traceNoteGesture("receive\(touch.type.rawValue)-\(touch.view.map { String(describing: type(of: $0)) } ?? "none")", point: touch.location(in: self))

@@ -1,5 +1,20 @@
 # (C) Sync Protocol — native schema5 ↔ Supabase
 
+## Build11 note-style extension — October 10 candidate
+
+`annotations` keeps the deployed column/discriminator contract; no SQL migration is required.
+For text rows, the existing `region` JSONB object now may include `textStyle` beside x/y/width/height:
+`fontSize` (12–48, default20 on a595-point canonical page), `fontFamily`, `isBold`, `isItalic`,
+`textColor` and `alignment`. The native `TextAnnotationStyle` enums are the value vocabulary.
+Missing style defaults locally. Stamp regions remain unchanged. Ownership, row LWW timestamps,
+text/stamp kind constraints and tombstones retain their existing behavior.
+
+This is an optional nested extension, not an unknown-key-preserving merge protocol. Older native
+clients ignore `textStyle` on read and can remove it on later whole-row replacement; all editing
+clients must be updated for style retention. Source/DTO/core roundtrip checks do not prove a
+real-account two-device styled-note roundtrip. Native build11 is a candidate; build10 remains on the personal iPad. The requested friend’s
+fresh empty build11 install is pending final signing checks (Developer Mode/DDI ready) and does not include a personal-data import. Evidence: `docs/qa/ios/2.0.0/build11/sticky-notes.md`.
+
 Current build5 additions: owner-keyed `account_preferences`; goals/routines are now wired in the
 native client with durable edit/deletion clocks; piece rows include `score_sections`,
 `measure_anchors` and nullable `default_practice_bpm`. Private `covers` joins score/recording/avatar

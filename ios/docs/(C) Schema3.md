@@ -1,5 +1,14 @@
 # (C) Schema3 — the on-device data model
 
+**Build11/schema5 compatible extension (October10,2026; candidate, not installed):**
+`TextBoxAnnotation.style` adds optional text formatting. Missing style decodes to size20/system/
+black/leading/plain; sizes must be finite and within12–48. Other choices are serif/rounded/
+monospaced, bold/italic, blue/red/green/purple and center/trailing. No migration or eager file
+rewrite occurs; local saves/backups retain the style. `AnnotationSyncRow` nests `textStyle` inside
+the existing region JSONB object while preserving its four geometry keys. Older clients can
+read geometry/text but drop style when rewriting; current native clients are required to retain
+formatting. Core tests cover old-file byte preservation and save/reload/backup/sync roundtrips.
+
 **Build5/schema5 extension (October2,2026):** the model below is the baseline. Pieces additionally
 carry reviewed scoreSections/measureAnchors/defaultPracticeBPM; goals and routines carry durable
 createdAt/updatedAt/deletedAt; Preferences has a backward-compatible clock and score controls.

@@ -194,7 +194,7 @@ struct PagedScoreView: UIViewRepresentable {
     var onEditTextBox: (TextBoxAnnotation) -> Void = { _ in }
     var onRenameRegion: (UUID) -> Void = { _ in }
     var onDictateRegion: (UUID) -> Void = { _ in }
-    var onMoveTextBox: (TextBoxAnnotation, NormalizedRect) -> Bool = { _, _ in false }
+    var onMoveTextBox: (TextBoxAnnotation, NormalizedRect) -> TextBoxAnnotation? = { _, _ in nil }
     var onDictateTextBox: (TextBoxAnnotation) -> Void = { _ in }
     var onTurnPage: (Int) -> Void = { _ in }
     /// §7 performance mode: a long press anywhere on the score exits it (the only way out while

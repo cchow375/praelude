@@ -123,7 +123,9 @@ final class AnnotationInteractionTests: XCTestCase {
         var allow = false; var saves = 0
         overlay.onMoveTextBox = { note, region in
             XCTAssertEqual(note, original); XCTAssertEqual(region, next)
-            saves += 1; return allow
+            saves += 1
+            guard allow else { return nil }
+            var saved = note; saved.region = region; return saved
         }
         XCTAssertFalse(overlay.commitNoteMove(original, to: next))
         XCTAssertEqual(overlay.displayedTextBoxes, [original], "Failed saving must never visually pretend the note moved")
@@ -143,7 +145,7 @@ final class AnnotationInteractionTests: XCTestCase {
                                          region: NormalizedRect(x: 0.1, y: 0.2, width: 0.18, height: 0.035), text: "Listen to the bass")
         let moved = NormalizedRect(x: 0.48, y: 0.70, width: 0.18, height: 0.035)
         overlay.displayedTextBoxes = [original]
-        overlay.onMoveTextBox = { _, _ in true }
+        overlay.onMoveTextBox = { note, region in var saved = note; saved.region = region; return saved }
         XCTAssertTrue(overlay.commitNoteMove(original, to: moved))
         let target = CGPoint(x: 600 * 0.57, y: 400 * 0.7175)
         let saved = try XCTUnwrap(overlay.editableNote(at: target))
@@ -325,7 +327,8 @@ final class AnnotationInteractionTests: XCTestCase {
         XCTAssertEqual(overlay.movableNoteAtPanStart()?.id, note.id)
         var saves: [NormalizedRect] = []
         overlay.onMoveTextBox = { saved, position in
-            XCTAssertEqual(saved.id, note.id); saves.append(position); return true
+            XCTAssertEqual(saved.id, note.id); saves.append(position)
+            var receipt = saved; receipt.region = position; return receipt
         }
         // Actual UIKit evidence reports translation zero at .began. The real touch-down sample
         // must supply the origin independently of that recognizer-derived translation.

@@ -135,24 +135,27 @@ struct TextBoxEditorView: View {
     @State private var ownerID = UUID()
     @State private var dictationPrefix = ""
     @State private var text: String
+    @State private var style: TextAnnotationStyle
+    @State private var showingFormatting = false
     @State private var errorMessage: String?
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
     let startDictation: Bool
-    let onSave: (String) -> Bool
-    let onDelete: (() -> Bool)?
+    let onSave: (String, TextAnnotationStyle) throws -> Void
+    let onDelete: (() throws -> Void)?
 
-    init(text: String, startDictation: Bool = false, onSave: @escaping (String) -> Bool, onDelete: (() -> Bool)? = nil) {
+    init(text: String, style: TextAnnotationStyle = .init(), startDictation: Bool = false,
+         onSave: @escaping (String, TextAnnotationStyle) throws -> Void, onDelete: (() throws -> Void)? = nil) {
         _text = State(initialValue: text); self.startDictation = startDictation
+        _style = State(initialValue: style)
         self.onSave = onSave; self.onDelete = onDelete
     }
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     var body: some View {
         NavigationStack {
             Form {
-                if let errorMessage { Section { ErrorMessage(message: errorMessage) } }
                 Section("Note") {
-                    TextEditor(text: $text).frame(minHeight: 120).focused($focused)
+                    TextEditor(text: $text).font(.title3).frame(minHeight: 160).focused($focused)
                         .accessibilityIdentifier("textAnnotationEditor")
                 }
                 Section {
@@ -166,15 +169,34 @@ struct TextBoxEditorView: View {
                     }
                     if let failure = speech.errorMessage { ErrorMessage(message: failure) }
                 } footer: { Text("Speak, review your words, then Save. You can also use the keyboard microphone.") }
+                formattingSection
                 if let onDelete {
-                    Section { Button("Delete note", role: .destructive) { if onDelete() { dismiss() } else { errorMessage = "Could not delete this note. It is still saved. Try again." } } }
+                    Section {
+                        Button("Delete note", role: .destructive) {
+                            do { try onDelete(); dismiss() }
+                            catch { errorMessage = error.localizedDescription }
+                        }
+                    }
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let errorMessage {
+                    ErrorMessage(message: errorMessage)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20).padding(.vertical, 12)
+                        .background(.regularMaterial)
+                        .accessibilityIdentifier("textAnnotationError")
                 }
             }
             .navigationTitle("Note").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { if onSave(trimmed) { dismiss() } else { errorMessage = "Could not save this note. Your text is still here. Try again." } }.disabled(trimmed.isEmpty || isCapturing)
+                    Button("Save") {
+                        do { try onSave(trimmed, style); dismiss() }
+                        catch { errorMessage = error.localizedDescription + " Your text and formatting are still here." }
+                    }.disabled(trimmed.isEmpty || isCapturing)
                         .accessibilityIdentifier("saveTextAnnotation")
                 }
             }
@@ -183,9 +205,153 @@ struct TextBoxEditorView: View {
             }
             .onDisappear { speech.stop(ifOwnedBy: ownerID) }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(isCapturing)
+    }
+
+    private var formattingSection: some View {
+        Section {
+            Button {
+                focused = false
+                withAnimation { showingFormatting.toggle() }
+            } label: {
+                HStack {
+                    Label("Text style", systemImage: "textformat")
+                    Spacer(minLength: 8)
+                    Text("\(Int(style.fontSize)) pt").foregroundStyle(.secondary).monospacedDigit()
+                    Image(systemName: showingFormatting ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }.frame(minHeight: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("noteFormatting")
+            .accessibilityValue(showingFormatting ? "Expanded" : "Collapsed")
+            .accessibilityHint("Text size, font, emphasis, color and alignment")
+
+            if showingFormatting {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Text size").font(.subheadline)
+                    HStack(spacing: 12) {
+                        Button { adjustTextSize(by: -2) } label: {
+                            Image(systemName: "minus").frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(style.fontSize <= TextAnnotationStyle.fontSizeRange.lowerBound)
+                        .accessibilityLabel("Decrease note text size")
+                        .accessibilityIdentifier("decreaseNoteTextSize")
+                        Text("\(Int(style.fontSize)) pt").monospacedDigit()
+                            .frame(maxWidth: .infinity)
+                            .accessibilityLabel("Note text size")
+                            .accessibilityValue("\(Int(style.fontSize)) points")
+                            .accessibilityIdentifier("textNoteFontSize")
+                        Button { adjustTextSize(by: 2) } label: {
+                            Image(systemName: "plus").frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(style.fontSize >= TextAnnotationStyle.fontSizeRange.upperBound)
+                        .accessibilityLabel("Increase note text size")
+                        .accessibilityIdentifier("increaseNoteTextSize")
+                    }
+                }
+
+                Picker("Font", selection: $style.fontFamily) {
+                    ForEach(TextAnnotationStyle.FontFamily.allCases, id: \.self) { family in
+                        Text(family.rawValue.capitalized).tag(family)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("textNoteFontFamily")
+
+                HStack(spacing: 12) {
+                    emphasisButton("Bold", systemImage: "bold", isOn: style.isBold,
+                                   identifier: "textNoteBold") { style.isBold.toggle() }
+                    emphasisButton("Italic", systemImage: "italic", isOn: style.isItalic,
+                                   identifier: "textNoteItalic") { style.isItalic.toggle() }
+                }
+
+                Picker("Text color", selection: $style.textColor) {
+                    ForEach(TextAnnotationStyle.TextColor.allCases, id: \.self) { color in
+                        Label {
+                            Text(color.rawValue.capitalized)
+                        } icon: {
+                            Image(systemName: "circle.fill").foregroundStyle(previewColor(color))
+                        }.tag(color)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("textNoteColor")
+
+                Picker("Alignment", selection: $style.alignment) {
+                    Image(systemName: "text.alignleft").tag(TextAnnotationStyle.Alignment.leading)
+                        .accessibilityLabel("Align left")
+                    Image(systemName: "text.aligncenter").tag(TextAnnotationStyle.Alignment.center)
+                        .accessibilityLabel("Align center")
+                    Image(systemName: "text.alignright").tag(TextAnnotationStyle.Alignment.trailing)
+                        .accessibilityLabel("Align right")
+                }
+                .pickerStyle(.segmented)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("textNoteAlignment")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Preview").font(.caption).foregroundStyle(.secondary)
+                    Text(trimmed.isEmpty ? "Shape the phrase. Keep a steady pulse." : trimmed)
+                        .font(Font(TextAnnotationRenderer.font(for: style)))
+                        .foregroundStyle(Color(uiColor: TextAnnotationRenderer.color(for: style)))
+                        .multilineTextAlignment(previewTextAlignment)
+                        .lineLimit(6)
+                        .frame(maxWidth: .infinity, minHeight: 80, alignment: previewFrameAlignment)
+                        .padding(12)
+                        .background(Color(uiColor: TextAnnotationRenderer.paperColor), in: RoundedRectangle(cornerRadius: 8))
+                        .accessibilityIdentifier("textNoteStylePreview")
+                }
+                .padding(.vertical, 4)
+            }
+        } footer: {
+            if showingFormatting { Text("On the score, tap a note and drag a corner to resize its box. Text size stays the same.") }
+        }
+    }
+
+    private func emphasisButton(_ title: String, systemImage: String, isOn: Bool,
+                                identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage).frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .tint(isOn ? .accentColor : .secondary)
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func previewColor(_ color: TextAnnotationStyle.TextColor) -> Color {
+        var sample = style
+        sample.textColor = color
+        return Color(uiColor: TextAnnotationRenderer.color(for: sample))
+    }
+
+    private func adjustTextSize(by delta: Double) {
+        style.fontSize = min(TextAnnotationStyle.fontSizeRange.upperBound,
+                             max(TextAnnotationStyle.fontSizeRange.lowerBound, style.fontSize + delta))
+    }
+
+    private var previewTextAlignment: TextAlignment {
+        switch style.alignment {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
+        }
+    }
+
+    private var previewFrameAlignment: Alignment {
+        switch style.alignment {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
+        }
     }
 
     private var isCapturing: Bool { speech.ownerID == ownerID && (speech.isPreparing || speech.isListening) }

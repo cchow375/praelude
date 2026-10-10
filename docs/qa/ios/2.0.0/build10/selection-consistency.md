@@ -3,8 +3,9 @@
 Updated October10, 2026. Native2.0.0/build10/schema5 is installed from
 `b22d4bf3e25ff7309ff55ad3b700d5bb5f2713ea`, tag `ios-v2.0.0-build10-candidate`.
 Scoped checks, signed Release and independent exact-file installation preservation pass.
-Build10 is observed running and independent complete post-launch retention passes. Actual cross-score
-selection/Cancel acceptance remains pending. Macv11.1.0/schema21 is unchanged.
+Build10 is observed running and independent complete post-launch retention passes. Christian's later
+“good it works better” response records qualified improvement in the selection/Cancel comparison;
+it does not establish zero defects or sustained reliability. Macv11.1.0/schema21 is unchanged.
 
 ## Report and retained acceptance
 
@@ -17,6 +18,15 @@ acceptance is retained without generalizing it to every PDF.
 The user separately reports that selection Cancel does not work (B147). The installed repair makes explicit Cancel
 discard only the draft immediately and return to the score; saved baseline passages must
 remain unchanged. Navigating away keeps its separate confirmation guard.
+
+## Qualified user feedback — October 10
+
+After the installed build10 comparison request, Christian replies “good it works better.” This
+supports qualified physical improvement for the Prokofiev/Beethoven selection and Cancel workflow.
+It does not separately certify every corner/crop/zoom case or measurable performance. The user then
+raises sticky-note readability/customization/resizing as B148, tracked in
+[build11 sticky notes](../build11/sticky-notes.md). Preserve all earlier build9 acceptance and the
+build10 failed/zero-test runs below.
 
 ## Confirmed input geometry and source findings
 
@@ -73,7 +83,7 @@ Accepted visual evidence: [iPad large page](screenshots/ipad-large-page-selectio
 [phone ordinary page](screenshots/phone-ordinary-page-selection.png). These confirm the shown
 simulator layouts, not physical drag latency or sustained behavior.
 
-**Next steps:** obtain the actual Prokofiev/Beethoven selection and Cancel verdict. Installation,
-running-process observation and complete post-launch preservation pass. Retain failures
+**Next steps:** retain the user's qualified comparison improvement and address B148 separately.
+Installation, running-process observation and complete post-launch preservation pass. Retain failures
 and precise run scopes; do not infer measured latency, sustained/week-long reliability or unrelated
 microphone/two-device acceptance.

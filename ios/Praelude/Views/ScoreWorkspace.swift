@@ -127,6 +127,7 @@ struct ScoreWorkspace: View {
     @State private var exporting = false
     @State private var exportTask: Task<Void, Never>?
     @State private var editingTextBox: TextBoxAnnotation?
+    @State private var editingSavedTextBox = false
     @State private var dictateTextBox = false
     @State private var renamingPassage: Passage?
     @State private var dictatePassageName = false
@@ -432,16 +433,23 @@ struct ScoreWorkspace: View {
             }
         }
         .sheet(item: $editingTextBox) { box in
-            let isSaved = store.state.textAnnotations.contains { $0.id == box.id }
-            TextBoxEditorView(text: box.text, startDictation: dictateTextBox, onSave: { text in
-                do {
-                    try store.saveTextAnnotation(TextBoxAnnotation(id: box.id, pieceID: box.pieceID, page: box.page, region: box.region,
-                                                                  text: text, layer: box.layer, createdAt: box.createdAt))
-                    return true
-                } catch { self.error = error.localizedDescription; return false }
+            let isSaved = editingSavedTextBox
+            TextBoxEditorView(text: box.text, style: box.style, startDictation: dictateTextBox, onSave: { text, style in
+                if isSaved {
+                    guard let current = store.state.textAnnotations.first(where: { $0.id == box.id }), current == box else {
+                        throw PracticeError.conflict("This note changed elsewhere. Reopen it before saving your changes.")
+                    }
+                }
+                var edited = box
+                edited.text = text
+                edited.style = style
+                edited.updatedAt = Date()
+                try store.saveTextAnnotation(edited)
             }, onDelete: isSaved ? {
-                do { try store.deleteTextAnnotation(box.id); return true }
-                catch { self.error = error.localizedDescription; return false }
+                guard let current = store.state.textAnnotations.first(where: { $0.id == box.id }), current == box else {
+                    throw PracticeError.conflict("This note changed elsewhere. Reopen it before deleting it.")
+                }
+                try store.deleteTextAnnotation(box.id)
             } : nil)
         }
         .sheet(item: $renamingPassage) { passage in
@@ -520,11 +528,11 @@ struct ScoreWorkspace: View {
                        stamps: visibleStamps, textBoxes: visibleTextBoxes, otherLayersInkData: otherLayersInk,
                        drawingData: mergedInkData, saveDrawing: persistInk, saveDrawingAsync: persistInkPrepared, onRegionSelected: onRegionSelected,
                        onPlaceStamp: placeStamp, onPlaceTextBox: placeTextBox, onPlaceBreakPoint: placeBreakPointTap,
-                       onEditTextBox: { dictateTextBox = false; editingTextBox = $0 },
+                       onEditTextBox: { editTextBox($0, dictate: false) },
                        onRenameRegion: { editPassageName(regionID: $0, dictate: false) },
                        onDictateRegion: { editPassageName(regionID: $0, dictate: true) },
                        onMoveTextBox: moveTextBox,
-                       onDictateTextBox: { dictateTextBox = true; editingTextBox = $0 },
+                       onDictateTextBox: { editTextBox($0, dictate: true) },
                        onTurnPage: turnPage, onLongPress: handleLongPress, onPageChanged: savePage)
             .accessibilityIdentifier("scorePDF")
     }
@@ -552,16 +560,28 @@ struct ScoreWorkspace: View {
         dictatePassageName = dictate
         renamingPassage = passage
     }
-    private func moveTextBox(_ box: TextBoxAnnotation, _ region: NormalizedRect) -> Bool {
+    private func editTextBox(_ displayed: TextBoxAnnotation, dictate: Bool) {
+        // PDF overlays refresh asynchronously. A just-resized overlay can still carry the
+        // pre-save timestamp, so establish the editor's conflict baseline from durable state.
+        guard let current = store.state.textAnnotations.first(where: {
+            $0.id == displayed.id && $0.pieceID == pieceID && $0.deletedAt == nil && $0.layer == markup.activeLayer
+        }) else {
+            error = "This note is no longer available in the active layer. Close and reopen the score."
+            return
+        }
+        dictateTextBox = dictate
+        editingSavedTextBox = true
+        editingTextBox = current
+    }
+    private func moveTextBox(_ box: TextBoxAnnotation, _ region: NormalizedRect) -> TextBoxAnnotation? {
         do {
             guard let current = store.state.textAnnotations.first(where: { $0.id == box.id }),
-                  current == box else { error = "This note changed elsewhere. Reopen it before moving it."; return false }
+                  current == box else { error = "This note changed elsewhere. Reopen it before moving it."; return nil }
             var moved = current
             moved.region = region
-            moved.updatedAt = Date()
             try store.saveTextAnnotation(moved)
-            return true
-        } catch { self.error = error.localizedDescription; return false }
+            return store.state.textAnnotations.first { $0.id == box.id }
+        } catch { self.error = error.localizedDescription; return nil }
     }
     private var scoreModeControls: some View {
         HStack(spacing: 4) {
@@ -767,6 +787,7 @@ struct ScoreWorkspace: View {
         } catch { self.error = error.localizedDescription; return false }
     }
     private func placeTextBox(_ page: Int, _ position: NormalizedRect) {
+        editingSavedTextBox = false
         dictateTextBox = false
         editingTextBox = TextBoxAnnotation(pieceID: pieceID, page: page, region: position, text: "", layer: markup.activeLayer)
     }
@@ -985,8 +1006,10 @@ struct ScoreWorkspace: View {
                     Label("Two-finger tap undoes the last ink change", systemImage: "arrow.uturn.backward")
                     Label("Drag the palette handle to move your tools", systemImage: "line.3.horizontal")
                     Label("Minimize the tools to keep more music visible", systemImage: "minus")
-                    Label("Hold and drag a sticky note to move it", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                    Label("Tap a sticky note, then drag inside to move it", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                    Label("Drag a note’s corner handles to resize its box", systemImage: "arrow.up.left.and.arrow.down.right")
                     Label("Double-tap a note to edit; triple-tap to dictate", systemImage: "text.bubble")
+                    Label("In the note editor, scroll down to Text style", systemImage: "textformat")
                 }
                 Section {
                     Text("The practice buttons stay available while you draw. Undo, passage actions and text editing also have visible button alternatives.")

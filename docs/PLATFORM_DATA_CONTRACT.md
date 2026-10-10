@@ -1,6 +1,6 @@
 # Shared account and practice data contract
 
-Current native client: 2.0.0/build5/schema5 development candidate. October 2, 2026.
+Current native source: 2.0.0/build11/schema5 candidate; personal iPad:build10; requested friend’s fresh empty build11 installation pending final signing checks (Developer Mode/DDI ready). Updated October10,2026.
 This contract is the starting point for a future Mac, Windows, Android or web client. The installed
 Tauri Mac application does not yet implement this adapter. A shared backend is readiness for those
 clients, not evidence that their local databases already synchronize.
@@ -25,7 +25,7 @@ The backend enforces ownership and privacy; clients cannot establish ownership b
 | --- | --- | --- |
 | Account/profile and privacy | Auth, profiles, dedicated profile/social RPCs | Profile DTO/cache, server-only fields retained |
 | Scores and library organization | pieces, tags, folders, setlists, bookmarks, page_edits, score_links | Durable offline records, owner-scoped row sync |
-| Passages and annotations | passages, ink_strokes, annotations | Colored boxes, source-page geometry, PencilKit bytes, stamps and sticky text |
+| Passages and annotations | passages, ink_strokes, annotations | Colored boxes, source-page geometry, PencilKit bytes, stamps and sticky text; build11 adds optional style inside annotations.region JSONB |
 | Movements, measure regions and default tempo | pieces.score_sections, measure_anchors, default_practice_bpm | Reviewed ranges and confirmed regions; no inferred OMR claims |
 | Practice and history | practice_sessions, sets, attempts, cold_grades, break_point_taps, rule_events | Parent-first graph application, append IDs, durable remote Undo |
 | Goals and routines | practice_goals, practice_routines | Edit/deletion clocks, offline queue and pull reconciliation |
@@ -38,6 +38,16 @@ The backend enforces ownership and privacy; clients cannot establish ownership b
 OS microphone/speech grants, live audio playback, device hardware capabilities, current sheets,
 Pencil tool UI state and local file URLs are not account data. A synchronized preference is a
 choice; each device still checks its own capability and permission before using it.
+
+## Optional sticky-note style (build11 candidate)
+
+Text annotations add local `style`, encoded as `region.textStyle` for sync. Existing x/y/width/height
+and every SQL column remain unchanged; no backend deployment is required. Supported fields are
+fontSize (12–48, default20 on a595-point canonical page width), fontFamily, isBold/isItalic,
+textColor and alignment. Older notes decode readable defaults with no schema migration or eager
+library rewrite. Updated native clients preserve style through local saves/backups/sync; old
+clients may drop unsupported style when rewriting the note. This is not an automatic nested merge.
+Physical two-device style retention and non-native rendering/editing remain separate acceptance.
 
 ## Wire and conflict rules
 
@@ -80,7 +90,7 @@ Core/fake two-device tests cover deterministic convergence, deletion, account is
 nullable clears. Hosted rollback-only SQL checks cover owner isolation and the actual RPC schema.
 These do not establish a musician's account/PDF/ink history on two physical devices. Real-account
 sign-in, round-trip edits/files/Undo and offline recovery remain required before declaring live
-cross-device continuity accepted. The physical iPad now has build5/schema5 after a guarded in-place update with complete file preservation; this establishes one device's installation/migration, not second-device convergence.
+cross-device continuity accepted. The personal iPad has build10/schema5 after a guarded in-place update with complete file preservation. The requested friend’s build11 installation remains pending and does not authorize importing personal data. Neither a second-device install nor one-device test results establish account convergence.
 
 **Next steps:** accept a real two-device account flow using the installed candidate,
 then implement each future platform adapter against this contract with migration and fixture tests.

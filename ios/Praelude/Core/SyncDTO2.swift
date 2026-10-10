@@ -125,6 +125,30 @@ public struct ScoreLinkSyncRow: Codable, Equatable, Sendable {
     }
 }
 
+/// `annotations.region` is an existing opaque JSONB column. Keep x/y/width/height at their
+/// original level so older NormalizedRect decoders still work, and nest optional styling here
+/// instead of inventing an undeployed SQL column. Older clients can read the note but drop this
+/// styling if they later rewrite it; style-preserving edits require an updated native client.
+private struct AnnotationRegionSyncPayload: Codable, Equatable, Sendable {
+    var region: NormalizedRect
+    var textStyle: TextAnnotationStyle?
+    private enum CodingKeys: String, CodingKey { case textStyle }
+    init(region: NormalizedRect, textStyle: TextAnnotationStyle? = nil) {
+        self.region = region; self.textStyle = textStyle
+    }
+    init(from decoder: Decoder) throws {
+        region = try NormalizedRect(from: decoder)
+        textStyle = try decoder.container(keyedBy: CodingKeys.self).decodeIfPresent(TextAnnotationStyle.self, forKey: .textStyle)
+    }
+    func encode(to encoder: Encoder) throws {
+        try region.encode(to: encoder)
+        if let textStyle {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(textStyle, forKey: .textStyle)
+        }
+    }
+}
+
 /// Unifies `TextBoxAnnotation`/`StampAnnotation` (two Core types) onto the one `annotations` table
 /// (`kind` discriminator, matching `annotations_kind_shape`'s check constraint) — construct from
 /// either Core type via the matching initializer, read back via whichever of `textValue`/`stampValue`
@@ -133,7 +157,15 @@ public struct AnnotationSyncRow: Codable, Equatable, Sendable {
     public var id: UUID
     public var piece_id: UUID
     public var page: Int
-    public var region: NormalizedRect
+    private var regionPayload: AnnotationRegionSyncPayload
+    public var region: NormalizedRect {
+        get { regionPayload.region }
+        set { regionPayload.region = newValue }
+    }
+    private enum CodingKeys: String, CodingKey {
+        case id, piece_id, page, regionPayload = "region", layer, kind, text, stamp_kind, stamp_label
+        case created_at, updated_at, deleted_at
+    }
     public var layer: String
     public var kind: String
     public var text: String?
@@ -144,19 +176,21 @@ public struct AnnotationSyncRow: Codable, Equatable, Sendable {
     public var deleted_at: Date?
 
     public init(_ annotation: TextBoxAnnotation) {
-        id = annotation.id; piece_id = annotation.pieceID; page = annotation.page; region = annotation.region
+        id = annotation.id; piece_id = annotation.pieceID; page = annotation.page
+        regionPayload = AnnotationRegionSyncPayload(region: annotation.region, textStyle: annotation.style)
         layer = annotation.layer.rawValue; kind = "text"; text = annotation.text; stamp_kind = nil; stamp_label = nil
         created_at = annotation.createdAt; updated_at = annotation.updatedAt; deleted_at = annotation.deletedAt
     }
     public init(_ stamp: StampAnnotation) {
-        id = stamp.id; piece_id = stamp.pieceID; page = stamp.page; region = stamp.position
+        id = stamp.id; piece_id = stamp.pieceID; page = stamp.page
+        regionPayload = AnnotationRegionSyncPayload(region: stamp.position)
         layer = stamp.layer.rawValue; kind = "stamp"; text = nil; stamp_kind = stamp.kind.rawValue; stamp_label = stamp.label
         created_at = stamp.createdAt; updated_at = stamp.updatedAt; deleted_at = stamp.deletedAt
     }
     public var textValue: TextBoxAnnotation? {
         guard kind == "text", let text, let layer = InkLayer(rawValue: layer) else { return nil }
         return TextBoxAnnotation(id: id, pieceID: piece_id, page: page, region: region, text: text, layer: layer,
-                                  createdAt: created_at, updatedAt: updated_at, deletedAt: deleted_at)
+                                  style: regionPayload.textStyle ?? .init(), createdAt: created_at, updatedAt: updated_at, deletedAt: deleted_at)
     }
     public var stampValue: StampAnnotation? {
         guard kind == "stamp", let rawStampKind = stamp_kind, let stampKind = StampKind(rawValue: rawStampKind),

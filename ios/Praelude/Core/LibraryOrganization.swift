@@ -129,13 +129,33 @@ public struct TextBoxAnnotation: Identifiable, Codable, Equatable, Sendable {
     public var region: NormalizedRect
     public var text: String
     public var layer: InkLayer
+    public var style: TextAnnotationStyle
     public var createdAt: Date
     public var updatedAt: Date
     public var deletedAt: Date?
     public init(id: UUID = UUID(), pieceID: UUID, page: Int, region: NormalizedRect, text: String,
-                layer: InkLayer = .mine, createdAt: Date = Date(), updatedAt: Date = Date(), deletedAt: Date? = nil) {
+                layer: InkLayer = .mine, style: TextAnnotationStyle = .init(),
+                createdAt: Date = Date(), updatedAt: Date = Date(), deletedAt: Date? = nil) {
         self.id = id; self.pieceID = pieceID; self.page = page; self.region = region; self.text = text
-        self.layer = layer; self.createdAt = createdAt; self.updatedAt = updatedAt; self.deletedAt = deletedAt
+        self.layer = layer; self.style = style
+        self.createdAt = createdAt; self.updatedAt = updatedAt; self.deletedAt = deletedAt
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, pieceID, page, region, text, layer, style, createdAt, updatedAt, deletedAt }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        pieceID = try values.decode(UUID.self, forKey: .pieceID)
+        page = try values.decode(Int.self, forKey: .page)
+        region = try values.decode(NormalizedRect.self, forKey: .region)
+        text = try values.decode(String.self, forKey: .text)
+        layer = try values.decode(InkLayer.self, forKey: .layer)
+        // Existing schema5 libraries/backups carry no style. Their content, geometry and clocks
+        // stay exact; only display defaults are supplied, without a migration or eager rewrite.
+        style = try values.decodeIfPresent(TextAnnotationStyle.self, forKey: .style) ?? .init()
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+        deletedAt = try values.decodeIfPresent(Date.self, forKey: .deletedAt)
     }
 }
 

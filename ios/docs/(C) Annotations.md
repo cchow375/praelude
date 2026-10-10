@@ -1,5 +1,23 @@
 # (C) Annotations — ink, stamps, text boxes, layers, and passage editing
 
+## October 10 — build11 sticky-note candidate
+
+Personal iPad remains build10; requested friend’s fresh empty build11 installation is pending final signing checks; Developer Mode/DDI are ready. Build11 adds `TextAnnotationStyle` and shared
+`TextAnnotationRenderer` for readable text and vector PDF export. Size20 defaults use a595-point
+canonical original-page width, with sizes12–48, four font families, bold/italic, five text colors
+and three alignments. Font/layout dimensions remain canonical while the CGContext scales; this
+avoids source-unit-dependent glyph layout. Overlay work adds eight-screen-point corner resizing; note editing keeps
+formatting in a lower scrollable section. Move/resize must preserve ID, source page, text, style,
+layer and timestamps except the explicit edit clock. Failed saves must not publish a new region.
+
+Style decodes optionally in old libraries/backups, without rewriting files on opening. Existing
+`annotations.region` JSONB carries nested `textStyle`; old readers understand geometry but can
+lose unsupported style on rewrite. Core420 and final iPad5 native64 pass, including strict glyph comparison, styled vector export and authoritative saved-note receipts for consecutive gestures. The final oversized actual UI flow passes1131.493s; ordinary fails184.170s at pre-note navigation amid extreme host load. The whole UI run is not accepted. Physical note and broader layout acceptance remain open in [the build11 ledger](../../docs/qa/ios/2.0.0/build11/sticky-notes.md).
+
+**Next steps:** complete the explicitly requested friend's fresh empty installation after target-specific signature checks, then verify physical note behavior. Optional phone checks remain unperformed, not passed.
+
+## Historical initial annotation implementation
+
 Build spec §7 annotation bullets and §8, implemented. Scope: `ios/Praelude/Views/ScorePageOverlay.swift`,
 `ScoreMarkupState.swift`, `PassagePickerView.swift`, and the new annotation files listed below;
 `ScoreWorkspace.swift` and `PagedScoreView.swift` touched only at the boundary these need. Schema3's
