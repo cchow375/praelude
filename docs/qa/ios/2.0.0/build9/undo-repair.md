@@ -1,6 +1,6 @@
 # Build9 — physical Undo, score navigation and responsiveness repair
 
-October 9, 2026. Build9 is installed after the guarded update; actual opening and physical acceptance remain pending. Build8 failed physical acceptance.
+October 9, 2026. Build9 is installed after the guarded update; actual opening and complete post-launch preservation pass; physical acceptance remains pending. Build8 failed physical acceptance.
 
 ## Actual device evidence
 
@@ -156,3 +156,19 @@ updates batch their ordered parent/set/attempt/Undo entries in one queue write.
   actual executable hash is recorded in [personal-ipad-install.json](personal-ipad-install.json),
   distinct from the earlier package-only hash. Automatic launch was declined by iOS;
   user opening, post-launch readback and physical profiling remain pending.
+
+- User confirms build9 opening. Running-process readback and a fresh00:57:50UTC full
+  backup pass. Independent comparison finds all13 files still byte-identical to both
+  pre-install and post-install snapshots; schema5/revision2167 and every original record,
+  account/privacy/preference and score file remain exact, including the paused active set.
+- First45-second build9 Time Profiler attachment has only12 total CPU samples,5 main
+  samples/5ms and no potential-hang rows. Lifecycle remains Unknown because this was
+  an attachment without a state transition. It is essentially idle evidence, not an
+  active-interaction result or a speedup claim. A subsequent device screenshot shows
+  Today with the paused set. A longer capture and physical user feedback are pending.
+
+- A second120-second physical recording is also effectively idle:15 total CPU samples,
+ 8 main samples/8ms at15-second timer intervals, no potential-hang rows, lifecycle Unknown.
+  Independent analysis finds no identifiable score or practice action frames. Neither
+  capture proves responsiveness, a speedup or physical crash repair. Further recording
+  stops until the user exercises the affected flows; the feedback question remains pending.

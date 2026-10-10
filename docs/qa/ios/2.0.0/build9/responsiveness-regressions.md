@@ -6,9 +6,10 @@ The repaired actual pinch and independent score/ink alignment
 review pass below. Final gesture UI passes70.518s, including toolbar Undo/Redo at actual zoom and
 saved ink after relaunch. Signed device Release and strict signing/fixture checks and independent
 artifact verification pass. Independent installation review verifies13 owned files/12,960,329 bytes
-unchanged by filename, size and SHA-256. Automatic launch was denied, and read-only inspection reports
-the app not running; the user has been asked to open it. Launch/readback and physical two-finger Undo
-at zoom remain pending. No build9 measured speedup is claimed. The Mac remains v11.1.0/schema21.
+unchanged by filename, size and SHA-256. After automatic launch was denied, the user confirmed opening
+build9 and read-only inspection confirmed it running. Independent complete post-launch readback at
+October10 00:57:50 UTC preserves all13 files/12,960,329 bytes, schema5/revision2167 and every original
+record including the paused active set. Physical two-finger Undo at zoom remains pending. No build9 measured speedup is claimed. The Mac remains v11.1.0/schema21.
 
 ## Reported physical behavior
 
@@ -48,6 +49,14 @@ trace is not the same measurement as an individual interaction's wall-clock late
 stack does not prove a single cause for all reported failures. Inclusive function samples overlap
 and cannot be added together. Private device traces stay outside Git. No build9 improvement is inferred.
 
+A first45-second physical build9 trace is effectively idle:12 all-thread samples,5 milliseconds of
+main-thread sampled CPU time and no potential hangs. Foreground lifecycle during that interval is
+unknown, so this is not an active responsiveness test or evidence of a speedup. A21:01 EDT screenshot
+shows Today with the paused set. The second120-second trace also completed effectively idle:
+15 all-thread samples,8 main-thread samples (8 milliseconds) and no potential hangs. Neither trace
+contains evidence of active score gestures; neither accepts responsiveness or demonstrates a speedup.
+Independent review agrees with this boundary. User gesture feedback remains pending.
+
 ## Verification checkpoints and retained failures
 
 | Run or flow | Result and boundary |
@@ -64,7 +73,8 @@ and cannot be added together. Private device traces stay outside Git. No build9 
 | Signed device Release |PASS; strict app/profile/team/device/signer certificate trust and Release fixture/debug-exclusion checks pass. Same bundle; profile expires October16 at23:56:11 UTC (7:56 PM EDT). Independent signed-artifact verification also passes. |
 | Guarded installation / preservation |PASS:13 files/12,960,329 bytes identical by filename, size and SHA-256. Schema5/revision2167;6 pieces/53 passages/54 set IDs (53 historical plus1 paused active set)/35 sessions/317 attempts/259 ink records (202 active)/2 stamps/2 notes. The paused set remains active and preserved; no running set. See [sanitized build9 installation evidence](personal-ipad-install.json). |
 | Actual post-helper signed artifact |PASS strict signing/profile/fixture checks. Executable SHA-256 `cde90889055e808e7c9463dd8b54dea5aa9a283410f45585a072db5b3764a100`; profile expires October16 at23:56:11 UTC. Actual arm64 app/dSYM UUID match. |
-| Launch / physical repeat |iOS automatic launch denied; running readback false; user opening requested. Post-launch readback, physical zoomed two-finger Undo, responsiveness and sustained use remain pending. No speedup or physical crash closure is claimed. |
+| Launch / post-launch preservation |PASS after user-confirmed opening: read-only process inspection confirms running. Independent complete October10 00:57:50 UTC backup retains all13 files/12,960,329 bytes exactly, schema5/revision2167, all original records and the paused active set. The earlier automatic-launch denial remains recorded. |
+| Completed build9 physical traces |45 seconds, effectively idle:12 all-thread samples,5 main-thread CPU milliseconds, no potential hangs; foreground lifecycle unknown. This cannot establish active responsiveness or a speedup. The completed120-second trace is also effectively idle:15 all-thread samples,8 main-thread samples/8 milliseconds, no potential hangs. Neither trace establishes active score gestures. User feedback and physical acceptance remain pending. |
 
 ## Source frozen for final verification
 
@@ -94,10 +104,9 @@ and `SyncCoding`. Source is frozen; verification scopes above do not establish p
 - [x] Signed build9 Release and strict app/profile/team/device/signer trust and fixture/debug-exclusion checks pass.
 - [x] Independent signed-artifact verification passes.
 - [x] Build9 installed through guarded same-bundle refresh; all13 files/12,960,329 bytes and the paused set preserved exactly.
-- [ ] User opening and post-launch readback; automatic launch was denied and app was not running at inspection.
+- [x] User opening, running-process inspection and independent complete post-launch readback pass; all13 files and the paused set remain exact.
 - [ ] Physical Pencil/Undo and sustained practice acceptance; no week-long trial is implied by shorter tests.
 
-**Next steps:** confirm opening and retain a post-launch readback, then repeat physical flows and
-profiling, including two-finger Undo at zoom. Preserve the paused practice set. Keep source tests,
+**Next steps:** obtain actual practice/Pencil/zoom/Undo feedback and capture verified active-use profiling if needed. Physical lag and zoomed two-finger Undo remain open. Preserve the paused practice set. Keep source tests,
 profiling, installation/preservation and musician acceptance separate; build8's reported failures
 are not closed by installation alone.

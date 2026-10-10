@@ -2,9 +2,9 @@
 
 ## Build9 controls — installed October 9; physical acceptance pending
 
-**Matches: installed native2.0.0/build9/schema5 and Macv11.1.0/schema21. Last updated:2026-10-09.** The guarded update preserves all13 owned files/12,960,329 bytes exactly, including the paused active practice set. Resume that set when ready. iOS denied automatic launch; the app is not yet confirmed running, and the user has been asked to open it. Launch/readback and real Pencil, zoomed two-finger Undo, responsiveness and sustained practice remain pending.
+**Matches: installed native2.0.0/build9/schema5 and Macv11.1.0/schema21. Last updated:2026-10-09.** The guarded update preserves all13 owned files/12,960,329 bytes exactly, including the paused active practice set. Resume that set when ready. After iOS denied automatic launch, the user opened build9 and read-only inspection confirmed it running. The independent October10 00:57:50 UTC post-launch readback preserves all13 files, schema5/revision2167 and the paused set exactly. Real Pencil, zoomed two-finger Undo, responsiveness and sustained practice remain pending.
 
-Build9 replaces native tile Undo actions with bounded drawing-value history, keeps score/ink zoom together and reduces repeated sync preparation. Source and simulator results support these changes; no measured physical speedup or week-long acceptance is claimed.
+Build9 replaces native tile Undo actions with bounded drawing-value history, keeps score/ink zoom together and reduces repeated sync preparation. Source and simulator results support these changes. Both physical traces completed but were effectively idle, so no measured active-use speedup or week-long acceptance is claimed.
 
 - **Tempo:** compact numbers show BPM and the Start/Goal controls have distinct spoken labels. Tap the BPM number to replace it with an exact value, use ±1/±5 or Tap tempo, then Apply. Cancel leaves the current value unchanged. Dragging the number previews the change and applies it on release. The supported range is 20–300 BPM.
 - **Tempo goal and hands:** before starting, open the visible Tempo goal action in its large sheet, choose Start and Goal, a BPM/percent increase and the clean target, then Use goal. A passage can also retain that goal for future practice; the compact running controls show the full goal value. Choose L, Both or R directly. Techniques shows an ordered sequence with per-stage clean counts; changes describe the next set and do not invent attempts. Explore remains the ungraded start action.
@@ -13,7 +13,7 @@ Build9 replaces native tile Undo actions with bounded drawing-value history, kee
 - **Movements:** use Movements & pieces in the score or the library's movement entries. Name the movement and set its first/last PDF pages with the large number fields or adjacent steppers. Typing replaces the selected page number; empty, zero or out-of-range pages keep Save disabled until corrected. An entry opens that source-page range and shows its own practice target. The PDF and annotations remain shared; saved practice retains the movement name and source range even if the label later changes. Actual saved passages keep their own identity and history.
 - **Warmups:** adjust tempo or metronome without leaving the exercise. Pause & close preserves unfinished practice; Finish ends the session. Failed saves stay visible so work is not silently discarded.
 
-**Next steps:** confirm opening, retain a post-launch readback, and retry the actual practice/zoom/Pencil/Undo flows. Installation and preserved data are not physical acceptance.
+**Next steps:** provide feedback on the actual practice/zoom/Pencil/Undo flows; physical lag and zoomed two-finger Undo remain open. Installation and preserved data are not physical acceptance.
 
 ## Historical build8 installation and failure
 
@@ -32,7 +32,7 @@ In short landscape drawing windows, notation initially fits the score width. Pin
 Build7 is installed on the personal iPad with exact complete-file preservation; Praelude is running and schema5 readback passes. Earlier build6 instructions below are historical. Physical sustained drawing and higher-refresh-rate acceptance remain open.
 
 
-**Matches: installed2.0.0/build9/schema5. Last updated:2026-10-09. Launch/readback and physical feature acceptance remain pending.**
+**Matches: installed2.0.0/build9/schema5. Last updated:2026-10-09. Launch/readback pass; physical feature acceptance remains pending.**
 
 ## October2 build5 — score workflow and shared data
 

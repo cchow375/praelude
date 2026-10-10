@@ -1,4 +1,4 @@
-# Build9 installed — awaiting physical opening and acceptance
+# Build9 opened — data preserved; active-use acceptance pending
 
 October9,2026. Source `2de2444a782cb54a5cd31966ecc33257e4511dd0`, tag
 `ios-v2.0.0-build9-candidate`. Installed native2.0.0/build9/schema5 on the actual
@@ -28,17 +28,23 @@ third-generation12.9-inch iPad Pro, iPad8,5, iOS18.7.8. Mac remains unchanged.
 
 ## Current stop point
 
-The helper installed successfully but iOS declined automatic launch. The subsequent
-read-only process check confirms build9 installed and **not running**. The user has been
-asked to open Praelude; that reply is pending. No build9 post-launch readback or physical
-performance measurement exists yet. Do not call the physical crash/lag repaired or claim
-week-long/zero-defect acceptance.
+The user confirms build9 is open; read-only process inspection confirms it running.
+The00:57:50UTC post-launch backup is still byte-identical to pre-install and post-install
+snapshots across all13 files. All original records and the paused set remain exact.
 
-## Next steps after opening
+Two physical Time Profiler attachments complete but are essentially idle:45seconds has
+12 total samples/5 main CPU ms;120seconds has15 total samples/8 main CPU ms at15-second
+timer intervals. Neither records a potential hang or identifiable affected-flow activity.
+Lifecycle stays Unknown in both attachments. No active responsiveness, speedup or physical
+crash-repair claim is supported. A device screenshot separately shows Today with the paused
+set. The user has been asked to try zoom, Pencil→Done, Undo, selection and button response;
+that feedback is pending. Stop repeating idle captures until active interaction is available.
 
-1. Read installed version/process state and make a fresh complete private backup. Compare
-   original IDs/attempts/ink, profile/privacy/preferences and static score files against the
-   guarded pre-install backup. Keep legitimate new user activity separate from install loss.
+## Next steps after user feedback
+
+1. Obtain the pending physical flow result and address any reported defect. Opening and
+   post-launch preservation already pass. Keep any later legitimate user edits separate
+   from installation loss; do not replay synthetic practice into the personal library.
 2. Attach a45-second Time Profiler recording to the actual running Praelude process. Use
    the installed build9 dSYM. Inspect main-thread samples and potential hangs; compare
    with build8 without treating unequal interaction workloads as controlled latency tests.

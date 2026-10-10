@@ -42,6 +42,123 @@
       "ledgerStructurallyIdentical": true,
       "profilePrivacyPreferencesExact": true
     },
+    "postLaunchReadback": {
+      "ledger": {
+        "schema": 5,
+        "revision": 2167,
+        "pieces": 6,
+        "passages": 53,
+        "historicalSets": 53,
+        "allSetIDs": 54,
+        "sessions": 35,
+        "uniqueAttempts": 317,
+        "activeSetStatus": "paused",
+        "runningSets": 0,
+        "inkRows": 259,
+        "activeInkRows": 202,
+        "stamps": 2,
+        "textNotes": 2
+      },
+      "schemaUnchanged": true,
+      "revisionNondecreasing": true,
+      "retention": {
+        "history": {
+          "originalRecords": 53,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "sessions": {
+          "originalRecords": 35,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "inkStrokes": {
+          "originalRecords": 259,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "pieces": {
+          "originalRecords": 6,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "passages": {
+          "originalRecords": 53,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "textAnnotations": {
+          "originalRecords": 2,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "stampAnnotations": {
+          "originalRecords": 2,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "allSets": {
+          "originalRecords": 54,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "attempts": {
+          "originalRecords": 317,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "attemptsWithinSets": {
+          "missingOriginalContainers": 0,
+          "missingOriginalAttempts": 0,
+          "changedOriginalAttempts": 0,
+          "allOriginalAttemptRecordsRetainedInOriginalContainers": true
+        },
+        "attemptsWithinSessions": {
+          "missingOriginalContainers": 0,
+          "missingOriginalAttempts": 0,
+          "changedOriginalAttempts": 0,
+          "allOriginalAttemptRecordsRetainedInOriginalContainers": true
+        }
+      },
+      "protectedData": {
+        "profileExact": true,
+        "privacyExact": true,
+        "accountOwnerExact": true,
+        "preferencesExact": true,
+        "syncOwnershipExact": true,
+        "backendProfilePrivacyExact": true,
+        "originalScoreAndOtherStaticFilesExact": true
+      },
+      "strictRetentionPassed": true,
+      "activityAttribution": "Not inferred. This is separate from byte-exact prelaunch preservation."
+    },
     "result": "passed",
     "checks": {
       "before_stable_bundle": true,
@@ -61,7 +178,14 @@
       "after_ledger_present": true,
       "after_valid_schema_revision": true,
       "expected_postinstall_version_build": true,
-      "all_prelaunch_files_exact": true
+      "all_prelaunch_files_exact": true,
+      "postlaunch_stable_bundle": true,
+      "postlaunch_manifest_matches_actual_file_bytes": true,
+      "postlaunch_ledger_present": true,
+      "postlaunch_valid_schema_revision": true,
+      "postlaunch_sync_state_present": true,
+      "postlaunch_schema_revision_valid": true,
+      "postlaunch_retention_proven": true
     }
   },
   "actualInstalledReleaseSignature": {
@@ -107,9 +231,18 @@
   },
   "launch": {
     "automaticLaunch": "denied by iOS",
-    "runningReadback": false,
-    "userOpenRequested": true
+    "userConfirmedOpen": true,
+    "runningReadback": true,
+    "postLaunchBackupUTC": "2026-10-10T00:57:50Z"
   },
   "physicalAcceptance": "Pending actual iPad Pencil, zoomed two-finger Undo, responsiveness and sustained practice; simulator results do not close these.",
-  "postInstallBackupUTC": "2026-10-10T00:45:33Z"
+  "postInstallBackupUTC": "2026-10-10T00:45:33Z",
+  "postLaunchDeltaAudit": {
+    "changedLedgerFields": [],
+    "changedCollections": {},
+    "changedFileCount": 0,
+    "addedFiles": 0,
+    "removedFiles": 0,
+    "changedSyncFiles": []
+  }
 }
