@@ -1,5 +1,9 @@
 # NOTES
 
+## October 11 — friend build12 preservation and launch boundary
+
+The exact friend’s iPad (6) guarded refresh on October10 preserves all3 owned files/38,874,123 bytes and schema5/revision85 exactly under independent rehashing. The user confirms opening. A read-only process query fails before post-launch backup; subsequent exact-device status is unavailable. Retain user-confirmed opening separately from unverified running-process/readback and physical acceptance. Evidence: `docs/qa/ios/2.0.0/build12/friend-ipad-install.json`, `friend-signed-release.json`. Personal data was never copied.
+
 ## October 10, 2026 — build12 candidate contracts
 
 - PDF page changes must still defer outside representable updates (build7 watchdog contract).

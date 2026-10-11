@@ -1,0 +1,80 @@
+{
+  "auditVersion": 1,
+  "deviceActionsPerformed": false,
+  "preLaunchLedger": {
+    "schema": 5,
+    "revision": 85,
+    "pieces": 3,
+    "passages": 4,
+    "historicalSets": 3,
+    "allSetIDs": 3,
+    "sessions": 2,
+    "uniqueAttempts": 3,
+    "activeSetStatus": null,
+    "runningSets": 0,
+    "inkRows": 0,
+    "activeInkRows": 0,
+    "stamps": 0,
+    "textNotes": 0
+  },
+  "beforeFiles": {
+    "count": 3,
+    "totalBytes": 38874123,
+    "manifestRecomputed": true
+  },
+  "installationPreservation": {
+    "beforeBuild": "11",
+    "afterBuild": "12",
+    "ownedFiles": 3,
+    "totalBytes": 38874123,
+    "addedFiles": 0,
+    "deletedFiles": 0,
+    "changedFiles": 0,
+    "allFilenamesBytesSHA256Identical": true,
+    "ledgerByteIdentical": true,
+    "ledgerStructurallyIdentical": true,
+    "profilePrivacyPreferencesExact": true
+  },
+  "result": "passed",
+  "checks": {
+    "before_stable_bundle": true,
+    "backup_root_is_directory": true,
+    "no_symlinks": true,
+    "regular_files_only": true,
+    "before_manifest_matches_actual_file_bytes": true,
+    "before_ledger_present": true,
+    "before_valid_schema_revision": true,
+    "active_set_status_valid": true,
+    "record_lists_valid": true,
+    "no_duplicate_ids_within_collection": true,
+    "no_running_preinstall_set": true,
+    "after_stable_bundle": true,
+    "after_manifest_matches_actual_file_bytes": true,
+    "after_ledger_present": true,
+    "after_valid_schema_revision": true,
+    "expected_postinstall_version_build": true,
+    "all_prelaunch_files_exact": true
+  },
+  "sourceCommit": "459081c571c85b32b9aea3dfa7fd5d5801496750",
+  "candidateTag": "ios-v2.0.0-build12-candidate",
+  "deviceRole": "friend",
+  "deviceName": "iPad (6)",
+  "version": "2.0.0",
+  "build": "12",
+  "independentAuditUTC": "2026-10-10T20:43:38.031892+00:00",
+  "beforeSnapshot": "20261010T204159Z-5efce8ed",
+  "afterSnapshot": "20261010T204231Z-3fc3a700",
+  "helperReportedInstallation": {
+    "version": "2.0.0",
+    "build": "12",
+    "sameBundleRefresh": true
+  },
+  "launch": {
+    "automaticLaunch": "declined_by_iOS",
+    "userOpeningConfirmation": "confirmed_by_user",
+    "postLaunchReadback": "unverified_device_unavailable",
+    "readOnlyProcessQuery": "failed_before_backup",
+    "subsequentExactDeviceStatus": "unavailable"
+  },
+  "boundary": "The friend already had a nonempty build11 library. The helper reports same-bundle build12 installation, corroborated by post-install backup metadata. Independent rehashing proves all 3 owned files and the complete schema5/revision85 library exactly unchanged before launch. No personal library was copied. The user confirms opening Praelude. The read-only process query failed before any post-launch backup; subsequent exact-device status was unavailable. Post-launch retention and physical feature acceptance remain unverified; no Pencil, microphone, audio, latency, sustained-use or two-device sync acceptance is inferred."
+}

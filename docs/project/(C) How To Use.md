@@ -2,7 +2,7 @@
 
 ## October 10 — build12 personal iPad controls
 
-**Matches: installed personal native 2.0.0/build12/schema5; friend’s last verified build11; Mac v11.1.0/schema21. Last updated: 2026-10-10.** Guarded installation and full-file preservation pass; Christian confirms opening build12. Physical Pencil/audio/performance acceptance remains open. Full evidence: `docs/qa/ios/2.0.0/build12/practice-upgrade.md`.
+**Matches: installed personal native 2.0.0/build12/schema5; friend native2.0.0/build12/schema5; Mac v11.1.0/schema21. Last updated: 2026-10-11.** Guarded installation and full-file preservation pass; Christian confirms opening build12. The friend’s existing library was preserved exactly and opening is user-confirmed; full friend post-launch readback remains unverified because the device is unavailable. Physical Pencil/audio/performance acceptance remains open. Full evidence: `docs/qa/ios/2.0.0/build12/practice-upgrade.md`.
 
 - **Focus:** while reading, tap the center third near the top or bottom16% of the score, or use
   Score options → Focus. Controls and rep count hide. Rep recording, rep Undo and Reset are
