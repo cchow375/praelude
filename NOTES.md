@@ -1,5 +1,12 @@
 # NOTES
 
+## October 11 — functional audit and passage dictation intent
+
+- **Bind intent to every editor presentation.** ScoreWorkspace's region triple tap set a persistent dictation flag; Cancel/Save dismissed only the passage. Dock/menu/running-HUD rename reused true. Build14 routes all four paths through one helper assigning passage and explicit intent (ordinary false), plus dismissal cleanup. Baseline live repro is blocked by navigation; source confirmation is independent, actual successor combined regression remains unaccepted: fresh6 selects a box and saves dock-name/108.5 goal, then box double tap fails to open the editor. Fresh4 reached the target triple/denial/ordinary flow but had the global-query error described below. All failures remain.
+- **Scope editor assertions to the editor.** Fresh4's global no-error query matched red permission text on the underlying score while the ordinary Rename form was clean/focused. Keep the strict editor assertion within the form containing passageRenameField. The actual remaining score caption is a separate user-facing defect: final build14 replaces it with a neutral attention badge on the existing44pt mic button; error taps open Hands-free details/recovery. No extra score row or silent capture/error clearing.
+- **Test scope is not a feature verdict.** Build13 real drawing/save/reopen and other scoped UI passes coexist with camera-menu, review-queue and sidebar tap failures. Camera detector tests use synthetic measurements; voice recognition/capture paths are injected. No real speech-over-piano, face/light/orientation/false-action, audible-click or sustained physical acceptance exists.
+- **Audit protected state and report bootstrap separately.** Synthetic review baseline precedes RewardsRuntime startup. Opening materializes reward ledger entries from seeded grades and normalizes rank; original grades/schedules/practice remain exact. Do not call this all-record or byte preservation. Fresh9 priority pixels show two due URGENT rows and one future nonurgent Tough row, separately from the failed All passage reviews opening.
+
 ## October 11 — build13 native input contracts
 
 - **PKCanvas setters do not reset all native drawing state.** Actual simulator first draw1→two-finger Undo0→next draw2 reproduces physical feedback before disk save. Replace native canvas at Undo/Redo with retained independent history/exact stroke cache/source basis; retire old delegate/recognizers and reapply PDF pinch priorities. Avoid blanket rejection of non-tool edits, which can break lasso menu cut/paste.

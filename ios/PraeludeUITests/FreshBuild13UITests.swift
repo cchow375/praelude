@@ -3,16 +3,33 @@ import XCTest
 /// Independent checks over the disposable synthetic library. These do not exercise a physical
 /// camera, speech recognition, Apple Pencil, or perceived click volume.
 final class FreshBuild13UITests: XCTestCase {
-    @MainActor private func openScore(_ app: XCUIApplication, reset: Bool = true) {
+    @MainActor private func openScore(_ app: XCUIApplication, reset: Bool = true, auditArguments: [String] = []) {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
-        app.launchArguments = ["--uitesting"] + (reset ? ["--reset", "--seed", "--seed-sections"] : [])
+        app.launchArguments = ["--uitesting"] + (reset ? ["--reset", "--seed", "--seed-sections"] : []) + auditArguments
         app.launch()
-        let hide = app.buttons["Hide Sidebar"]
-        if hide.waitForExistence(timeout: 1), hide.isHittable { hide.tap() }
+        if auditArguments.contains("--audit-open-gesture-score") {
+            // This explicit DEBUG starting point does not exercise library/sidebar opening.
+            // All subsequent passage selection and editor gestures remain actual UI actions.
+            XCTAssertTrue(app.buttons["annotateScore"].waitForExistence(timeout: 8), app.debugDescription)
+            XCTAssertTrue(app.otherElements["scorePDF"].textViews.firstMatch.waitForExistence(timeout: 8), app.debugDescription)
+            return
+        }
         let pieces = app.tabBars.buttons["Pieces"]
-        if pieces.exists, pieces.isHittable { pieces.tap() }
-        let piece = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Practice study", "4 pages")).firstMatch
+        if pieces.exists, pieces.isHittable {
+            tap(pieces, app: app)
+        } else {
+            let show = app.buttons["Show Sidebar"]
+            if show.waitForExistence(timeout: 1), show.isHittable { tap(show, app: app) }
+            let sidebarPieces = app.buttons["Pieces"]
+            tap(sidebarPieces, app: app)
+        }
+        XCTAssertTrue(app.navigationBars["Pieces"].waitForExistence(timeout: 8), app.debugDescription)
+        let hide = app.buttons["Hide Sidebar"]
+        if hide.exists, hide.isHittable { tap(hide, app: app) }
+        // The cover grid intentionally omits page count. Pieces navigation above plus the
+        // library-only identifier distinguish this row from Today's Recent piece shortcut.
+        let piece = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@ AND label CONTAINS %@", "pieceRow", "Practice study", "Praelude test score")).firstMatch
         for _ in 0..<6 where !piece.isHittable { app.swipeUp() }
         XCTAssertTrue(piece.waitForExistence(timeout: 8), app.debugDescription)
         tap(piece, app: app)
@@ -35,9 +52,9 @@ final class FreshBuild13UITests: XCTestCase {
         hierarchy.name = name + "-hierarchy"; hierarchy.lifetime = .keepAlways; add(hierarchy)
     }
 
-    @MainActor private func armPassage(_ app: XCUIApplication) {
+    @MainActor private func armPassage(_ app: XCUIApplication, title: String = "Evenness and pulse") {
         tap(app.buttons["passages"], app: app)
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "savedPassage_", "Evenness and pulse")).firstMatch
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "savedPassage_", title)).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 8), app.debugDescription)
         tap(row, app: app)
         XCTAssertTrue(app.buttons["coldGrade_missed"].waitForExistence(timeout: 8), app.debugDescription)
@@ -228,5 +245,222 @@ final class FreshBuild13UITests: XCTestCase {
         XCTAssertEqual(priority.label, "Tough passage", "A Missed report due tomorrow must not be marked overdue or URGENT today")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "URGENT ·")).firstMatch.exists)
         shot("fresh13-missed-upcoming-tough-review-reopened", app: app)
+    }
+
+    @MainActor private func editNameAndGoal(_ app: XCUIApplication, name: String, bpm: String) {
+        XCTAssertTrue(app.navigationBars["Rename passage"].waitForExistence(timeout: 8), app.debugDescription)
+        let field = app.descendants(matching: .any).matching(identifier: "passageRenameField").firstMatch
+        tap(field, app: app)
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (field.value as? String ?? "").count) + name)
+        let enabled = app.switches["passageGoalEnabled"]
+        if enabled.value as? String != "1" { enabled.coordinate(withNormalizedOffset: .init(dx: 0.95, dy: 0.5)).tap() }
+        let on = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1"), object: enabled)
+        XCTAssertEqual(XCTWaiter.wait(for: [on], timeout: 5), .completed, app.debugDescription)
+        let tempo = app.textFields["passageGoalTempoField"]
+        tap(tempo, app: app)
+        tempo.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (tempo.value as? String ?? "").count) + bpm)
+        tap(app.buttons["savePassageName"], app: app)
+        XCTAssertTrue(app.otherElements["practiceArmPanel"].staticTexts[name].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].exists)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
+        XCTAssertFalse(app.buttons["stopSet"].exists)
+    }
+
+    @MainActor private func assertGoalEditor(_ app: XCUIApplication, name: String, bpm: String) {
+        XCTAssertTrue(app.navigationBars["Rename passage"].waitForExistence(timeout: 8), app.debugDescription)
+        let field = app.descendants(matching: .any).matching(identifier: "passageRenameField").firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(field.value as? String, name)
+        XCTAssertEqual(app.switches["passageGoalEnabled"].value as? String, "1")
+        XCTAssertEqual(app.textFields["passageGoalTempoField"].value as? String, bpm)
+    }
+
+    @MainActor private func recoverPassageDictation(_ app: XCUIApplication) {
+        let dictate = app.buttons["dictatePassageName"]
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let editor = app.collectionViews.containing(.any, identifier: "passageRenameField").firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 5), app.debugDescription)
+        let failure = editor.staticTexts.matching(NSPredicate(format:
+            "label CONTAINS[c] 'permission is off' OR label CONTAINS[c] 'recognition is unavailable' OR label CONTAINS[c] 'recognition is temporarily unavailable' OR label BEGINSWITH 'Voice could not start:'")).firstMatch
+        let requested = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (dictate.exists && dictate.label.contains("Finish")) || failure.exists ||
+                app.alerts.firstMatch.exists || springboard.alerts.firstMatch.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [requested], timeout: 8), .completed,
+                       "Triple tap must actually request dictation, not just open the double-tap editor.\n\(app.debugDescription)")
+        var denied = false
+        for _ in 0..<2 {
+            let alert = app.alerts.firstMatch.exists ? app.alerts.firstMatch : springboard.alerts.firstMatch
+            guard alert.waitForExistence(timeout: 2) else { break }
+            let decline = alert.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Don’t Allow", "Don't Allow")).firstMatch
+            XCTAssertTrue(decline.exists, alert.debugDescription)
+            decline.tap(); denied = true
+        }
+        if denied { XCTAssertTrue(failure.waitForExistence(timeout: 5), app.debugDescription) }
+        else if dictate.exists, dictate.label.contains("Finish") { tap(dictate, app: app) }
+        let usable = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let save = app.buttons["savePassageName"]
+            return save.exists && save.isEnabled && dictate.exists && !dictate.label.contains("Finish")
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [usable], timeout: 8), .completed,
+                       "Dictation recovery must leave ordinary editing usable.\n\(app.debugDescription)")
+    }
+
+    @MainActor private func armGestureAuditPassage(_ app: XCUIApplication, title: String = "Evenness and pulse") {
+        let score = app.otherElements["scorePDF"]
+        let page = score.textViews.firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(page.isHittable && score.frame.contains(page.frame), app.debugDescription)
+        // Only this explicit audit fixture centers Evenness at y=.435...565. A real single
+        // touch at the visible page center selects that saved box without a picker sheet.
+        page.tap()
+        XCTAssertTrue(app.buttons["coldGrade_missed"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(app.otherElements["practiceArmPanel"].staticTexts[title].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
+        XCTAssertFalse(app.buttons["stopSet"].exists)
+    }
+
+    @MainActor func testActualDoubleTapNameAndBoxGoalsPersistAndTripleTapDictationRecovers() {
+        let auditArguments = ["--audit-gesture-preservation", "--audit-open-gesture-score"]
+        let app = XCUIApplication(); openScore(app, auditArguments: auditArguments); armGestureAuditPassage(app)
+        let title = app.otherElements["practiceArmPanel"].staticTexts["Evenness and pulse"]
+        XCTAssertTrue(title.waitForExistence(timeout: 8) && title.isHittable, app.debugDescription)
+        title.doubleTap()
+        editNameAndGoal(app, name: "Double tap name", bpm: "108.5")
+        shot("fresh13-double-tap-name-goal-saved", app: app)
+
+        let page = app.otherElements["scorePDF"].textViews.firstMatch
+        // This explicit audit seed places the selected box at y=.435...565. The actual page
+        // center is inside that box; XCTest synthesizes touches, not accessibility actions.
+        XCTAssertTrue(app.otherElements["scorePDF"].frame.contains(page.frame), app.debugDescription)
+        page.doubleTap()
+        assertGoalEditor(app, name: "Double tap name", bpm: "108.5")
+        editNameAndGoal(app, name: "Double tap box", bpm: "112.5")
+        shot("fresh13-double-tap-box-goal-saved", app: app)
+        tap(app.buttons["closeScore"], app: app)
+        app.terminate(); openScore(app, reset: false, auditArguments: auditArguments); armGestureAuditPassage(app, title: "Double tap box")
+        app.otherElements["practiceArmPanel"].staticTexts["Double tap box"].doubleTap()
+        assertGoalEditor(app, name: "Double tap box", bpm: "112.5")
+        shot("fresh13-double-tap-goal-reopened", app: app)
+        tap(app.navigationBars["Rename passage"].buttons["Cancel"], app: app)
+
+        let reopenedPage = app.otherElements["scorePDF"].textViews.firstMatch
+        XCTAssertTrue(app.otherElements["scorePDF"].frame.contains(reopenedPage.frame), app.debugDescription)
+        reopenedPage.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        XCTAssertTrue(app.navigationBars["Rename passage"].waitForExistence(timeout: 8), app.debugDescription)
+        recoverPassageDictation(app)
+        assertGoalEditor(app, name: "Double tap box", bpm: "112.5")
+        shot("fresh13-triple-tap-passage-dictation-recovery", app: app)
+        tap(app.navigationBars["Rename passage"].buttons["Cancel"], app: app)
+        XCTAssertTrue(app.buttons["coldGrade_clean"].exists)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
+        XCTAssertFalse(app.buttons["stopSet"].exists)
+        app.otherElements["practiceArmPanel"].staticTexts["Double tap box"].doubleTap()
+        assertGoalEditor(app, name: "Double tap box", bpm: "112.5")
+        XCTAssertEqual(app.buttons["dictatePassageName"].label, "Dictate name")
+        XCTAssertTrue(app.buttons["savePassageName"].isEnabled)
+        // Scope this to the actual editor: a new failure there demonstrates an inherited
+        // dictation request; the score's compact recovery indicator is a separate surface.
+        let editor = app.collectionViews.containing(.any, identifier: "passageRenameField").firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 5), app.debugDescription)
+        let unexpectedDictation = editor.staticTexts.matching(NSPredicate(format:
+            "label CONTAINS[c] 'permission is off' OR label CONTAINS[c] 'recognition is unavailable' OR label CONTAINS[c] 'recognition is temporarily unavailable' OR label BEGINSWITH 'Voice could not start:'")).firstMatch
+        let silent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in unexpectedDictation.exists }, object: nil)
+        silent.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [silent], timeout: 2), .completed,
+                       "An ordinary double-tap after Cancel must not repeat the earlier triple-tap dictation request.\n\(app.debugDescription)")
+        shot("fresh13-double-tap-after-dictation-cancel", app: app)
+        tap(app.navigationBars["Rename passage"].buttons["Cancel"], app: app)
+        let scoreFailure = app.staticTexts.matching(NSPredicate(format:
+            "label CONTAINS[c] 'permission is off' OR label CONTAINS[c] 'recognition is unavailable' OR label CONTAINS[c] 'recognition is temporarily unavailable' OR label BEGINSWITH 'Voice could not start:'")).firstMatch
+        XCTAssertFalse(scoreFailure.exists, "The score should expose a compact recovery indicator, not retain the long error caption.\n\(app.debugDescription)")
+        let voice = app.buttons["scoreVoice"]
+        let attention = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Needs attention"), object: voice)
+        XCTAssertEqual(XCTWaiter.wait(for: [attention], timeout: 5), .completed, app.debugDescription)
+        shot("fresh14-neutral-voice-attention-after-denial", app: app)
+        tap(voice, app: app)
+        XCTAssertTrue(app.navigationBars["Hands-free"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(scoreFailure.waitForExistence(timeout: 5), app.debugDescription)
+        shot("fresh14-voice-permission-recovery-details", app: app)
+        tap(app.navigationBars["Hands-free"].buttons["Done"], app: app)
+        XCTAssertFalse(scoreFailure.exists, app.debugDescription)
+        XCTAssertEqual(voice.value as? String, "Needs attention")
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
+        XCTAssertFalse(app.buttons["stopSet"].exists)
+        tap(app.buttons["closeScore"], app: app)
+        app.terminate(); openScore(app, reset: false, auditArguments: auditArguments); armGestureAuditPassage(app, title: "Double tap box")
+        app.otherElements["practiceArmPanel"].staticTexts["Double tap box"].doubleTap()
+        assertGoalEditor(app, name: "Double tap box", bpm: "112.5")
+        tap(app.navigationBars["Rename passage"].buttons["Cancel"], app: app)
+    }
+
+    @MainActor func testTodayPriorityRenderingShowsDueCountAndKeepsFutureToughNonurgent() {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--reset", "--seed", "--seed-sections", "--audit-review-priority"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 8), app.debugDescription)
+        let identities = ["00000000-0000-4000-8000-000000000131", "00000000-0000-4000-8000-000000000132", "00000000-0000-4000-8000-000000000133"]
+        let labels = ["URGENT · 2 days overdue", "URGENT · Tough passage due", "Tough passage"]
+        let offsets = [-2, 0, 2]
+        let today = Calendar.current.startOfDay(for: Date())
+        var previousY: CGFloat = -1
+        for index in identities.indices {
+            let priority = app.staticTexts["reviewPriority_\(identities[index])"]
+            XCTAssertTrue(priority.waitForExistence(timeout: 8), app.debugDescription)
+            XCTAssertEqual(priority.label, labels[index])
+            XCTAssertTrue(priority.isHittable && app.frame.contains(priority.frame), app.debugDescription)
+            XCTAssertGreaterThan(priority.frame.minY, previousY)
+            previousY = priority.frame.minY
+            let cell = app.cells.containing(.staticText, identifier: priority.identifier).firstMatch
+            let date = Calendar.current.date(byAdding: .day, value: offsets[index], to: today)!
+            XCTAssertTrue(cell.staticTexts["Scheduled \(date.formatted(date: .abbreviated, time: .omitted))"].exists,
+                          "The displayed priority must retain its actual saved date.\n\(app.debugDescription)")
+        }
+        XCTAssertTrue(app.staticTexts["2 reviews due."].exists)
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label BEGINSWITH %@", "reviewPriority_", "URGENT")).count, 2)
+        shot("fresh14-today-overdue-due-and-future-priorities", app: app)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
+        XCTAssertFalse(app.buttons["stopSet"].exists)
+    }
+
+    @MainActor func testUrgentOverdueAndDueToughQueueKeepsFutureReviewNonurgent() {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--reset", "--seed", "--seed-sections", "--audit-review-priority"]
+        app.launch()
+        let hide = app.buttons["Hide Sidebar"]
+        if hide.waitForExistence(timeout: 1), hide.isHittable { hide.tap() }
+        let today = app.tabBars.buttons["Today"]
+        if today.exists, today.isHittable { tap(today, app: app) }
+        let all = app.buttons["allPassageReviews"]
+        for _ in 0..<8 where !all.isHittable { app.swipeUp() }
+        tap(all, app: app)
+        XCTAssertTrue(app.navigationBars["Passage reviews"].waitForExistence(timeout: 8), app.debugDescription)
+        let overdue = app.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000131"]
+        let due = app.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000132"]
+        let future = app.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000133"]
+        XCTAssertTrue(overdue.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(overdue.label, "URGENT · 2 days overdue")
+        XCTAssertEqual(due.label, "URGENT · Tough passage due")
+        XCTAssertLessThan(overdue.frame.minY, due.frame.minY)
+        shot("fresh13-urgent-overdue-and-due-tough", app: app)
+        let list = app.collectionViews.firstMatch
+        XCTAssertTrue(list.exists, app.debugDescription)
+        for _ in 0..<8 {
+            let visible = list.frame.intersection(app.frame).insetBy(dx: 0, dy: 8)
+            if future.exists, future.isHittable, visible.contains(future.frame) { break }
+            list.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.75)).press(forDuration: 0.1,
+                thenDragTo: list.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.55)), withVelocity: .slow, thenHoldForDuration: 0.1)
+        }
+        XCTAssertTrue(future.exists && future.isHittable, app.debugDescription)
+        XCTAssertEqual(future.label, "Tough passage")
+        XCTAssertTrue(app.staticTexts["Tough passages · Upcoming"].exists)
+        shot("fresh13-future-tough-is-not-urgent", app: app)
+        tap(app.navigationBars["Passage reviews"].buttons["Done"], app: app)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
+        XCTAssertFalse(app.buttons["stopSet"].exists)
     }
 }

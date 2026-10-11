@@ -183,6 +183,9 @@ struct AppRootView: View {
     private var usesSidebar: Bool { UIDevice.current.userInterfaceIdiom == .pad && !dynamicTypeSize.isAccessibilitySize }
     @AppStorage("ios.sidebar.showExtras") private var showSidebarExtras = false
     @State private var destination = Destination.today
+    #if DEBUG
+    @State private var didOpenGestureAudit = false
+    #endif
     @State private var selectedPiece: UUID?
     @State private var practicingWarmup = false
     @State private var activeCelebration: MilestoneEvent?
@@ -385,7 +388,22 @@ struct AppRootView: View {
                     .font(.callout).padding().frame(maxWidth: .infinity).praeludeSurfacePanel().praeludeHairline(.bottom).foregroundStyle(.red)
             }
         }
+        #if DEBUG
+        .onAppear(perform: openGestureAuditIfRequested)
+        #endif
     }
+    #if DEBUG
+    private func openGestureAuditIfRequested() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard !didOpenGestureAudit, arguments.contains("--uitesting"),
+              arguments.contains("--audit-gesture-preservation"), arguments.contains("--audit-open-gesture-score"),
+              let piece = store.realPieces.first(where: { $0.title == "Practice study" && $0.composer == "Praelude test score" }) else { return }
+        // Isolate actual passage gestures from separately recorded navigation failures.
+        // This opens only the disposable fixture, once per launch; it never starts a set.
+        didOpenGestureAudit = true
+        openPiece(piece.id)
+    }
+    #endif
     private var settingsButton: some View {
         Button {
             #if DEBUG

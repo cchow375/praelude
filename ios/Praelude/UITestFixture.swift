@@ -80,13 +80,35 @@ enum UITestFixture {
             try data.write(to: url, options: .atomic)
             let id = try NativeLibraryFiles(store: store).importPDF(url, title: "Practice study", composer: "Praelude test score")
             let sections = ProcessInfo.processInfo.arguments.contains("--uitesting") && ProcessInfo.processInfo.arguments.contains("--seed-sections")
+            let centeredGestureTarget = ProcessInfo.processInfo.arguments.contains("--uitesting") && ProcessInfo.processInfo.arguments.contains("--audit-gesture-preservation")
             try store.savePassage(Passage(pieceID: id, title: "Evenness and pulse", startMeasure: 1, endMeasure: 4, page: 1, focus: "Pulse",
-                regions: sections ? [PassageRegion(page: 1, x: 0.05, y: 0.16, width: 0.9, height: 0.13)] : []))
+                regions: sections ? [PassageRegion(page: 1, x: 0.05, y: centeredGestureTarget ? 0.435 : 0.16, width: 0.9, height: 0.13)] : []))
             if sections {
                 try store.savePassage(Passage(pieceID: id, title: "Phrase connection", startMeasure: 5, endMeasure: 8, page: 1, focus: "Phrasing",
                     regions: [PassageRegion(page: 1, x: 0.05, y: 0.35, width: 0.9, height: 0.13)]))
             }
             try store.addPiece(Piece(title: "Scale practice", composer: "Technique"))
+            let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains("--uitesting"), arguments.contains("--audit-review-priority") {
+                let calendar = Calendar.current, today = calendar.startOfDay(for: Date())
+                let fixtures: [(String, String, Int, ColdGrade)] = [
+                    ("00000000-0000-4000-8000-000000000131", "Overdue synthetic review", -2, .missed),
+                    ("00000000-0000-4000-8000-000000000132", "Due tough synthetic review", 0, .shaky),
+                    ("00000000-0000-4000-8000-000000000133", "Future tough synthetic review", 2, .missed)
+                ]
+                for (identity, title, offset, grade) in fixtures {
+                    let passage = Passage(id: UUID(uuidString: identity)!, pieceID: id, title: title,
+                        learningState: .learning, schedule: PassageSchedule(dueDate: calendar.date(byAdding: .day, value: offset, to: today)!))
+                    try store.savePassage(passage)
+                    try store.applySyncedColdGrade(ColdGradeRecord(passageID: passage.id,
+                        date: calendar.date(byAdding: .day, value: -3, to: today)!, grade: grade, tempo: 60))
+                }
+            }
+            // Exact disposable-library baseline for an independent host-side preservation audit.
+            // This entire file is excluded from Release; no ordinary app store is accessed.
+            if arguments.contains("--uitesting"), arguments.contains("--audit-review-priority") || arguments.contains("--audit-gesture-preservation") {
+                try Data(contentsOf: store.fileURL).write(to: store.directory.appendingPathComponent("fresh13-audit-before.json"), options: .atomic)
+            }
         } catch { assertionFailure("UI fixture failed: \(error)") }
     }
 }

@@ -324,7 +324,7 @@ struct ScoreWorkspace: View {
                                 Button("Movements & pieces", systemImage: "list.bullet.rectangle") { if markup.flushInk() { sheet = .sections } }
                                 if scopedSection != nil { Button("Show whole score", systemImage: "doc") { scopedSectionID = nil } }
                                 if let selectedPassage {
-                                    Button("Name & goal tempo", systemImage: "character.cursor.ibeam") { renamingPassage = selectedPassage }
+                                    Button("Name & goal tempo", systemImage: "character.cursor.ibeam") { presentPassageRename(selectedPassage) }
                                     Button("Edit passage boxes", systemImage: "rectangle.and.pencil.and.ellipsis") { beginSelection(selectedPassage) }
                                     Button("Passage details", systemImage: "slider.horizontal.3") { sheet = .passageDetails }
                                     Button("Practice whole piece", systemImage: "doc") { self.selectedPassage = nil }
@@ -476,7 +476,7 @@ struct ScoreWorkspace: View {
                 try store.deleteTextAnnotation(box.id)
             } : nil)
         }
-        .sheet(item: $renamingPassage) { passage in
+        .sheet(item: $renamingPassage, onDismiss: { dictatePassageName = false }) { passage in
             PassageRenameView(passage: passage, startDictation: dictatePassageName)
         }
         .confirmationDialog("End this practice session?", isPresented: $ending, titleVisibility: .visible) {
@@ -622,6 +622,11 @@ struct ScoreWorkspace: View {
     }
     private func editPassageName(regionID: UUID, dictate: Bool) {
         guard let passage = savedPassages.first(where: { $0.regions.contains { $0.id == regionID } }), markup.flushInk() else { return }
+        presentPassageRename(passage, dictate: dictate)
+    }
+    private func presentPassageRename(_ passage: Passage, dictate: Bool = false) {
+        // Dictation belongs to this presentation. An ordinary edit after a triple tap must
+        // never inherit the previous editor's microphone request, even after Cancel or Save.
         dictatePassageName = dictate
         renamingPassage = passage
     }
@@ -668,11 +673,18 @@ struct ScoreWorkspace: View {
     }
     @ViewBuilder private var scoreActionControls: some View {
             Button {
-                if speech.isEnabled || speech.isPreparing { sheet = .voice }
+                if speech.isEnabled || speech.isPreparing || speech.errorMessage != nil { sheet = .voice }
                 else { startHandsFree() }
             } label: {
-                Image(systemName: speech.isListening ? "mic.fill" : "mic").frame(width: 44, height: 44).contentShape(Rectangle())
+                Image(systemName: speech.isListening ? "mic.fill" : "mic").frame(width: 44, height: 44)
+                    .overlay(alignment: .topTrailing) {
+                        if speech.errorMessage != nil {
+                            Image(systemName: "exclamationmark.circle.fill").font(.system(size: 11))
+                                .foregroundStyle(.secondary).padding(5).allowsHitTesting(false)
+                        }
+                    }.contentShape(Rectangle())
             }.accessibilityLabel("Hands-free commands").accessibilityIdentifier("scoreVoice")
+                .accessibilityValue(speech.errorMessage != nil ? "Needs attention" : speech.isPreparing ? "Starting" : speech.isListening ? "Listening" : "Off")
             Button { controlsAtTop.toggle() } label: {
                 Image(systemName: controlsAtTop ? "arrow.down.to.line" : "arrow.up.to.line").frame(width: 44, height: 44).contentShape(Rectangle())
             }.accessibilityLabel(controlsAtTop ? "Move controls to bottom" : "Move controls to top").accessibilityIdentifier("swapScoreControls")
@@ -943,7 +955,7 @@ struct ScoreWorkspace: View {
                     // "(C) Audit.md" (commit 325871f's claim of always-the-passage-name did not hold
                     // at this call site).
                     active: active, selectedHands: $selectedHands, onRenamePassage: {
-                        if let id = active.configuration.passageID, let passage = savedPassages.first(where: { $0.id == id }) { renamingPassage = passage }
+                        if let id = active.configuration.passageID, let passage = savedPassages.first(where: { $0.id == id }) { presentPassageRename(passage) }
                     }, passageTitle: active.configuration.passageSnapshot?.title ?? piece?.title ?? active.configuration.focus, arm: arm,
                     speech: speech, voiceOwnerID: voiceOwnerID, flashedCommand: VoiceConfirmationPlayer.shared.lastCommand,
                     flashedCommandID: VoiceConfirmationPlayer.shared.lastCommandID,
@@ -972,7 +984,7 @@ struct ScoreWorkspace: View {
                 NextStepAndSuggestionsView(arm: arm, onApply: applySuggestion, onDismiss: { arm.dismiss($0, store: store) })
                 PracticeArmView(
                     arm: arm, passage: selectedPassage, pieceSubtitle: "Choose a passage",
-                    onRenamePassage: { if let selectedPassage { renamingPassage = selectedPassage } }, onStarted: {}, onOpenAdvanced: { sheet = .setup },
+                    onRenamePassage: { if let selectedPassage { presentPassageRename(selectedPassage) } }, onStarted: {}, onOpenAdvanced: { sheet = .setup },
                     onSplitPassage: { beginSelection($0) }
                 )
 
@@ -981,7 +993,6 @@ struct ScoreWorkspace: View {
             if let failure = arm.errorMessage { ErrorMessage(message: failure) }
             if let failure = store.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
             if let failure = metronome.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
-            if let failure = speech.errorMessage { Text(failure).font(.caption).foregroundStyle(.red) }
             if active == nil, speech.isListening, speech.ownerID == voiceOwnerID {
                 HStack(spacing: 8) {
                     Circle().fill(speech.isMuted ? PraeludeColor.inkTertiary : PraeludeColor.live).frame(width: 6, height: 6)

@@ -2,6 +2,8 @@
 
 Status: verified source candidate, generic signed Release ready; personal delivery awaits explicit device readiness. Both iPads last verified installed at build12. Mac11.1.0/schema21 unchanged. Nine user feedback items drive this build. No physical-camera perfection or blanket acceptance is claimed.
 
+**Later October11 functional audit:** build13 is held from delivery after a source-confirmed stale passage-dictation intent defect. Build14 contains the follow-up repair; the original tag/signed package remain unchanged. See [functional audit](functional-audit.md) and [build14 follow-up](../build14/functional-follow-up.md). The historical verification ledger below is scoped to build13 and does not establish a bug-free app.
+
 Candidate tag: `ios-v2.0.0-build13-candidate`.
 
 ## Request and implementation ledger
@@ -64,4 +66,4 @@ Generic Release1 succeeds. Independent strict signature/profile/team/entitlement
 
 ## Next steps
 
-Await explicit connected/unlocked/open/paused-or-idle personal-device readiness, then validate the current exact target/profile and run guarded same-bundle delivery with fresh backups and independent full-file preservation/launch readback. No build13 install has occurred. Verify face mapping at the piano in bright/dim light and both orientations with repeated gestures; physical Pencil branching, voice over playing, actual audible click and sustained practice remain physical gates. Keep B155 intermittent menu no-op/first-tap reliability unresolved.
+This build13 checkpoint is held after the additional stale dictation-intent finding. Build14 source repairs and functional failures are recorded in `../build14/functional-follow-up.md`; do not deliver the historical build13 package. Resolve B155 opening reliability before calling the successor ready. A later guarded refresh requires explicit connected/unlocked/open/paused-or-idle readiness, fresh idle backup, independent full-file preservation and separate launch/readback. Face mapping at the piano in bright/dim light and both orientations, physical Pencil branching, speech over playing, audible click and sustained practice remain physical gates.
