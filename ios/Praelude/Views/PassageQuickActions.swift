@@ -25,7 +25,7 @@ private struct PassageQuickActionsModifier: ViewModifier {
         content
             .confirmationDialog(target?.title ?? "Passage", isPresented: Binding(get: { target != nil && !recoloring }, set: { if !$0 { target = nil } }),
                                 titleVisibility: .visible, presenting: target) { passage in
-                Button("Rename") { renaming = passage; target = nil }
+                Button("Name & goal tempo") { renaming = passage; target = nil }
                 Button("Recolor") { recolorTarget = passage; recoloring = true; target = nil }
                 Button("Edit boxes") { onEditBoxes(passage); target = nil }
                 Button("Edit details") { editingDetails = passage; target = nil }

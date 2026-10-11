@@ -29,8 +29,9 @@ enum ScorePassageBoxStyle {
 /// Native focus remains available for PencilKit's lasso/edit menu. The app never forces focus
 /// or installs a hidden tool picker; UIKit can hand focus to a note editor normally.
 @MainActor final class ScoreInkCanvas: PKCanvasView {
-    let inkHistory = ScoreInkHistory()
+    let inkHistory: ScoreInkHistory
     var onDetached: () -> Void = {}
+    private var retired = false
     /// Large imported PDFs use a bounded canvas basis so PencilKit's width limits do not
     /// collapse the brush stops. Persistent drawings remain in original PDF coordinates.
     static let maximumCanvasPageWidth: CGFloat = 1000
@@ -59,9 +60,28 @@ enum ScorePassageBoxStyle {
     }
     override var undoManager: UndoManager? { inkHistory.undoManager }
     override init(frame: CGRect) {
+        inkHistory = ScoreInkHistory()
         super.init(frame: frame)
         inkHistory.drawing = { [weak self] in self?.drawing ?? PKDrawing() }
         inkHistory.applyDrawing = { [weak self] in self?.drawing = $0 }
+    }
+    /// Preserve app-owned history and exact source-stroke mappings, but create a new native
+    /// PencilKit tool model. Setting `drawing` on the previous canvas changed its visible value
+    /// while its next native stroke could still append to the pre-Undo model (live 1 → 0 → 2).
+    init(replacing previous: ScoreInkCanvas, with value: PKDrawing) {
+        inkHistory = previous.inkHistory
+        sourceCoordinateScale = previous.sourceCoordinateScale
+        cachedSourceDrawing = previous.cachedSourceDrawing
+        cachedCanvasDrawing = previous.cachedCanvasDrawing
+        originalStrokePairs = previous.originalStrokePairs
+        super.init(frame: .zero)
+        drawing = value
+    }
+    func retire() {
+        retired = true
+        delegate = nil; onDetached = {}
+        drawingGestureRecognizer.isEnabled = false
+        isUserInteractionEnabled = false
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func replaceDrawing(_ value: PKDrawing) {
@@ -86,6 +106,7 @@ enum ScorePassageBoxStyle {
     }
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        guard !retired else { return }
         if window == nil { inkHistory.detach(); onDetached() }
         else { inkHistory.resumePendingRequest() }
     }
@@ -129,7 +150,7 @@ enum ScorePassageBoxStyle {
 
 @MainActor final class ScorePageOverlay: UIView, UIGestureRecognizerDelegate, UIPencilInteractionDelegate {
     let pageNumber: Int
-    let canvas = ScoreInkCanvas()
+    private(set) var canvas = ScoreInkCanvas()
     let otherLayersCanvas = ScoreInkCanvas()
     let markup: ScoreMarkupState
     var displayedRegions: [PassageRegion] = [] { didSet { if displayedRegions != oldValue { setNeedsDisplay() } } }
@@ -155,6 +176,7 @@ enum ScorePassageBoxStyle {
     var lastAssignedTool: AnnotationTool?
     private var lastAssignedToolPageWidth: CGFloat?
     var onCanvasLayout: () -> Void = {}
+    var onCanvasReplaced: () -> Void = {}
     var pageImageForMagnifier: (CGSize) async -> UIImage? = { _ in nil }
     private var magnifierTask: Task<Void, Never>?
     private var magnifierPage: UIImage?
@@ -291,6 +313,8 @@ enum ScorePassageBoxStyle {
         super.init(frame: .zero)
         isOpaque = false; backgroundColor = .clear; clipsToBounds = true
         accessibilityIdentifier = "passageCanvas_page_\(page)"
+        canvas.inkHistory.drawing = { [weak self] in self?.canvas.drawing ?? PKDrawing() }
+        canvas.inkHistory.applyDrawing = { [weak self] in self?.restoreInkCanvas($0) }
         canvas.backgroundColor = .clear; canvas.isOpaque = false; canvas.isScrollEnabled = false
         canvas.drawingPolicy = .pencilOnly
         // PencilKit automatically adapts dark inks under dark traits. Music stays light, so
@@ -361,6 +385,33 @@ enum ScorePassageBoxStyle {
         refreshNoteAccessibility()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    private func restoreInkCanvas(_ value: PKDrawing) {
+        let previous = canvas
+        let replacement = ScoreInkCanvas(replacing: previous, with: value)
+        replacement.backgroundColor = .clear; replacement.isOpaque = false
+        replacement.overrideUserInterfaceStyle = .light
+        replacement.isScrollEnabled = false
+        replacement.minimumZoomScale = 1; replacement.maximumZoomScale = 1
+        replacement.panGestureRecognizer.isEnabled = false
+        replacement.pinchGestureRecognizer?.isEnabled = false
+        replacement.contentInsetAdjustmentBehavior = .never
+        replacement.accessibilityIdentifier = previous.accessibilityIdentifier
+        replacement.drawingPolicy = previous.drawingPolicy
+        replacement.tool = previous.tool
+        replacement.contentScaleFactor = previous.contentScaleFactor
+        replacement.delegate = previous.delegate
+        replacement.onDetached = previous.onDetached
+        // Retire before removal: this is a native surface replacement, not a page detach.
+        // Its old callbacks and window removal must not checkpoint/cancel the shared history.
+        previous.retire()
+        canvas = replacement
+        insertSubview(replacement, aboveSubview: otherLayersCanvas)
+        previous.removeFromSuperview()
+        layoutInkCanvases()
+        refresh()
+        refreshNoteAccessibility()
+        onCanvasReplaced()
+    }
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window == nil { clearNotePreview() }

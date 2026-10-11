@@ -17,7 +17,7 @@ struct VoiceOnboardingView: View {
     private static let words: [(VoiceCommand, String)] = [
         (.clean, "Clean"), (.sloppy, "Sloppy"), (.again, "Again"), (.undo, "Undo"),
         (.shaky, "Shaky"), (.missed, "Missed"),
-        (.start, "Start"), (.stop, "Stop"), (.pause, "Pause"), (.resume, "Resume"), (.next, "Next"),
+        (.start, "Start"), (.stop, "Stop"), (.pause, "Pause"), (.resume, "Resume"), (.nextPage, "Next"), (.next, "Next set"),
         (.slower, "Slower"), (.faster, "Faster"), (.setTempo(96), "\u{201c}Tempo ninety six\u{201d}"),
         (.metronomeStart, "\u{201c}Metronome on\u{201d}"), (.metronomeStop, "\u{201c}Metronome off\u{201d}")
     ]

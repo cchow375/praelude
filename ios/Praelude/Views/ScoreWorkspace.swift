@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import PencilKit
 
 private enum ScoreSheet: String, Identifiable {
-    case setup, passages, metronome, pages, voice, passageDetails, share, heatmap, bookmarks, links, pageTools, sections, measureMap, gestures, practiceBalance
+    case setup, passages, metronome, pages, voice, passageDetails, share, heatmap, bookmarks, links, pageTools, sections, measureMap, gestures, practiceBalance, camera
     var id: String { rawValue }
 }
 
@@ -100,6 +100,7 @@ struct ScoreWorkspace: View {
     @AppStorage("ios.voiceCheckedOnce") private var voiceCheckedOnce = false
     @State private var showFirstVoiceCheck = false
     @State private var voiceOwnerID = UUID()
+    @State private var camera = FaceGestureService()
     @State private var arm = PracticeArmController()
     @State private var page = 1
     @State private var scopedSectionID: UUID?
@@ -307,6 +308,7 @@ struct ScoreWorkspace: View {
                                     .accessibilityIdentifier("enterScoreFocus")
                                 Button { enterPerformanceMode() } label: { Label("Performance mode · hold score to exit", systemImage: "rectangle.compress.vertical") }
                                     .accessibilityIdentifier("performanceMode")
+                                Button("Camera gestures", systemImage: "faceid") { sheet = .camera }.accessibilityIdentifier("openCameraGestures")
                                 if sizeClass == .regular {
                                     Toggle("Two pages", isOn: $twoPages).praeludeToggleHaptic(twoPages)
                                     if twoPages { Toggle("Half-page turns", isOn: $halfPageTurns).praeludeToggleHaptic(halfPageTurns) }
@@ -322,7 +324,7 @@ struct ScoreWorkspace: View {
                                 Button("Movements & pieces", systemImage: "list.bullet.rectangle") { if markup.flushInk() { sheet = .sections } }
                                 if scopedSection != nil { Button("Show whole score", systemImage: "doc") { scopedSectionID = nil } }
                                 if let selectedPassage {
-                                    Button("Rename passage", systemImage: "character.cursor.ibeam") { renamingPassage = selectedPassage }
+                                    Button("Name & goal tempo", systemImage: "character.cursor.ibeam") { renamingPassage = selectedPassage }
                                     Button("Edit passage boxes", systemImage: "rectangle.and.pencil.and.ellipsis") { beginSelection(selectedPassage) }
                                     Button("Passage details", systemImage: "slider.horizontal.3") { sheet = .passageDetails }
                                     Button("Practice whole piece", systemImage: "doc") { self.selectedPassage = nil }
@@ -356,6 +358,8 @@ struct ScoreWorkspace: View {
         // §7 performance mode: hides literally everything else the system itself would still draw
         // over the score — the status bar and the home-indicator/Dynamic Island's persistent
         // overlays — on top of the app's own chrome already hidden above.
+        .background(FaceCameraOrientationProbe(changed: camera.rotate).allowsHitTesting(false))
+        .overlay(alignment: .topTrailing) { if camera.isEnabled && !performanceMode { cameraOverlay.padding(8).padding(.top, 48) } }
         .statusBarHidden(performanceMode)
         .persistentSystemOverlays(performanceMode ? .hidden : .automatic)
         .overlay(alignment: .bottom) {
@@ -399,6 +403,7 @@ struct ScoreWorkspace: View {
             case .metronome: MetronomeView()
             case .pages: if let scoreURL { ScorePagePicker(url: scoreURL, pageEdits: effectivePageEdits, currentPage: page, sourcePageRange: scopedPages, onSelect: { if markup.flushInk() { page = $0; savePage($0) } }) }
             case .voice: voiceSheet
+            case .camera: FaceGestureControlsView(camera: camera)
             case .practiceBalance:
                 NavigationStack {
                     PiecePracticeInsightsView(pieceID: pieceID)
@@ -483,9 +488,9 @@ struct ScoreWorkspace: View {
     private var lifecycleScore: some View {
         presentedScore
         .onAppear(perform: scoreAppeared)
-        .onDisappear { flushBookmark(); exportTask?.cancel(); _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); runtime.scoreDisappeared(ownerID: voiceOwnerID) }
+        .onDisappear { flushBookmark(); exportTask?.cancel(); _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); camera.stop(); camera.onAction = nil; runtime.scoreDisappeared(ownerID: voiceOwnerID) }
         .onChange(of: pieceID) { _, _ in
-            flushBookmark(); setFocus(false)
+            flushBookmark(); setFocus(false); camera.stop(); camera.onAction = nil
             exportTask?.cancel()
             markup.onConfirmSelection = saveSelection
             markup.showPassageBoxes = showPassageBoxes
@@ -498,15 +503,17 @@ struct ScoreWorkspace: View {
             openScoreSection(at: source); onInitialPageConsumed()
         }
         .onChange(of: showPassageBoxes) { _, value in markup.showPassageBoxes = value }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { flushBookmark(); _ = markup.flushInk() } }
-        .onChange(of: focusMode) { _, value in runtime.setRepInputSuspended(value, ownerID: voiceOwnerID); updateVoiceContext() }
-        .onChange(of: active?.id) { _, _ in selectedHands = active?.configuration.hands ?? "Both hands"; updateVoiceContext() }
-        .onChange(of: speech.isListening) { _, _ in updateVoiceContext() }
-        .onChange(of: arm.awaitingColdGrade) { _, _ in updateVoiceContext() }
-        .onChange(of: markup.mode) { _, _ in updateVoiceContext() }
-        .onChange(of: sheet) { _, _ in updateVoiceContext() }
-        .onChange(of: editingTextBox) { _, _ in updateVoiceContext() }
-        .onChange(of: renamingPassage) { _, _ in updateVoiceContext() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { flushBookmark(); _ = markup.flushInk(); if phase == .background { camera.stop() } }; updateCameraContext() }
+        .onChange(of: page) { _, _ in camera.resetMotion() }
+        .onChange(of: camera.isEnabled) { _, _ in updateCameraContext() }
+        .onChange(of: focusMode) { _, value in runtime.setRepInputSuspended(value, ownerID: voiceOwnerID); updateVoiceContext(); updateCameraContext() }
+        .onChange(of: active?.id) { _, _ in selectedHands = active?.configuration.hands ?? "Both hands"; updateVoiceContext(); updateCameraContext() }
+        .onChange(of: speech.isListening) { _, _ in updateVoiceContext(); updateCameraContext() }
+        .onChange(of: arm.awaitingColdGrade) { _, _ in updateVoiceContext(); updateCameraContext() }
+        .onChange(of: markup.mode) { _, _ in updateVoiceContext(); updateCameraContext() }
+        .onChange(of: sheet) { _, _ in updateVoiceContext(); updateCameraContext() }
+        .onChange(of: editingTextBox) { _, _ in updateVoiceContext(); updateCameraContext() }
+        .onChange(of: renamingPassage) { _, _ in updateVoiceContext(); updateCameraContext() }
     }
     private var practiceObservedScore: some View {
         lifecycleScore
@@ -554,6 +561,7 @@ struct ScoreWorkspace: View {
             if initialPage != nil { savePage(page); onInitialPageConsumed() }
             markup.showPassageBoxes = showPassageBoxes
             markup.onConfirmSelection = saveSelection
+            updateCameraContext()
             runtime.scoreAppeared(ownerID: voiceOwnerID)
             runtime.setRepInputSuspended(focusMode, ownerID: voiceOwnerID)
             selectedHands = active?.configuration.hands ?? "Both hands"
@@ -660,7 +668,7 @@ struct ScoreWorkspace: View {
     }
     @ViewBuilder private var scoreActionControls: some View {
             Button {
-                if speech.isListening || speech.isPreparing { sheet = .voice }
+                if speech.isEnabled || speech.isPreparing { sheet = .voice }
                 else { startHandsFree() }
             } label: {
                 Image(systemName: speech.isListening ? "mic.fill" : "mic").frame(width: 44, height: 44).contentShape(Rectangle())
@@ -1079,9 +1087,9 @@ struct ScoreWorkspace: View {
                     Label("Tap the top or bottom middle to hide or restore controls; counting is suspended in focus", systemImage: "viewfinder")
                     Label("Tap a white side margin to turn pages", systemImage: "arrow.right")
                     Label("Use the arrow-to-edge button to move controls between top and bottom", systemImage: "arrow.up.arrow.down")
-                    Label("Double-tap a passage name to rename it", systemImage: "character.cursor.ibeam")
+                    Label("Double-tap a passage name to edit its name and goal tempo", systemImage: "character.cursor.ibeam")
                     Label("Tap a passage to prepare it", systemImage: "hand.tap")
-                    Label("Double-tap a selected passage to rename it", systemImage: "character.cursor.ibeam")
+                    Label("Double-tap a selected passage to edit its name and goal tempo", systemImage: "character.cursor.ibeam")
                     Label("Triple-tap a selected passage to dictate its name", systemImage: "mic")
                     Label("Hold a passage for more actions", systemImage: "hand.tap.fill")
                     Label("Tap the tempo number to type a BPM", systemImage: "number")
@@ -1119,20 +1127,23 @@ struct ScoreWorkspace: View {
                     LabeledContent("Undo", value: "Correct the last rep")
                     LabeledContent("Start · Stop", value: "Begin or end the set")
                     LabeledContent("Pause · Resume", value: "Hold the set")
-                    LabeledContent("Next", value: "Another set once this one is complete")
+                    LabeledContent("Next set", value: "Another set once this one is complete")
                     LabeledContent("Slower · Faster", value: "Nudge the armed tempo ±5")
-                    LabeledContent("Next page · Previous page", value: "Turn pages")
+                    LabeledContent("Next · Next page · Previous page", value: "Turn pages")
                     LabeledContent("Metronome start · Stop metronome", value: "Control the click")
                     LabeledContent("Tempo eighty", value: "Set 80 BPM")
                 }
-                if let failure = speech.errorMessage { Section { Text(failure).foregroundStyle(.red) } }
+                if let failure = speech.errorMessage { Section { Text(failure).foregroundStyle(.secondary) } }
                 Section {
-                    Button((speech.isListening || speech.isPreparing) ? "Stop listening" : "Enable hands-free") {
-                        if speech.isListening || speech.isPreparing { speech.stop() }
+                    Button((speech.isEnabled || speech.isPreparing) ? "Turn hands-free off" : "Enable hands-free") {
+                        if speech.isEnabled || speech.isPreparing { speech.stop(ifOwnedBy: voiceOwnerID) }
                         else { startHandsFree() }
                     }.frame(minHeight: 44).fontWeight(.semibold).accessibilityIdentifier("enableHandsFree")
                     if speech.isListening {
                         Button(speech.isMuted ? "Unmute" : "Mute") { speech.setMuted(!speech.isMuted) }.frame(minHeight: 44)
+                    }
+                    if speech.isEnabled && !speech.isListening && !speech.isPreparing && !speech.isRecovering {
+                        Button("Retry listening") { speech.retryListening(ifOwnedBy: voiceOwnerID) }.frame(minHeight: 44).accessibilityIdentifier("retryScoreVoice")
                     }
                     Text(speech.status).font(.caption).foregroundStyle(.secondary)
                 } footer: { Text("Microphone and Speech Recognition permissions are requested only when you enable this. On-device speech availability depends on your device and downloaded language support.") }
@@ -1324,6 +1335,42 @@ struct ScoreWorkspace: View {
     private func refreshAudio() {
         runtime.refreshMetronome(for: active)
     }
+    private var cameraOverlay: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            if camera.showPreview { FaceCameraPreview(camera: camera).frame(width: 200, height: 160).clipShape(RoundedRectangle(cornerRadius: 10)) }
+            HStack(spacing: 2) {
+                Button { sheet = .camera } label: { Image(systemName: "faceid").frame(width: 44, height: 44) }
+                    .accessibilityLabel("Camera gesture settings")
+                Button { camera.showPreview.toggle() } label: { Image(systemName: camera.showPreview ? "minus" : "video").frame(width: 44, height: 44) }
+                    .accessibilityLabel(camera.showPreview ? "Minimize camera" : "Show camera")
+                Button { camera.stop() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                    .accessibilityLabel("Turn camera off")
+            }.praeludeScoreChrome().clipShape(Capsule())
+            Text(camera.status).font(.caption2).multilineTextAlignment(.trailing).frame(maxWidth: 200)
+                .padding(6).praeludeScoreChrome().clipShape(RoundedRectangle(cornerRadius: 8))
+        }.accessibilityIdentifier("scoreCameraControls")
+    }
+    private func updateCameraContext() {
+        if camera.isEnabled { camera.onAction = handleCameraAction }
+        else { camera.onAction = nil }
+        camera.actionsAllowed = scenePhase == .active && sheet == nil && markup.mode == .reading
+            && editingTextBox == nil && renamingPassage == nil && !importing && !ending && !exporting
+        camera.resetMotion()
+    }
+    private func handleCameraAction(_ action: FaceGestureAction) {
+        // Recheck at dispatch; a tracked face never authorizes writing through another scene or editor.
+        guard scenePhase == .active, sheet == nil, markup.mode == .reading,
+              editingTextBox == nil, renamingPassage == nil, !importing, !ending, !exporting else { return }
+        switch action {
+        case .off: break
+        case .nextPage: turnPage(1)
+        case .previousPage: turnPage(-1)
+        case .clean, .sloppy, .again:
+            guard camera.settings.allowVerdicts, !focusMode, active?.status == .running else { return }
+            record(action == .clean ? .clean : action == .sloppy ? .sloppy : .again)
+        }
+    }
+
     private func startHandsFree() {
         speech.start(ownerID: voiceOwnerID, onCommand: handleVoice)
         updateVoiceContext()
@@ -1365,7 +1412,7 @@ struct ScoreWorkspace: View {
         case .start: if idle { armStart(skippingColdGrade: true) }
         case .stop: if active != nil { stopPractice() }
         case .next:
-            // No session-queue feature exists yet (out of this track's scope); "Next" is defined as
+            // The explicit "Next set" command is defined as
             // moving straight on to another set on the same passage once this one is complete.
             if let active, active.isComplete { repeatSet(); if store.activeSet == nil { armStart(skippingColdGrade: true) } }
         case .slower: nudgeTempo(-5)

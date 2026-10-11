@@ -52,7 +52,7 @@ enum VoiceConfirmationSound: Equatable {
         case .resume: "Resume"
         case .start: "Start"
         case .stop: "Stop"
-        case .next: "Next"
+        case .next: "Next set"
         case .slower: "Slower"
         case .faster: "Faster"
         case .metronomeStart: "Metronome on"

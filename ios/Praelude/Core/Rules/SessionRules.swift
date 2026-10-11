@@ -58,6 +58,10 @@ extension PracticeRulesEngine {
         if let lastSet {
             var value = lastSet.nextSetConfiguration
             value.focus = passage.focus
+            // Editing a passage's saved goal changes the next set, never the historical contract.
+            if let target = passage.performanceTempo,
+               target != lastSet.configuration.passageSnapshot?.performanceTempo,
+               value.basis == .cleanStreak { value.targetBPM = max(value.startBPM, target) }
             return value
         }
         let goal = lastSet?.configuration.goal ?? .tempo
@@ -93,8 +97,8 @@ extension PracticeRulesEngine {
             .min { ($0.lastUsedAt ?? .distantPast) < ($1.lastUsedAt ?? .distantPast) }
     }
 
-    /// R15 (§11/§15): fits warmups, then due reviews (nearest performance date first), then learning,
-    /// then up to `r15MaxNewPerSession` new passages, then run-throughs for pieces performing soon,
+    /// R15 (§11/§15): fits warmups, then due reviews/learning (overdue and tough spots first;
+    /// performance date breaks ties), then up to `r15MaxNewPerSession` new passages, then run-throughs for pieces performing soon,
     /// into `availableMinutes` at `r15EstimatedMinutesPerItem` per item (a run-through costs
     /// `runThroughMinutesMultiplier` times as much). Items that do not fit are simply left off the
     /// plan — nothing about their own schedule changes, so "skip keeps due" and "drag reorder" need
@@ -118,46 +122,29 @@ extension PracticeRulesEngine {
         func piece(for passage: Passage) -> Piece? { context.pieces.first { $0.id == passage.pieceID } }
 
         // Pieces R11 currently flags, so "due reviews"/"run-throughs" can fold its verdict in.
-        var finalWeekPieceIDs: Set<UUID> = []
         var runThroughPieceIDs: [UUID] = []
         for candidatePiece in context.pieces {
             guard let decision = evaluateR11PerformanceDate(pieceID: candidatePiece.id, context: context),
-                  case let .performanceCaps(_, includeRunThroughs, _, inFinalWeek) = decision.outcome else { continue }
-            if inFinalWeek { finalWeekPieceIDs.insert(candidatePiece.id) }
+                  case let .performanceCaps(_, includeRunThroughs, _, _) = decision.outcome else { continue }
             if includeRunThroughs { runThroughPieceIDs.append(candidatePiece.id) }
         }
 
         let activePassages = context.passages.filter {
-            !$0.archived && ($0.parkedUntil.map { $0 <= context.now } ?? true) && piece(for: $0)?.status != .resting
+            !$0.archived && $0.deletedAt == nil && piece(for: $0) != nil &&
+            ($0.parkedUntil.map { $0 <= context.now } ?? true) && piece(for: $0)?.status != .resting
         }
-        func isDue(_ passage: Passage) -> Bool {
-            if finalWeekPieceIDs.contains(passage.pieceID) { return true }
-            guard let due = passage.schedule.dueDate else { return false }
-            return due <= context.now
-        }
-        func sortKey(_ passage: Passage) -> (Date, Date) {
-            let performanceDate = piece(for: passage).flatMap { nearestPerformanceDate(for: $0, context: context) } ?? .distantFuture
-            return (performanceDate, passage.schedule.dueDate ?? .distantPast)
-        }
-
-        let reviewPassages = activePassages
-            .filter { ($0.learningState == .review || $0.learningState == .performanceReady) && isDue($0) }
-            .sorted { sortKey($0) < sortKey($1) }
-        for passage in reviewPassages {
-            let reason = finalWeekPieceIDs.contains(passage.pieceID) ? "Performance days away. Due today." : "Due for review."
-            take(SessionItem(id: passage.id, kind: .review, pieceID: passage.pieceID, passageID: passage.id,
-                              estimatedMinutes: perItem, reason: reason))
+        // One due queue powers both Today and this plan, including Learning after a Missed
+        // lapse. Keep each item's learning kind while bringing overdue/tough reviews forward.
+        let reviews = TodayOverview.dueReviews(context: context)
+        let reviewIDs = Set(reviews.map(\.passageID))
+        for review in reviews {
+            guard let passage = activePassages.first(where: { $0.id == review.passageID }) else { continue }
+            take(SessionItem(id: passage.id, kind: passage.learningState == .learning ? .learning : .review,
+                             pieceID: passage.pieceID, passageID: passage.id,
+                             estimatedMinutes: perItem, reason: "\(review.label). \(review.reason)"))
         }
 
-        let learningPassages = activePassages
-            .filter { $0.learningState == .learning && isDue($0) }
-            .sorted { sortKey($0) < sortKey($1) }
-        for passage in learningPassages {
-            take(SessionItem(id: passage.id, kind: .learning, pieceID: passage.pieceID, passageID: passage.id,
-                              estimatedMinutes: perItem, reason: "Still learning."))
-        }
-
-        let newPassages = activePassages.filter { $0.learningState == .new }
+        let newPassages = activePassages.filter { $0.learningState == .new && !reviewIDs.contains($0.id) }
             .sorted { $0.createdAt < $1.createdAt }
             .prefix(context.settings.r15MaxNewPerSession)
         for passage in newPassages {

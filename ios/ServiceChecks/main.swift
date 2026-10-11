@@ -12,7 +12,7 @@ import Foundation
             ("undo", .undo), ("pause", .pause), ("resume", .resume),
             ("shaky", .shaky), ("Shaky.", .shaky), ("missed", .missed), (" MISSED ", .missed),
             ("start", .start), ("Start!", .start), ("stop", .stop), ("STOP", .stop),
-            ("next", .next), ("Next.", .next), ("slower", .slower), ("faster", .faster),
+            ("next", .nextPage), ("Next.", .nextPage), ("next set", .next), ("slower", .slower), ("faster", .faster),
             ("start metronome", .metronomeStart), ("metronome on", .metronomeStart),
             ("metronome start", .metronomeStart), ("stop metronome", .metronomeStop),
             ("metronome off", .metronomeStop), ("metronome stop", .metronomeStop),
@@ -42,7 +42,7 @@ import Foundation
         for text in ["cleen", "glean", "green", "queen", "claen"] {
             expect(VoiceCommandRecognition.recognize(text) == .needsConfirmation([.clean]), "Confirm likely clean mishearing \(text)")
         }
-        for (text, command) in [("paws", VoiceCommand.pause), ("and do", .undo), ("a gain", .again), ("shakey", .shaky), ("necks", .next), ("mist", .missed), ("miss", .missed)] {
+        for (text, command) in [("paws", VoiceCommand.pause), ("and do", .undo), ("a gain", .again), ("shakey", .shaky), ("necks", .nextPage), ("mist", .missed), ("miss", .missed)] {
             expect(VoiceCommandRecognition.recognize(text) == .needsConfirmation([command]), "Confirm likely mishearing \(text)")
         }
         for text in ["no clean", "don't clean", "clean and sloppy", "please clean", "we missed the bus", "go faster", "tempo ninety six three", "temppo 96", "unknown words"] {
@@ -104,6 +104,21 @@ import Foundation
         malformedAliases.phrases = ["again": ["clean"]]
         expect(VoiceCommandRecognition.recognize("clean", aliases: malformedAliases) == .command(.clean), "Malformed persisted aliases cannot redefine defaults")
         expect(VoiceCommandRecognition.recognize("cleanly", aliases: malformedAliases) == .ignored, "Malformed configuration never extends vocabulary")
+        expect(VoiceCommandRecognition.recognize("next", supportedActions: [.nextPage]) == .command(.nextPage), "Next turns a page during active practice")
+        expect(VoiceCommandRecognition.recognize("next", supportedActions: [.next]) == .ignored, "Next cannot accidentally start a set")
+        expect(VoiceCommandRecognition.recognize("next set", supportedActions: [.nextPage]) == .ignored, "Next set requires the explicit supported action")
+        let repeatedClean = [VoiceRecognizedSegment(text: "clean", timestamp: 0, duration: 0.2), VoiceRecognizedSegment(text: "clean", timestamp: 1, duration: 0.2)]
+        func finalPhrases(_ text: String, _ segments: [VoiceRecognizedSegment]) -> [String] {
+            VoiceFinalUtterances.phrases(text, segments: segments, aliases: aliases, supportedActions: Set(VoiceCommandAction.allCases))
+        }
+        expect(finalPhrases("clean clean", repeatedClean) == ["clean", "clean"], "Separate timed repetitions survive one final result")
+        expect(finalPhrases("clean clean", []) == ["clean clean"], "No repeated verdicts inferred without segment timing")
+        expect(finalPhrases("clean clean", [repeatedClean[0], repeatedClean[0]]) == ["clean clean"], "Duplicate segments never invent a repetition")
+        expect(finalPhrases("clean clean", [repeatedClean[0], VoiceRecognizedSegment(text: "clean", timestamp: 0.3, duration: 0.2)]) == ["clean clean"], "A repeated recognition fragment is not two spaced commands")
+        expect(finalPhrases("clean clean", [repeatedClean[0], VoiceRecognizedSegment(text: "clean", timestamp: .nan, duration: 0.2)]) == ["clean clean"], "Invalid acoustic timings cannot multiply verdicts")
+        expect(finalPhrases("clean clean please", repeatedClean) == ["clean clean please"], "Conversation suffix cannot become repeated verdicts")
+        expect(finalPhrases("undo undo", repeatedClean.map { VoiceRecognizedSegment(text: "undo", timestamp: $0.timestamp, duration: $0.duration) }) == ["undo undo"], "History corrections are never multiplied")
+        expect(VoiceFinalUtterances.phrases("clean clean", segments: repeatedClean, aliases: aliases, supportedActions: [.nextPage]) == ["clean clean"], "Unavailable verdicts are never split into actions")
         for bpm in [20.0, 60, 73.5, 120, 299, 300] {
             for beats in [1, 3, 4, 7, 12] {
                 for sub in [1, 2, 3, 4] {

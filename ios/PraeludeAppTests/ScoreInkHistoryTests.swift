@@ -176,4 +176,18 @@ final class ScoreInkHistoryTests: XCTestCase {
         XCTAssertFalse(fixture.history.canUndo)
     }
 
+    @MainActor func testMenuDrawingChangeAfterUndoStillCreatesAnIndependentBranch() async {
+        let fixture = Fixture(); let undone = ink(1); let replacement = ink(1, shift: 60)
+        fixture.edit(undone); await settle()
+        fixture.history.request(.undo); await settle()
+        XCTAssertTrue(fixture.value.strokes.isEmpty)
+        // Native paste/cut can publish a drawing without a touch-tool begin/end pair. Retired
+        // canvas callbacks are rejected by coordinator identity, not by banning these edits.
+        fixture.value = replacement; fixture.history.drawingChanged(); await settle()
+        XCTAssertEqual(fixture.value, replacement); XCTAssertFalse(fixture.history.canRedo)
+        fixture.history.request(.undo); await settle()
+        XCTAssertTrue(fixture.value.strokes.isEmpty, "The next drawing must branch from the restored value")
+        fixture.history.request(.redo); await settle(); XCTAssertEqual(fixture.value, replacement)
+    }
+
 }

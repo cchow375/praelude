@@ -1,5 +1,12 @@
 # Praelude — How To Use
 
+## October 11 — build13 source preview, awaiting installation
+
+**Matches: installed native2.0.0/build12/schema5 on both iPads; Macv11.1.0/schema21.** The Undo/voice/camera/urgent-review build13 source candidate now passes scoped source/native/UI checks and generic Release signing. Guarded installation awaits explicit personal-device readiness; it is not yet the installed guide. After delivery, the guide will cover Score options → Camera gestures, double-tap/pencil → Name & goal tempo, first-attempt Metronome On/Off, Today → All passage reviews and Next versus Next set. Existing installed build12 controls are documented below. Physical acceptance remains open.
+
+**Next steps:** after connected/unlocked/open/paused-or-idle readiness, complete guarded delivery and launch/readback before using build13 instructions as installed behavior. See the source-candidate controls in `docs/qa/ios/2.0.0/build13/candidate-guide.md`.
+
+
 ## October 10 — build12 personal iPad controls
 
 **Matches: installed personal native 2.0.0/build12/schema5; friend native2.0.0/build12/schema5; Mac v11.1.0/schema21. Last updated: 2026-10-11.** Guarded installation and full-file preservation pass; Christian confirms opening build12. The friend’s existing library was preserved exactly and opening is user-confirmed; full friend post-launch readback remains unverified because the device is unavailable. Physical Pencil/audio/performance acceptance remains open. Full evidence: `docs/qa/ios/2.0.0/build12/practice-upgrade.md`.

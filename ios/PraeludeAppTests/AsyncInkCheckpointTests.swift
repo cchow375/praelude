@@ -46,6 +46,11 @@ final class AsyncInkCheckpointTests: XCTestCase {
         coordinator.autosave = task
         return task
     }
+    @MainActor private func settleHistory() async {
+        for _ in 0..<5 {
+            await withCheckedContinuation { next in DispatchQueue.main.async { next.resume() } }
+        }
+    }
 
     @MainActor func testOlderIdleSnapshotCommitsWithoutClearingNewerStrokeAndNextSaveUsesNewBaseline() async throws {
         let state = ScoreMarkupState(); let gate = Gate()
@@ -294,6 +299,113 @@ final class AsyncInkCheckpointTests: XCTestCase {
         let reopened = parent.makeCoordinator(); defer { reopened.autosave?.cancel() }
         let reopenedOverlay = try attach(reopened)
         XCTAssertTrue(reopenedOverlay.canvas.drawing.strokes.isEmpty, "Relaunch reads the latest empty drawing rather than the superseded snapshot")
+    }
+
+    @MainActor func testNativeSurfaceRestoreKeepsOversizedSourceCoordinatesAndOriginalStrokeIdentities() async throws {
+        let state = ScoreMarkupState(); state.mode = .writing; state.fingerDrawing = true
+        let overlay = ScorePageOverlay(page: 1, markup: state)
+        overlay.frame = CGRect(x: 0, y: 0, width: 5609.6, height: 7764.01); overlay.layoutIfNeeded()
+        overlay.refresh()
+        let original = drawing(1); overlay.canvas.replaceDrawing(original)
+        let native = overlay.canvas; let history = native.inkHistory
+        history.acceptsRequest = { true }; history.mayRestore = { true }
+        let scale = native.sourceCoordinateScale; let bounds = native.bounds; let transform = native.transform
+        let tool = try XCTUnwrap(native.tool as? PKInkingTool)
+        var added = try XCTUnwrap(drawing(1).strokes.first)
+        added.transform = CGAffineTransform(translationX: 80, y: 180)
+        let localEdit = PKDrawing(strokes: native.drawing.strokes + [added])
+        history.beginTool(); native.drawing = localEdit; history.drawingChanged(); history.endTool()
+        await settleHistory()
+        let expected = native.sourceDrawing.strokes.map(InkPerStroke.fingerprint)
+        history.request(.undo); await settleHistory()
+        XCTAssertFalse(overlay.canvas === native)
+        XCTAssertEqual(overlay.canvas.sourceCoordinateScale, scale)
+        XCTAssertEqual(overlay.canvas.bounds, bounds); XCTAssertEqual(overlay.canvas.transform, transform)
+        XCTAssertEqual(overlay.canvas.drawingPolicy, .anyInput)
+        XCTAssertEqual(try XCTUnwrap(overlay.canvas.tool as? PKInkingTool).width, tool.width)
+        XCTAssertEqual(overlay.canvas.sourceDrawing.strokes.map(InkPerStroke.fingerprint), original.strokes.map(InkPerStroke.fingerprint),
+                       "Undo must recover exact source stroke identities rather than round-trip scaled replacements")
+        history.request(.redo); await settleHistory()
+        XCTAssertEqual(overlay.canvas.sourceDrawing.strokes.map(InkPerStroke.fingerprint), expected)
+    }
+
+    @MainActor func testNativeRestoreBranchesWhileOlderSaveFinishesThenDetachesAndReopens() async throws {
+        let state = ScoreMarkupState(); state.mode = .writing
+        let gate = Gate(); var saved: Data?
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/native-undo-branch.pdf"), page: .constant(1), twoPages: false,
+                                   markup: state, drawingData: { _ in saved }, saveDrawing: { _, data, expected in
+            guard expected == saved else { return false }
+            saved = data.isEmpty ? nil : data; return true
+        }, saveDrawingAsync: { _, data, expected in
+            await gate.wait()
+            guard !Task.isCancelled, expected == saved else { return nil }
+            saved = data.isEmpty ? nil : data; return ScoreInkSaveReceipt(data: saved)
+        }, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator(); coordinator.connectControls()
+        defer { coordinator.autosave?.cancel(); gate.release() }
+        let pdf = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792)).pdfData { $0.beginPage() }
+        let document = try XCTUnwrap(PDFDocument(data: pdf)); let page = try XCTUnwrap(document.page(at: 0))
+        let view = PDFView(); view.document = document; coordinator.pdfView = view
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 612, height: 792))
+        let controller = UIViewController(); window.rootViewController = controller
+        view.frame = controller.view.bounds; controller.view.addSubview(view); window.isHidden = false
+        defer { window.isHidden = true }
+        let overlay = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: page) as? ScorePageOverlay)
+        overlay.frame = view.bounds; view.addSubview(overlay); overlay.layoutIfNeeded()
+        coordinator.pdfView(view, willDisplayOverlayView: overlay, for: page)
+        XCTAssertNotNil(overlay.canvas.window)
+        edit(1, overlay: overlay, coordinator: coordinator); await settleHistory()
+        let abandonedCanvas = overlay.canvas; let history = abandonedCanvas.inkHistory
+        let oldSavedValue = overlay.canvas.sourceDrawing
+        let task = startIdle(coordinator); try await awaitEntry(gate)
+        history.request(.undo); await settleHistory()
+        XCTAssertFalse(overlay.canvas === abandonedCanvas, "Undo must replace the native tool model which republished old strokes")
+        XCTAssertTrue(overlay.canvas.inkHistory === history, "App-owned value history survives native surface replacement")
+        XCTAssertNil(abandonedCanvas.delegate)
+        XCTAssertFalse(abandonedCanvas.drawingGestureRecognizer.isEnabled)
+        XCTAssertNotNil(overlay.canvas.window); XCTAssertTrue(overlay.canvas.drawing.strokes.isEmpty)
+
+        // A retired canvas can still have queued native publications. Exercise every delegate
+        // entry point explicitly; none may register another edit or reactivate a tool/save.
+        abandonedCanvas.drawing = drawing(2)
+        coordinator.canvasViewDidBeginUsingTool(abandonedCanvas)
+        coordinator.canvasViewDrawingDidChange(abandonedCanvas)
+        coordinator.canvasViewDidEndUsingTool(abandonedCanvas)
+        coordinator.canvasViewDidFinishRendering(abandonedCanvas)
+        await settleHistory()
+        XCTAssertTrue(coordinator.activeToolPages.isEmpty)
+        XCTAssertTrue(overlay.canvas.drawing.strokes.isEmpty); XCTAssertTrue(history.canRedo)
+
+        var newStroke = try XCTUnwrap(drawing(1).strokes.first)
+        newStroke.transform = CGAffineTransform(translationX: 80, y: 180)
+        let branch = PKDrawing(strokes: [newStroke])
+        coordinator.canvasViewDidBeginUsingTool(overlay.canvas)
+        coordinator.loading = true; overlay.canvas.drawing = branch; coordinator.loading = false
+        coordinator.canvasViewDrawingDidChange(overlay.canvas)
+        coordinator.canvasViewDidEndUsingTool(overlay.canvas)
+        await settleHistory()
+        XCTAssertFalse(history.canRedo)
+        gate.release(); await task.value
+        XCTAssertEqual(try PKDrawing(data: XCTUnwrap(saved)), oldSavedValue, "Older preparation may finish its own durable write")
+        XCTAssertEqual(overlay.canvas.sourceDrawing, branch, "It cannot replace the new drawing branch")
+        XCTAssertTrue(coordinator.dirtyPages.contains(1)); XCTAssertTrue(coordinator.flush())
+        XCTAssertEqual(try PKDrawing(data: XCTUnwrap(saved)), branch)
+
+        overlay.updateInkResolution(displayScale: 3)
+        let branchedCanvas = overlay.canvas
+        coordinator.pdfView(view, willEndDisplayingOverlayView: overlay, for: page); overlay.removeFromSuperview()
+        let retained = try XCTUnwrap(coordinator.pdfView(view, overlayViewFor: page) as? ScorePageOverlay)
+        XCTAssertTrue(retained === overlay); XCTAssertTrue(retained.canvas === branchedCanvas)
+        retained.frame = view.bounds; view.addSubview(retained); retained.layoutIfNeeded()
+        coordinator.pdfView(view, willDisplayOverlayView: retained, for: page)
+        history.request(.undo); await settleHistory()
+        XCTAssertTrue(retained.canvas.drawing.strokes.isEmpty, "New branch Undo must not restore the abandoned stroke")
+        XCTAssertFalse(history.canUndo)
+        history.request(.redo); await settleHistory(); XCTAssertEqual(retained.canvas.sourceDrawing, branch)
+        XCTAssertTrue(coordinator.flush())
+        let reopened = parent.makeCoordinator(); defer { reopened.autosave?.cancel() }
+        let reopenedOverlay = try attach(reopened)
+        XCTAssertEqual(reopenedOverlay.canvas.sourceDrawing, branch, "Save/reopen must retain only the new branch")
     }
 
     @MainActor func testCleanOverlayDetachAndReattachKeepsSequentialUndoAndDrawingValues() async throws {

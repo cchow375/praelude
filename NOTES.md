@@ -1,5 +1,13 @@
 # NOTES
 
+## October 11 — build13 native input contracts
+
+- **PKCanvas setters do not reset all native drawing state.** Actual simulator first draw1→two-finger Undo0→next draw2 reproduces physical feedback before disk save. Replace native canvas at Undo/Redo with retained independent history/exact stroke cache/source basis; retire old delegate/recognizers and reapply PDF pinch priorities. Avoid blanket rejection of non-tool edits, which can break lasso menu cut/paste.
+- **Recognition finalization must keep the next utterance.** Bounded audio-request handoff keeps capture running while waiting up to4s for final text; transient failures retain explicit opt-in/owner/context and retry four times before a visible manual Retry. Stale generations/duplicate finals cannot write history. Timed repeated verdict segments require distinct ordered acoustic gaps; text repetition alone never multiplies reps. Physical audio remains open.
+- **Camera gestures are optional player input.** One main-actor camera owner is claimed across score windows before requesting permission; matching-owner release and generation guards fence stale grants. Front-camera video-only Vision runs on one serial queue, bounded10Hz/drop-late; frames are discarded locally. Fresh neutral calibration is required every session/rotation, failed recalibration revokes old baseline, complete gestures return to neutral with dwell/cooldown, single-face/light/size/confidence/stale-frame/context gates suppress dispatch. Rep actions have separate opt-in and running-set/focus guards. No perfect mapping guarantee or physical evidence yet. Permission prompts may inactivate a scene; only background/score exit tears down capture, with inactive actions fenced.
+- **Urgency is a factual readout.** Saved review dates and latest self-reported cold grade determine priority, including Learning after lapse. Future due dates remain future; lateness creates no grade. Passage goal uses existing performance_tempo, future-set drafts refresh, active snapshots/history remain exact. First-attempt click is actual transient preview with idle cleanup. No schema change or desktop parity implied.
+
+
 ## October 11 — friend build12 preservation and launch boundary
 
 The exact friend’s iPad (6) guarded refresh on October10 preserves all3 owned files/38,874,123 bytes and schema5/revision85 exactly under independent rehashing. The user confirms opening. A read-only process query fails before post-launch backup; subsequent exact-device status is unavailable. Retain user-confirmed opening separately from unverified running-process/readback and physical acceptance. Evidence: `docs/qa/ios/2.0.0/build12/friend-ipad-install.json`, `friend-signed-release.json`. Personal data was never copied.

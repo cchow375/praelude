@@ -19,11 +19,17 @@ struct PassageLibraryNamesView: View {
                         Section(piece.title) {
                             ForEach(passages) { passage in
                                 HStack {
-                                    Text(passage.title).frame(maxWidth: .infinity, alignment: .leading)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(passage.title).font(.headline)
+                                        Text(passage.performanceTempo.map { "Goal \(PracticeReferenceFormatting.bpm($0)) BPM" } ?? "Set a goal tempo")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }.frame(maxWidth: .infinity, alignment: .leading)
+                                        .contentShape(Rectangle())
                                         .onTapGesture(count: 2) { renaming = passage }
+                                        .accessibilityHint("Double tap the name, or use Edit, to change its name and goal tempo")
                                     Button { renaming = passage } label: {
                                         Image(systemName: "pencil").frame(width: 44, height: 44)
-                                    }.accessibilityLabel("Rename \(passage.title)")
+                                    }.accessibilityLabel("Edit name and goal for \(passage.title)")
                                 }.accessibilityIdentifier("organizePassage_\(passage.id)")
                             }
                         }
@@ -34,7 +40,7 @@ struct PassageLibraryNamesView: View {
                 }
             }
             .searchable(text: $search, prompt: "Piece or passage")
-            .navigationTitle("Passage names").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Passage names & goals").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .sheet(item: $renaming) { passage in PassageRenameView(passage: passage) }
         }

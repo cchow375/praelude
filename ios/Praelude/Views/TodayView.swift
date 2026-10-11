@@ -5,6 +5,7 @@ struct TodayView: View {
     @Environment(MetronomeService.self) private var metronome
     @State private var errorMessage: String?
     @State private var showGoals = false
+    @State private var showReviews = false
     @State private var renamingPassage: Passage?
     @State private var organizingPassages = false
     @State private var availableMinutes = 30
@@ -41,6 +42,9 @@ struct TodayView: View {
         TodayOverview.streakStatus(rewardsState: store.state.rewardsState, calendar: .current, now: Date())
     }
     private var dueReviews: [TodayOverview.DueReview] { TodayOverview.dueReviews(context: ruleContext()) }
+    private var priorityReviews: [TodayOverview.DueReview] {
+        dueReviews + TodayOverview.toughPassages(context: ruleContext()).filter { !$0.isDue }
+    }
     private var upcomingPerformances: [TodayOverview.UpcomingPerformance] { TodayOverview.upcomingPerformances(context: ruleContext()) }
 
     var body: some View {
@@ -110,6 +114,21 @@ struct TodayView: View {
                 }
 
                 Section {
+                    ForEach(Array(priorityReviews.prefix(5))) { review in
+                        if let passage = store.state.passages.first(where: { $0.id == review.passageID }) {
+                            PassageReviewRow(review: review, passage: passage,
+                                             pieceTitle: store.pieces.first { $0.id == review.pieceID }?.title ?? "Piece",
+                                             onStart: { onStartPassage(review.pieceID, review.passageID) },
+                                             onEdit: { renamingPassage = passage })
+                        }
+                    }
+                    Button("All passage reviews", systemImage: "rectangle.stack") { showReviews = true }
+                        .accessibilityIdentifier("allPassageReviews")
+                } header: { Text("Reviews to revisit") } footer: {
+                    Text("URGENT marks an overdue review or a due passage you last marked Missed or Shaky on its first attempt. Dates and your reports set the priority; you choose what to practice.")
+                }
+
+                Section {
                     Stepper(value: $availableMinutes, in: 5...180, step: 5) {
                         HStack {
                             Text("Available time")
@@ -124,6 +143,7 @@ struct TodayView: View {
                     } else {
                         ForEach(Array(sessionItems.enumerated()), id: \.element.id) { index, item in
                             SessionItemRow(item: item, title: sessionItemTitle(item),
+                                          tempoGoal: store.state.passages.first { $0.id == item.passageID }?.performanceTempo,
                                           onStart: { startItem(item) }, onRename: item.passageID.flatMap { id in store.state.passages.first { $0.id == id } }.map { target in { renamingPassage = target } }, onSkip: { skip(item) },
                                           onMoveUp: index > 0 ? { move(index, by: -1) } : nil,
                                           onMoveDown: index < sessionItems.count - 1 ? { move(index, by: 1) } : nil)
@@ -180,7 +200,7 @@ struct TodayView: View {
                 }
 
                 Section {
-                    Button("Name and organize passages", systemImage: "character.cursor.ibeam") { organizingPassages = true }
+                    Button("Passage names & goal tempos", systemImage: "character.cursor.ibeam") { organizingPassages = true }
                         .accessibilityIdentifier("organizePassagesToday")
                 }
                 if !recentPieces.isEmpty {
@@ -218,9 +238,11 @@ struct TodayView: View {
             }
         }
         .sheet(isPresented: $showGoals) { PracticeGoalsView() }
+        .sheet(isPresented: $showReviews) { PassageReviewQueueView(onStart: onStartPassage) }
         .sheet(item: $renamingPassage) { passage in PassageRenameView(passage: passage) }
         .sheet(isPresented: $organizingPassages) { PassageLibraryNamesView() }
         .onAppear { if sessionItems.isEmpty { refreshPlan() } }
+        .onChange(of: store.state.coldGrades) { _, _ in refreshPlan() }
     }
 
     private var dailyMetrics: some View {
@@ -328,6 +350,7 @@ struct TodayView: View {
 private struct SessionItemRow: View {
     let item: SessionItem
     let title: String
+    let tempoGoal: Double?
     let onStart: () -> Void
     let onRename: (() -> Void)?
     let onSkip: () -> Void
@@ -342,16 +365,24 @@ private struct SessionItemRow: View {
                     Text("\(item.estimatedMinutes) min").font(.caption).foregroundStyle(PraeludeColor.inkTertiary)
                 }
                 Text(title.isEmpty ? "Untitled" : title).onTapGesture(count: 2) { onRename?() }.font(.subheadline.weight(.medium)).lineLimit(1)
-                Text(item.reason).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if let tempoGoal {
+                    Text("Goal \(PracticeReferenceFormatting.bpm(tempoGoal)) BPM").font(.caption).foregroundStyle(.secondary)
+                }
+                Text(item.reason).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 6)
+            if let onRename {
+                Button("Edit name and goal tempo", systemImage: "pencil", action: onRename)
+                    .labelStyle(.iconOnly).buttonStyle(.plain).frame(minWidth: 44, minHeight: 44)
+                    .accessibilityIdentifier("editSessionPassage_\(item.id)")
+            }
             Button("Start", action: onStart)
                 .font(.caption.weight(.semibold)).buttonStyle(.plain)
                 .padding(.horizontal, 10).frame(minHeight: 44)
                 .background(PraeludeColor.inkFillQuiet, in: Capsule())
                 .accessibilityIdentifier("startSessionItem_\(item.kind.rawValue)_\(item.id)")
             Menu {
-                if let onRename { Button("Rename passage", systemImage: "character.cursor.ibeam", action: onRename) }
+                if let onRename { Button("Name & goal tempo", systemImage: "character.cursor.ibeam", action: onRename) }
                 Button("Move earlier", systemImage: "arrow.up") { onMoveUp?() }.disabled(onMoveUp == nil)
                 Button("Move later", systemImage: "arrow.down") { onMoveDown?() }.disabled(onMoveDown == nil)
                 Button("Skip", systemImage: "forward", action: onSkip)

@@ -569,6 +569,11 @@ struct PagedScoreView: UIViewRepresentable {
                     self.refreshOtherLayersDrawing(overlay)
                 }
             }
+            overlay.onCanvasReplaced = { [weak self, weak overlay] in
+                guard let self, let overlay, let view = self.pdfView,
+                      self.overlays[number] === overlay else { return }
+                self.configureInkGestureDependencies(in: view, overlay: overlay)
+            }
             let previewPage = effectivePages.indices.contains(displayIndex - 1) ? effectivePages[displayIndex - 1]
                 : EffectivePage(id: UUID(), displayOrder: displayIndex, sourcePage: number, kind: .original, cropRect: nil, rotationDegrees: 0)
             let previewURL = parent.url
@@ -629,6 +634,15 @@ struct PagedScoreView: UIViewRepresentable {
         func pdfView(_ pdfView: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
             guard let overlay = overlayView as? ScorePageOverlay else { return }
             detachedPages.removeAll { $0 == overlay.pageNumber }
+            configureInkGestureDependencies(in: pdfView, overlay: overlay)
+            refresh(overlay)
+            // PDFKit can first attach an overlay after the initial tracked configuration. Arm
+            // tracking for its ink/appearance dependencies once the real page exists too.
+            if let view = pdfView as? ZoomableScorePDFView {
+                enqueueViewUpdate(pendingViewUpdate ?? parent, view: view)
+            }
+        }
+        private func configureInkGestureDependencies(in pdfView: PDFView, overlay: ScorePageOverlay) {
             func configure(_ view: UIView) {
                 guard !(view is ScorePageOverlay), !(view is PKCanvasView) else { return }
                 if let scrollView = view as? UIScrollView {
@@ -653,12 +667,6 @@ struct PagedScoreView: UIViewRepresentable {
             #if DEBUG
             observeGestureActions(in: pdfView)
             #endif
-            refresh(overlay)
-            // PDFKit can first attach an overlay after the initial tracked configuration. Arm
-            // tracking for its ink/appearance dependencies once the real page exists too.
-            if let view = pdfView as? ZoomableScorePDFView {
-                enqueueViewUpdate(pendingViewUpdate ?? parent, view: view)
-            }
         }
         func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
             guard let overlay = overlayView as? ScorePageOverlay, overlays[overlay.pageNumber] === overlay else { return }
@@ -877,6 +885,7 @@ struct PagedScoreView: UIViewRepresentable {
             saveEpoch &+= 1; runningIdleEpoch = nil
         }
         func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
+            guard overlays.values.contains(where: { $0.canvas === canvasView }) else { return }
             (canvasView as? ScoreInkCanvas)?.inkHistory.finishedRendering()
             #if DEBUG
             logCanvas("didFinishRendering", canvas: canvasView)

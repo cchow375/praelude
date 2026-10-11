@@ -109,11 +109,11 @@ struct PassagePickerView: View {
                 Button { renamingPassage = passage } label: {
                     Image(systemName: "pencil").frame(width: 44, height: 44).contentShape(Rectangle())
                 }.buttonStyle(.plain).foregroundStyle(.secondary)
-                    .accessibilityLabel("Rename \(passage.title)")
+                    .accessibilityLabel("Edit name and goal for \(passage.title)")
                     .accessibilityIdentifier("renamePassage_\(passage.id)")
             }
                     .contextMenu {
-                        Button("Rename", systemImage: "pencil") { renamingPassage = passage }
+                        Button("Name & goal tempo", systemImage: "pencil") { renamingPassage = passage }
                         Menu("Recolor", systemImage: "paintpalette") {
                             Button("No color") { recolor(passage, to: nil) }
                             ForEach(AnnotationColor.allCases) { color in Button(color.label) { recolor(passage, to: color) } }
@@ -127,7 +127,7 @@ struct PassagePickerView: View {
                         Button("Delete passage", systemImage: "trash", role: .destructive) { pendingDelete = passage }
                     }
                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                        Button("Rename", systemImage: "pencil") { renamingPassage = passage }.tint(PraeludeColor.ink)
+                        Button("Name & goal tempo", systemImage: "pencil") { renamingPassage = passage }.tint(PraeludeColor.ink)
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button("Delete", systemImage: "trash", role: .destructive) { pendingDelete = passage }
@@ -264,7 +264,7 @@ struct PassageEditorView: View {
         _showMeasures = State(initialValue: passage.startMeasure != nil)
         _page = State(initialValue: passage.page)
         _showPerformanceTempo = State(initialValue: passage.performanceTempo != nil)
-        _performanceTempoText = State(initialValue: passage.performanceTempo.map { String(Int($0)) } ?? "")
+        _performanceTempoText = State(initialValue: passage.performanceTempo.map(PracticeReferenceFormatting.bpm) ?? "")
         self.pageCount = pageCount; self.onSaved = onSaved
     }
     private var valid: Bool {
@@ -298,10 +298,10 @@ struct PassageEditorView: View {
                 }
             } footer: { Text("Optional labels. Your boxes identify what you practice.") }
             Section {
-                Toggle("Performance tempo", isOn: $showPerformanceTempo).praeludeToggleHaptic(showPerformanceTempo)
+                Toggle("Passage goal tempo", isOn: $showPerformanceTempo).praeludeToggleHaptic(showPerformanceTempo)
                 if showPerformanceTempo {
                     TextField("Tempo (bpm)", text: $performanceTempoText)
-                        .keyboardType(.numberPad).accessibilityIdentifier("performanceTempoField")
+                        .keyboardType(.decimalPad).accessibilityIdentifier("performanceTempoField")
                 }
             } footer: { Text("The tempo you're aiming to perform this at. Drives speed-up suggestions, performance-ready tracking, and the pulse check.") }
             if let errorMessage { Section { ErrorMessage(message: errorMessage) } }

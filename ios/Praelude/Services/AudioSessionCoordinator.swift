@@ -28,6 +28,12 @@ final class AudioSessionCoordinator {
         catch { clients.remove(client); throw error }
     }
 
+    /// Media-service resets can clear the hardware session while logical clients remain owned.
+    func refresh(_ client: Client) throws {
+        if clients.contains(client) { try configure(clients) }
+        else { try acquire(client) }
+    }
+
     func release(_ client: Client) {
         guard clients.remove(client) != nil else { return }
         // A failed deactivation is harmless. A later explicit start attempts configuration again.

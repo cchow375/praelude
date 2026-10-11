@@ -91,6 +91,12 @@ struct VoiceDiagnosticsView: View {
         List {
             Section {
                 LabeledContent("Command mode", value: speech.isListening ? (speech.isMuted ? "Muted" : "Listening") : speech.status)
+                LabeledContent("Automatic reconnects", value: "\(speech.recoveryCount)")
+                if let recovery = speech.lastRecoveryMessage { Text(recovery).font(.caption).foregroundStyle(.secondary) }
+                if speech.isEnabled && !speech.isListening && !speech.isPreparing {
+                    Button("Retry command input") { speech.retryListening(ifOwnedBy: speech.ownerID) }.frame(minHeight: 44)
+                        .accessibilityIdentifier("retryVoiceInput")
+                }
                 Text(speech.diagnosticPermission).font(.callout)
                 LabeledContent("Microphone", value: speech.diagnosticInput)
                 LabeledContent("Output", value: speech.diagnosticOutput)
@@ -105,7 +111,7 @@ struct VoiceDiagnosticsView: View {
                 }
                 if let message = speech.errorMessage { Text(message).foregroundStyle(.red) }
             } header: { Text("This device") }
-              footer: { Text("After an interruption or disconnected microphone, turn voice on again. These checks never transfer microphone ownership or start recording.") }
+              footer: { Text("Command mode reconnects automatically after transient audio failures while you remain in the app. After four failed retries, tap Retry. Off cancels reconnection. Permission denial still needs Settings. Diagnostic refresh does not start a microphone.") }
             Section {
                 if let startup = speech.lastStartupMilliseconds {
                     LabeledContent("Last setup", value: milliseconds(startup))

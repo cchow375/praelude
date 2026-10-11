@@ -1,5 +1,7 @@
 # Build12 installed guide
 
+Friend update recorded October11: the exact iPad (6) also received build12 on October10 with all3 owned files/38,874,123 bytes preserved exactly. User opening confirmed; post-launch readback unverified after read-only process inspection failed and the device was unavailable.
+
 Personal iPad: installed 2.0.0/build12/schema5 from `459081c`, October10. User opening and read-only
 running-process observation are confirmed. Physical feature acceptance remains separate.
 See [practice-upgrade.md](practice-upgrade.md) for all19 items, retained failures and delivery evidence.

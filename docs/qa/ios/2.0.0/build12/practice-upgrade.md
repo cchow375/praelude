@@ -65,6 +65,10 @@ no prior region field removed/changed. This is the new optional note-background 
 no ledger/practice activity changes. It does not prove server delivery or two-device convergence.
 These results do not establish physical Pencil/audio/performance or real-account sync acceptance.
 
+## Friend delivery — October10, recorded October11
+
+The same generic build12 refreshes the exact iPad (6) from its existing nonempty build11 library. Independent before/after comparison verifies3 files/38,874,123 bytes exact, schema5/revision85,3 pieces/4 passages/3 sets/2 sessions/3 attempts and no active set. No personal library was copied. Actual helper-artifact signature/profile/target checks pass. Automatic launch declined; the user confirms opening. Subsequent read-only process query failed before backup; exact-device status was unavailable. Full post-launch readback/physical acceptance remain unverified. See friend-ipad-install.json and friend-signed-release.json.
+
 ## Inspected records and resources
 
 Read-only ignored build11 snapshot aggregates:6 pieces,37 sessions,55 historical sets plus a

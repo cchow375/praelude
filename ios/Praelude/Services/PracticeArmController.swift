@@ -81,10 +81,17 @@ final class PracticeArmController {
         let context = RuleContext(state: store.state, now: Date())
         var draft = PracticeRulesEngine.defaultConfiguration(for: passage.id, context: context)
             ?? PracticeConfiguration(pieceID: pieceID, passageID: passage.id, focus: passage.focus)
-        if let chosen = chosenConfigurations[.passage(passage.id)] { draft = chosen }
+        if let chosen = chosenConfigurations[.passage(passage.id)] {
+            draft = chosen
+            if let goal = passage.performanceTempo, goal != chosen.passageSnapshot?.performanceTempo,
+               draft.basis == .cleanStreak { draft.targetBPM = max(draft.startBPM, goal) }
+        }
+        draft.focus = passage.focus
+        draft.passageSnapshot = passage
         if let tempo = pendingTempo[passage.id] { draft.startBPM = tempo; draft.targetBPM = max(draft.targetBPM, tempo) }
         if let stages = pendingStages[passage.id] { draft.stages = stages }
         if let hands = pendingHands[passage.id] { draft.hands = hands }
+        if chosenConfigurations[.passage(passage.id)] != nil { chosenConfigurations[.passage(passage.id)] = draft }
         configuration = draft
         awaitingColdGrade = context.settings.r3Enabled && PracticeRulesEngine.isColdAttemptEligible(passageID: passage.id, context: context)
     }

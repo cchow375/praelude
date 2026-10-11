@@ -135,6 +135,57 @@ final class GestureErgonomicsUITests: XCTestCase {
         waitForInk(1, app: app)
     }
 
+    @MainActor func testActualDrawUndoDrawKeepsOnlyTheNewBranchAfterZoomAndReopen() {
+        let app = XCUIApplication(); openScore(app)
+        app.buttons["annotateScore"].tap()
+        let finger = app.switches["fingerDrawing"]
+        XCTAssertTrue(finger.waitForExistence(timeout: 5), app.debugDescription)
+        if finger.value as? String != "1" {
+            finger.coordinate(withNormalizedOffset: .init(dx: 0.97, dy: 0.5)).tap()
+        }
+        let toggle = app.buttons["toggleAnnotationPalette"]
+        toggle.tap()
+        let page = app.otherElements["scorePDF"].textViews.firstMatch
+        page.coordinate(withNormalizedOffset: .init(dx: 0.25, dy: 0.55)).press(forDuration: 0.1,
+            thenDragTo: page.coordinate(withNormalizedOffset: .init(dx: 0.65, dy: 0.58)))
+        waitForInk(1, app: app)
+        page.tap(withNumberOfTaps: 1, numberOfTouches: 2)
+        waitForInk(0, app: app)
+        // A real second native stroke is essential: assigning PKDrawing values in a history
+        // fixture cannot expose PencilKit republishing the abandoned stroke with this mark.
+        page.coordinate(withNormalizedOffset: .init(dx: 0.30, dy: 0.72)).press(forDuration: 0.1,
+            thenDragTo: page.coordinate(withNormalizedOffset: .init(dx: 0.70, dy: 0.74)))
+        waitForInk(1, app: app)
+        print("Draw-Undo-draw native branch: \(app.otherElements["scorePDF"].value as? String ?? "missing diagnostics")")
+        toggle.tap()
+        XCTAssertFalse(app.buttons["Redo ink"].isEnabled, "The new stroke must discard the abandoned redo branch")
+        app.buttons["Undo ink"].tap(); waitForInk(0, app: app)
+        app.buttons["Redo ink"].tap(); waitForInk(1, app: app)
+        toggle.tap()
+        page.pinch(withScale: 5, velocity: 1)
+        waitForInk(1, app: app)
+        let pdf = app.otherElements["scorePDF"]
+        let zoomed = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            guard let value = (object as? XCUIElement)?.value as? String,
+                  let scalePart = value.components(separatedBy: ";scale=").dropFirst().first,
+                  let scale = Double(scalePart.components(separatedBy: ",")[0]),
+                  let minimumPart = value.components(separatedBy: ",min=").dropFirst().first,
+                  let minimum = Double(minimumPart.components(separatedBy: ",")[0]) else { return false }
+            return scale > minimum * 1.2
+        }, object: pdf)
+        XCTAssertEqual(XCTWaiter.wait(for: [zoomed], timeout: 5), .completed,
+                       "The new branch must survive an actually zoomed canvas: \(pdf.value as? String ?? "missing diagnostics")")
+        shot("build13-draw-undo-new-branch-after-zoom")
+        toggle.tap()
+        app.buttons["Undo ink"].tap(); waitForInk(0, app: app)
+        app.buttons["Redo ink"].tap(); waitForInk(1, app: app)
+        app.buttons["finishScoreMarkup"].tap()
+        app.buttons["closeScore"].tap()
+        app.terminate(); openScore(app, reset: false)
+        waitForInk(1, app: app)
+        shot("build13-draw-undo-new-branch-reopened")
+    }
+
     @MainActor func testActualDoubleTapSelectedPassageOpensRenameAndPersists() {
         let app = XCUIApplication(); openScore(app)
         app.buttons["passages"].tap()

@@ -61,6 +61,35 @@ final class PracticeArmControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testEditingSavedGoalRefreshesCachedDraftWithoutRewritingAnActiveSet() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store, performanceTempo: 100)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        var chosen = try XCTUnwrap(fixture.arm.configuration)
+        chosen.startBPM = 60; chosen.targetBPM = 88
+        fixture.arm.applyConfigurationOverride(chosen)
+        var edited = passage; edited.title = "New name"; edited.performanceTempo = 112.5
+        try fixture.store.savePassage(edited, replacing: passage)
+        fixture.arm.arm(pieceID: piece.id, passage: edited, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.targetBPM, 112.5)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 60)
+        XCTAssertEqual(fixture.arm.configuration?.passageSnapshot?.title, "New name")
+        fixture.arm.arm(pieceID: piece.id, passage: nil, store: fixture.store)
+        fixture.arm.arm(pieceID: piece.id, passage: edited, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.targetBPM, 112.5, "The refreshed goal survives leaving and returning.")
+        chosen = try XCTUnwrap(fixture.arm.configuration)
+        chosen.targetBPM = 92
+        fixture.arm.applyConfigurationOverride(chosen)
+        fixture.arm.arm(pieceID: piece.id, passage: edited, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.targetBPM, 92, "A deliberate draft target is preserved when the saved goal did not change.")
+        try fixture.arm.start(skippingColdGrade: true, store: fixture.store, runtime: fixture.runtime)
+        let originalSet = try XCTUnwrap(fixture.store.activeSet)
+        var later = edited; later.performanceTempo = 120
+        try fixture.store.savePassage(later, replacing: edited)
+        XCTAssertEqual(fixture.store.activeSet, originalSet)
+    }
+
+    @MainActor
     func testArmForWholePieceSkipsColdGradeAndUsesPlainDefault() throws {
         let fixture = try fixture()
         let piece = Piece(title: "Etude")

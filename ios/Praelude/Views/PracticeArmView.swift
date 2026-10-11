@@ -22,6 +22,7 @@ struct PracticeArmView: View {
     @State private var error: String?
     @State private var setupExpanded = false
     @State private var showTempoGoal = false
+    @State private var ownsMetronomePreview = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -75,7 +76,18 @@ struct PracticeArmView: View {
         .accessibilityIdentifier("practiceArmPanel")
         .onChange(of: configBinding.wrappedValue.startBPM) { _, newValue in
             if configBinding.wrappedValue.targetBPM < newValue { configBinding.wrappedValue.targetBPM = newValue }
+            if ownsMetronomePreview && metronome.isPlaying { metronome.setTempo(newValue) }
         }
+        .onChange(of: passage) { old, new in
+            guard old?.id == new?.id, old != new, let new else { return }
+            // The saved shortcut can change while this arm panel is visible. Refresh only the
+            // unstarted draft; a running set's stored configuration is never edited here.
+            arm.arm(pieceID: new.pieceID, passage: new, store: store)
+        }
+        .onChange(of: arm.configuration?.passageID) { _, _ in stopPreviewIfIdle() }
+        .onChange(of: arm.pieceID) { _, _ in stopPreviewIfIdle() }
+        .onChange(of: arm.scoreSection?.id) { _, _ in stopPreviewIfIdle() }
+        .onDisappear { stopPreviewIfIdle() }
         .sheet(isPresented: $showTempoGoal) {
             PracticeTempoGoalView(configuration: configBinding, passage: passage)
         }
@@ -117,17 +129,18 @@ struct PracticeArmView: View {
                                     ? "\(Int(configBinding.wrappedValue.targetBPM)) BPM" : "Fixed tempo")
                 .accessibilityIdentifier("armTempoGoal")
             Button {
-                configBinding.wrappedValue.useMetronome.toggle()
+                toggleMetronomePreview()
             } label: {
                 VStack(spacing: 2) {
                     Image(systemName: "metronome")
-                    Text(configBinding.wrappedValue.useMetronome ? "On" : "Off").font(.caption2)
+                    Text(metronome.isPlaying ? "On" : "Off").font(.caption2)
                 }.frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-                    .background(configBinding.wrappedValue.useMetronome ? PraeludeColor.inkFillQuiet : Color.clear,
+                    .background(metronome.isPlaying ? PraeludeColor.inkFillQuiet : Color.clear,
                                 in: RoundedRectangle(cornerRadius: 8))
             }.buttonStyle(.plain)
                 .accessibilityLabel("Metronome")
-                .accessibilityValue(configBinding.wrappedValue.useMetronome ? "On" : "Off")
+                .accessibilityValue(metronome.isPlaying ? "On" : "Off")
+                .accessibilityHint("Starts or stops the audible click before your first attempt, and sets the click for this practice set")
                 .accessibilityIdentifier("armMetronome")
             Button { setupExpanded.toggle() } label: {
                 Image(systemName: setupExpanded ? "chevron.down" : "slider.horizontal.3")
@@ -139,8 +152,19 @@ struct PracticeArmView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(passage?.title ?? arm.configuration?.passageSnapshot?.title ?? "Whole piece").onTapGesture(count: 2, perform: onRenamePassage).accessibilityAction(named: "Rename passage", onRenamePassage).font(.subheadline.weight(.semibold))
-                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+            HStack(spacing: 4) {
+                Text(passage?.title ?? arm.configuration?.passageSnapshot?.title ?? "Whole piece")
+                    .onTapGesture(count: 2, perform: onRenamePassage)
+                    .accessibilityAction(named: "Edit name and goal tempo", onRenamePassage)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                if passage != nil {
+                    Button(action: onRenamePassage) {
+                        Image(systemName: "pencil").font(.caption).frame(width: 44, height: 44)
+                    }.buttonStyle(.plain).accessibilityLabel("Edit passage name and goal tempo")
+                        .accessibilityIdentifier("armEditPassage")
+                }
+            }
             Text(passage.map { target in ScoreOrganization.locationLabel(for: target, in: store.pieces.first { $0.id == target.pieceID }) } ?? pieceSubtitle)
                 .font(.caption).foregroundStyle(PraeludeColor.inkSecondary)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
@@ -309,6 +333,31 @@ struct PracticeArmView: View {
         case .partsCoordination: "Parts/Coordination"
         case .other: "Other"
         }
+    }
+
+    private func toggleMetronomePreview() {
+        guard store.activeSet?.status != .running else {
+            error = "Pause or finish the current set before changing the first-attempt click."
+            return
+        }
+        if metronome.isPlaying {
+            metronome.stop()
+            configBinding.wrappedValue.useMetronome = false
+            ownsMetronomePreview = false
+            error = nil
+        } else {
+            metronome.applyDropoutPlan(nil)
+            metronome.setTempo(configBinding.wrappedValue.startBPM)
+            metronome.start()
+            ownsMetronomePreview = metronome.isPlaying
+            if metronome.isPlaying { configBinding.wrappedValue.useMetronome = true; error = nil }
+            else { error = metronome.errorMessage }
+        }
+    }
+
+    private func stopPreviewIfIdle() {
+        guard ownsMetronomePreview, store.activeSet?.status != .running else { return }
+        metronome.stop(); ownsMetronomePreview = false
     }
 
     private func savePieceTempo() {

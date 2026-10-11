@@ -3,6 +3,35 @@ import Observation
 import Speech
 import UIKit
 
+/// A bounded handoff between requests keeps capturing the next utterance while iOS finalizes
+/// the previous one. Only this short lock guards the request pointer and append/end ordering.
+/// Audio buffers remain in Apple's recognition request; no files or user recordings are created.
+final class SpeechAudioRequestBridge: @unchecked Sendable {
+    private let lock = NSLock()
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var durationLimit: TimeInterval?
+    private var appendedSeconds: TimeInterval = 0
+    var bufferedSeconds: TimeInterval {
+        lock.lock(); defer { lock.unlock() }
+        return appendedSeconds
+    }
+    func replace(with next: SFSpeechAudioBufferRecognitionRequest?, limitSeconds: TimeInterval? = nil) {
+        lock.lock()
+        request = next
+        durationLimit = limitSeconds
+        appendedSeconds = 0
+        lock.unlock()
+    }
+    func append(_ buffer: AVAudioPCMBuffer) {
+        lock.lock(); defer { lock.unlock() }
+        guard let request, buffer.format.sampleRate.isFinite, buffer.format.sampleRate > 0 else { return }
+        let seconds = Double(buffer.frameLength) / buffer.format.sampleRate
+        if let limit = durationLimit, appendedSeconds + seconds > limit { return }
+        request.append(buffer)
+        if durationLimit != nil { appendedSeconds += seconds }
+    }
+}
+
 struct VoicePendingConfirmation: Identifiable, Equatable {
     let id = UUID()
     let transcript: String
@@ -23,6 +52,13 @@ final class SpeechCommandService {
     private(set) var status = "Voice is off"
     private(set) var isListening = false
     private(set) var isPreparing = false
+    private(set) var isRecovering = false
+    private(set) var recoveryCount = 0
+    private(set) var lastRecoveryMessage: String?
+    /// Opt-in remains owned during a recoverable interruption; explicit Off always clears it.
+    var isEnabled: Bool { wantsListening }
+    var activeRecognitionID: UUID { generation }
+    var isCapturingNextUtterance: Bool { stagedRequest != nil }
     private(set) var isDictating = false
     private(set) var errorMessage: String?
     private(set) var lastTranscript = ""
@@ -51,6 +87,15 @@ final class SpeechCommandService {
     @ObservationIgnored private let notifications = AudioNotificationBag()
     @ObservationIgnored private var recognizer: SFSpeechRecognizer?
     @ObservationIgnored private var request: SFSpeechAudioBufferRecognitionRequest?
+    @ObservationIgnored private var stagedRequest: SFSpeechAudioBufferRecognitionRequest?
+    @ObservationIgnored private let audioBridge = SpeechAudioRequestBridge()
+    @ObservationIgnored private var recoveryTask: Task<Void, Never>?
+    @ObservationIgnored private var recoveryAttempts = 0
+    @ObservationIgnored private var audioInterrupted = false
+    @ObservationIgnored private var lastCaptureStartedAt: TimeInterval?
+    @ObservationIgnored private var lastSegmentTimestamp: TimeInterval?
+    @ObservationIgnored private let captureOverride: (@MainActor () throws -> Void)?
+    @ObservationIgnored private let recoveryDelay: @Sendable (Int) -> UInt64
     @ObservationIgnored private var recognitionTask: SFSpeechRecognitionTask?
     @ObservationIgnored private var permissionTask: Task<Void, Never>?
     @ObservationIgnored private var endpointTask: Task<Void, Never>?
@@ -79,7 +124,9 @@ final class SpeechCommandService {
     init(defaults: UserDefaults = .standard, speechPermission: @escaping @Sendable () async -> SFSpeechRecognizerAuthorizationStatus = AudioInputPermissions.speechPermission,
          microphonePermission: @escaping @Sendable () async -> Bool = AudioInputPermissions.microphoneGranted,
          confirmation: @escaping @MainActor (VoiceCommand) -> Void = { VoiceConfirmationPlayer.shared.confirm($0) },
-         logMisrecognition: @escaping @MainActor (String) -> Void = { VoiceMisrecognitionLog.shared.record($0) }) {
+         logMisrecognition: @escaping @MainActor (String) -> Void = { VoiceMisrecognitionLog.shared.record($0) },
+         captureOverride: (@MainActor () throws -> Void)? = nil,
+         recoveryDelay: @escaping @Sendable (Int) -> UInt64 = { UInt64(min(2_000, 250 * (1 << min($0 - 1, 3)))) }) {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.aliasesKey),
            let aliases = try? JSONDecoder().decode(VoiceAliasConfiguration.self, from: data),
@@ -89,35 +136,37 @@ final class SpeechCommandService {
         self.microphonePermission = microphonePermission
         self.confirmation = confirmation
         self.logMisrecognition = logMisrecognition
+        self.captureOverride = captureOverride
+        self.recoveryDelay = recoveryDelay
         observe(AVAudioSession.interruptionNotification) { [weak self] notification in
-            guard let raw = notification.interruptionType,
-                  AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
-            self?.failIfActive("Voice stopped for an audio interruption. Turn it on again when ready.")
+            guard let self, self.isListening || self.isRecovering,
+                  let raw = notification.interruptionType else { return }
+            if AVAudioSession.InterruptionType(rawValue: raw) == .began {
+                self.audioInterrupted = true
+                self.recover("iOS interrupted microphone audio.")
+            } else {
+                self.audioInterrupted = false
+                if self.wantsListening { self.recover("Audio interruption ended.") }
+            }
         }
         observe(UIApplication.didEnterBackgroundNotification) { [weak self] _ in self?.stop() }
         observe(AVAudioSession.routeChangeNotification) { [weak self] notification in
             guard let self else { return }
             self.refreshDiagnostics()
-            guard let raw = notification.routeReason else { return }
-            if AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable {
-                self.failIfActive("Microphone or headphones disconnected. Check your audio route and turn voice on again.")
-            } else if AVAudioSession.RouteChangeReason(rawValue: raw) == .newDeviceAvailable,
-                      self.isListening, !self.endingUtterance {
-                // A new route can invalidate the input node's cached format even while it runs.
-                self.cleanUpUtterance()
-                self.engine = AVAudioEngine()
-                do { try self.beginUtterance() }
-                catch { self.fail("Microphone route changed. Turn voice on to retry: \(error.localizedDescription)") }
+            guard self.isListening || self.isRecovering, let raw = notification.routeReason else { return }
+            let reason = AVAudioSession.RouteChangeReason(rawValue: raw)
+            if reason == .oldDeviceUnavailable || reason == .newDeviceAvailable {
+                self.recover("Microphone route changed; reconnecting to the current input.")
             }
         }
         observe(AVAudioSession.mediaServicesWereResetNotification) { [weak self] _ in
-            self?.failIfActive("Audio was reset by iOS. Tap the microphone to start again.")
-            self?.engine = AVAudioEngine()
+            guard let self, self.isListening || self.isRecovering else { return }
+            self.recover("iOS reset audio services; restoring microphone input.")
         }
         observe(.AVAudioEngineConfigurationChange) { [weak self] notification in
             guard let self, notification.sourceID == ObjectIdentifier(self.engine),
-                  self.isListening, !self.endingUtterance, !self.engine.isRunning else { return }
-            self.fail("The microphone changed. Tap the microphone to start again.")
+                  self.isListening, !self.engine.isRunning else { return }
+            self.recover("Microphone configuration changed; restoring command input.")
         }
     }
 
@@ -125,6 +174,7 @@ final class SpeechCommandService {
     func start(ownerID: UUID? = nil, onCommand: @escaping (VoiceCommand) -> Void) {
         guard !wantsListening else {
             if self.ownerID != ownerID { errorMessage = "Voice is already in use in another score or editor. Turn it off there before starting here." }
+            else if !isListening && !isPreparing { retryListening(ifOwnedBy: ownerID) }
             return
         }
         startCapture(ownerID: ownerID, onCommand: onCommand, onTranscript: nil)
@@ -150,6 +200,9 @@ final class SpeechCommandService {
             return
         }
         wantsListening = true
+        recoveryAttempts = 0
+        audioInterrupted = false
+        isRecovering = false
         captureRequestedAt = ProcessInfo.processInfo.systemUptime
         isPreparing = true
         isDictating = onTranscript != nil
@@ -180,21 +233,19 @@ final class SpeechCommandService {
                 self.fail("Microphone permission is off. Allow the microphone for Praelude in Settings to use voice commands.")
                 return
             }
-            guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
-                  recognizer.supportsOnDeviceRecognition else {
-                self.fail("On-device English recognition is unavailable on this device. Touch controls work offline; voice never falls back to a server.")
-                return
+            if self.captureOverride == nil {
+                guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
+                      recognizer.supportsOnDeviceRecognition else {
+                    self.fail("On-device English recognition is unavailable on this device. Touch controls work offline; voice never falls back to a server.")
+                    return
+                }
+                self.recognizer = recognizer
             }
-            guard recognizer.isAvailable else {
-                self.fail("Local speech recognition is temporarily unavailable. Try voice again later.")
-                return
-            }
-            self.recognizer = recognizer
             do {
-                try AudioSessionCoordinator.shared.acquire(.speech)
+                if self.captureOverride == nil { try AudioSessionCoordinator.shared.acquire(.speech) }
                 try self.beginUtterance()
             } catch {
-                self.fail("Voice could not start: \(error.localizedDescription)")
+                self.recover("Voice could not start: \(error.localizedDescription)")
             }
         }
     }
@@ -204,6 +255,8 @@ final class SpeechCommandService {
         generation = UUID() // Invalidates every queued permission/recognition callback.
         permissionTask?.cancel()
         permissionTask = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
         cancelPendingCommand()
         cleanUpUtterance()
         recognizer = nil
@@ -215,6 +268,9 @@ final class SpeechCommandService {
         captureRequestedAt = nil
         isListening = false
         isPreparing = false
+        isRecovering = false
+        audioInterrupted = false
+        recoveryAttempts = 0
         isDictating = false
         isMuted = false
         status = "Voice is off"
@@ -231,7 +287,8 @@ final class SpeechCommandService {
         isMuted = value
         if value { cancelPendingCommand() }
         guard wantsListening else { return }
-        status = value ? "Muted — listening paused" : "Listening on this device"
+        if isListening { status = value ? "Muted — listening paused" : "Listening on this device" }
+        else if isRecovering { status = value ? "Muted · reconnecting microphone…" : "Reconnecting microphone…" }
     }
 
     /// Custom phrases and diagnostics stay in this device's preferences; they are not practice data or synced.
@@ -259,11 +316,11 @@ final class SpeechCommandService {
         if changed { cancelPendingCommand() }
         contextToken = token
         self.supportedActions = actions
-        if changed, isListening, !isDictating {
+        if changed, isListening, !isDictating, !isRecovering {
             // Old callbacks carry the prior generation. Discard them rather than applying speech
             // begun for a different set, grade prompt, or modal after the UI context has changed.
             do { try beginUtterance() }
-            catch { fail("Voice context changed. Turn voice on to retry: \(error.localizedDescription)") }
+            catch { recover("Voice context changed: \(error.localizedDescription)") }
         }
     }
 
@@ -328,8 +385,17 @@ final class SpeechCommandService {
     }
 
     /// Routes one final recognition result. Internal so tests can exercise policy without microphone hardware.
-    func processCommandTranscript(_ transcript: String) {
+    func processCommandTranscript(_ transcript: String, segments: [VoiceRecognizedSegment] = []) {
         guard wantsListening, !isDictating, !isMuted else { return }
+        let phrases = VoiceFinalUtterances.phrases(transcript, segments: segments, aliases: commandAliases, supportedActions: supportedActions)
+        let originalGeneration = generation
+        for phrase in phrases {
+            guard wantsListening, generation == originalGeneration else { break }
+            processSingleCommandTranscript(phrase)
+        }
+    }
+
+    private func processSingleCommandTranscript(_ transcript: String) {
         let phrase = VoiceCommand.normalizedPhrase(transcript)
         if phrase == "cancel" { cancelPendingCommand(); return }
         if phrase == "confirm", pendingConfirmation != nil { confirmPendingCommand(); return }
@@ -354,70 +420,77 @@ final class SpeechCommandService {
         }
     }
 
-    private func beginUtterance() throws {
-        cleanUpUtterance()
-        guard wantsListening, let recognizer, recognizer.isAvailable,
-              recognizer.supportsOnDeviceRecognition else { throw VoiceError.localRecognitionUnavailable }
-        let utteranceID = UUID()
-        generation = utteranceID
-        endingUtterance = false
-        finalDelivered = false
-        firstTranscriptAt = nil
-        endpointRequestedAt = nil
-        lastTranscript = ""
+    private func makeRequest() -> SFSpeechAudioBufferRecognitionRequest {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = true
         request.taskHint = isDictating ? .dictation : .confirmation
         if isDictating { request.addsPunctuation = true }
         request.contextualStrings = isDictating ? [] : recognitionHints
-        self.request = request
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard AVAudioSession.sharedInstance().isInputAvailable,
-              format.sampleRate.isFinite, format.sampleRate > 0, format.channelCount > 0 else { throw VoiceError.noMicrophone }
-        // `nonisolated(unsafe)`: AVAudioEngine calls this block synchronously on its own realtime
-        // audio thread, never through Swift concurrency. Written as a plain closure inside this
-        // `@MainActor` method, it would infer `@MainActor` isolation from context and the compiler
-        // would insert a synchronous main-actor check at the top of the closure — which traps the
-        // instant the audio thread (never the main actor) delivers the first buffer. `request` is
-        // captured through this unsafe local so the closure can be `@Sendable`/nonisolated without
-        // requiring `SFSpeechAudioBufferRecognitionRequest: Sendable`; Apple documents `append(_:)`
-        // as safe to call off the main thread, and nothing else here touches actor-isolated state.
-        nonisolated(unsafe) let tapRequest = request
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in tapRequest.append(buffer) }
-        tapInstalled = true
-        recognitionTask = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
-            // Move only value types across the callback boundary, never the audio buffer or result object.
-            let transcript = result?.bestTranscription.formattedString
-            let isFinal = result?.isFinal ?? false
-            let message = error?.localizedDescription
-            Task { @MainActor [weak self] in
-                self?.receive(transcript: transcript, isFinal: isFinal, error: message, id: utteranceID)
+        return request
+    }
+
+    private func beginUtterance(continuingCapture: Bool = false) throws {
+        let next = continuingCapture ? (stagedRequest ?? makeRequest()) : nil
+        if continuingCapture { audioBridge.replace(with: next) }
+        cleanUpUtterance(keepCapture: continuingCapture)
+        stagedRequest = nil
+        guard wantsListening else { return }
+        let utteranceID = UUID()
+        generation = utteranceID
+        endingUtterance = false
+        finalDelivered = false
+        firstTranscriptAt = nil
+        endpointRequestedAt = nil
+        lastSegmentTimestamp = nil
+        lastTranscript = ""
+        if let captureOverride {
+            try captureOverride()
+        } else {
+            guard let recognizer, recognizer.isAvailable,
+                  recognizer.supportsOnDeviceRecognition else { throw VoiceError.localRecognitionUnavailable }
+            let request = next ?? makeRequest()
+            self.request = request
+            audioBridge.replace(with: request)
+            if !tapInstalled {
+                let input = engine.inputNode
+                let format = input.outputFormat(forBus: 0)
+                guard AVAudioSession.sharedInstance().isInputAvailable,
+                      format.sampleRate.isFinite, format.sampleRate > 0, format.channelCount > 0 else { throw VoiceError.noMicrophone }
+                let bridge = audioBridge
+                input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in bridge.append(buffer) }
+                tapInstalled = true
             }
+            recognitionTask = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
+                let transcript = result?.bestTranscription.formattedString
+                let segments = result?.bestTranscription.segments.map {
+                    VoiceRecognizedSegment(text: $0.substring, timestamp: $0.timestamp, duration: $0.duration)
+                } ?? []
+                let isFinal = result?.isFinal ?? false
+                let message = error?.localizedDescription
+                Task { @MainActor [weak self] in
+                    self?.receive(transcript: transcript, segments: segments, isFinal: isFinal, error: message, id: utteranceID)
+                }
+            }
+            if !engine.isRunning { engine.prepare(); try engine.start() }
         }
-        engine.prepare()
-        try engine.start()
+        lastCaptureStartedAt = ProcessInfo.processInfo.systemUptime
         isPreparing = false
+        isRecovering = false
         isListening = true
+        errorMessage = nil
         status = isDictating ? "Listening for your text…" : (isMuted ? "Muted — listening paused" : (pendingConfirmation == nil ? "Listening on this device" : "Confirm the command you meant"))
         if let start = captureRequestedAt {
             lastStartupMilliseconds = (ProcessInfo.processInfo.systemUptime - start) * 1_000
             captureRequestedAt = nil
         }
         refreshDiagnostics()
-        // Renew finite recognizer tasks before the platform's session limit. This is a speech
-        // lifecycle timer; the metronome is an independent sample-clock audio engine.
         renewalTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(45))
             guard !Task.isCancelled, let self, self.generation == utteranceID else { return }
-            if self.isDictating { self.finishUtterance() }
-            else if self.lastTranscript.isEmpty {
-                // Long stretches of playing contain no command. Renew an empty request directly
-                // instead of treating the recognizer's no-speech finalization as a fatal error.
-                do { try self.beginUtterance() }
-                catch { self.fail("Voice stopped: \(error.localizedDescription)") }
-            } else { self.finishUtterance() }
+            // Quiet piano practice is an expected state, not a permanent microphone failure.
+            self.recoveryAttempts = 0
+            self.finishUtterance()
         }
     }
 
@@ -432,13 +505,16 @@ final class SpeechCommandService {
         return 600
     }
 
-    private func receive(transcript: String?, isFinal: Bool, error: String?, id: UUID) {
+    func receive(transcript: String?, segments: [VoiceRecognizedSegment] = [], isFinal: Bool, error: String?, id: UUID) {
         guard wantsListening, generation == id, !finalDelivered else { return }
         if let transcript, !transcript.isEmpty {
             if firstTranscriptAt == nil { firstTranscriptAt = ProcessInfo.processInfo.systemUptime }
-            // Restart the silence deadline only when recognition actually changes its transcript.
-            if transcript != lastTranscript, !endingUtterance {
+            // Equal words at a new acoustic timestamp are a new utterance; duplicate partial
+            // callbacks for the same segment must not extend the deadline forever.
+            let segmentTimestamp = segments.last?.timestamp
+            if (transcript != lastTranscript || (segmentTimestamp != nil && segmentTimestamp != lastSegmentTimestamp)), !endingUtterance {
                 lastTranscript = transcript
+                lastSegmentTimestamp = segmentTimestamp
                 endpointTask?.cancel()
                 let settle = isDictating ? 1_600 : Self.settleMilliseconds(for: transcript, aliases: commandAliases)
                 endpointTask = Task { @MainActor [weak self] in
@@ -468,43 +544,57 @@ final class SpeechCommandService {
                 lastTiming = VoiceRecognitionTiming(firstTextToFinalMilliseconds: (finalAt - first) * 1_000,
                     endpointToFinalMilliseconds: endpointRequestedAt.map { (finalAt - $0) * 1_000 }, commandWasRecognized: recognized)
             }
-            processCommandTranscript(finalText)
+            recoveryAttempts = 0
+            processCommandTranscript(finalText, segments: segments)
             // The command may itself have turned off listening or dismissed the practice view.
             guard wantsListening, generation == id else { return }
-            do { try beginUtterance() }
-            catch { fail("Voice stopped: \(error.localizedDescription)") }
+            do { try beginUtterance(continuingCapture: true) }
+            catch { recover("Voice renewal failed: \(error.localizedDescription)") }
         } else if let error {
-            fail("Voice stopped: \(error). Touch controls are always available.")
+            recover("Recognition interrupted: \(error)")
         }
     }
 
-    private func finishUtterance() {
+    func finishUtterance() {
         guard wantsListening, !endingUtterance else { return }
         endingUtterance = true
         endpointRequestedAt = ProcessInfo.processInfo.systemUptime
         endpointTask?.cancel()
         renewalTask?.cancel()
-        engine.stop()
-        removeInputTap()
+        if isDictating {
+            audioBridge.replace(with: nil)
+            engine.stop()
+            removeInputTap()
+        } else {
+            // Append the next command's audio immediately, before starting its recognition task.
+            // Only one recognition task runs at a time. The timeout bounds this staging to 4s.
+            stagedRequest = makeRequest()
+            audioBridge.replace(with: stagedRequest, limitSeconds: 4)
+        }
         request?.endAudio()
-        status = isDictating ? "Finishing your text…" : "Finishing command…"
+        status = isDictating ? "Finishing your text…" : "Listening · finishing command…"
         let id = generation
         finalTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled, self?.generation == id else { return }
-            self?.fail("Local speech did not finish the command. Nothing was recorded. Turn voice on to try again.")
+            self?.recover("Local speech did not finish in time. The unfinished command was discarded.")
         }
     }
 
-    private func cleanUpUtterance() {
+    private func cleanUpUtterance(keepCapture: Bool = false) {
         endpointTask?.cancel()
         renewalTask?.cancel()
         finalTimeoutTask?.cancel()
         endpointTask = nil
         renewalTask = nil
         finalTimeoutTask = nil
-        engine.stop()
-        removeInputTap()
+        if !keepCapture {
+            audioBridge.replace(with: nil)
+            engine.stop()
+            removeInputTap()
+            stagedRequest?.endAudio()
+            stagedRequest = nil
+        }
         request?.endAudio()
         recognitionTask?.cancel()
         recognitionTask = nil
@@ -515,7 +605,70 @@ final class SpeechCommandService {
         if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
     }
 
-    private func failIfActive(_ message: String) { if wantsListening { fail(message) } }
+    func retryListening(ifOwnedBy owner: UUID?) {
+        guard wantsListening, ownerID == owner, !isDictating else { return }
+        recoveryAttempts = 0
+        recover("Retrying microphone input.")
+    }
+
+    /// Retain explicit opt-in and ownership through transient failures. Never replay unfinished text.
+    /// Four bounded backoff attempts avoid a hot retry loop if the hardware/recognizer stays broken.
+    func recover(_ message: String) {
+        guard wantsListening else { return }
+        if isDictating { fail(message + " Tap the microphone to dictate again."); return }
+        if captureOverride == nil {
+            guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
+                fail("Speech permission is off. Allow Speech Recognition in Settings, then enable voice."); return
+            }
+            guard AVAudioApplication.shared.recordPermission == .granted else {
+                fail("Microphone permission is off. Allow it in Settings, then enable voice."); return
+            }
+        }
+        if let started = lastCaptureStartedAt, ProcessInfo.processInfo.systemUptime - started >= 10 { recoveryAttempts = 0 }
+        lastCaptureStartedAt = nil
+        generation = UUID()
+        recoveryTask?.cancel()
+        cancelPendingCommand()
+        cleanUpUtterance()
+        isListening = false
+        isRecovering = true
+        isPreparing = true
+        errorMessage = nil
+        lastRecoveryMessage = message
+        if audioInterrupted {
+            status = "Waiting for iOS audio interruption to end…"
+            return
+        }
+        recoveryAttempts += 1
+        guard recoveryAttempts <= 4 else {
+            isRecovering = false
+            isPreparing = false
+            errorMessage = "Voice is paused after repeated audio failures. Tap the microphone to retry; your practice is preserved."
+            status = "Tap microphone to retry"
+            return
+        }
+        recoveryCount += 1
+        status = "Reconnecting microphone…"
+        let id = generation
+        let delay = recoveryDelay(recoveryAttempts)
+        recoveryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(delay))
+            guard !Task.isCancelled, let self, self.wantsListening, self.generation == id, !self.audioInterrupted else { return }
+            self.recoveryTask = nil
+            do {
+                if self.captureOverride == nil {
+                    self.engine = AVAudioEngine()
+                    self.recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+                    guard self.recognizer?.supportsOnDeviceRecognition == true else {
+                        self.fail("On-device English recognition is unavailable. Enable voice after local speech support is restored."); return
+                    }
+                    try AudioSessionCoordinator.shared.refresh(.speech)
+                }
+                try self.beginUtterance()
+            } catch { self.recover("Microphone retry failed: \(error.localizedDescription)") }
+        }
+    }
+
     private func fail(_ message: String) { stop(); errorMessage = message; status = "Voice unavailable" }
 
     private func observe(_ name: Notification.Name, action: @escaping @MainActor @Sendable (AudioNotificationContext) -> Void) {

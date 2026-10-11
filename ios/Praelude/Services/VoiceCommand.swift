@@ -24,12 +24,12 @@ enum VoiceCommand: Equatable, Hashable, Sendable {
         case "missed": return .missed
         case "start": return .start
         case "stop": return .stop
-        case "next": return .next
+        case "next set": return .next
         case "slower": return .slower
         case "faster": return .faster
         case "metronome start", "start metronome", "metronome on": return .metronomeStart
         case "metronome stop", "stop metronome", "metronome off": return .metronomeStop
-        case "next page": return .nextPage
+        case "next", "next page": return .nextPage
         case "previous page": return .previousPage
         default: break
         }
@@ -134,6 +134,7 @@ enum VoiceCommandAction: String, Codable, CaseIterable, Identifiable, Sendable {
         case .metronomeStart: "Metronome on"
         case .metronomeStop: "Metronome off"
         case .tempo: "Set tempo"
+        case .next: "Next set"
         case .nextPage: "Next page"
         case .previousPage: "Previous page"
         default: rawValue.capitalized
@@ -145,7 +146,8 @@ enum VoiceCommandAction: String, Codable, CaseIterable, Identifiable, Sendable {
         case .metronomeStart: ["metronome start", "start metronome", "metronome on"]
         case .metronomeStop: ["metronome stop", "stop metronome", "metronome off"]
         case .tempo: ["tempo", "set tempo", "metronome"]
-        case .nextPage: ["next page"]
+        case .next: ["next set"]
+        case .nextPage: ["next", "next page"]
         case .previousPage: ["previous page"]
         default: [rawValue]
         }
@@ -254,7 +256,7 @@ enum VoiceCommandRecognition: Equatable {
         let knownMishearings: [String: VoiceCommandAction] = [
             "cleen": .clean, "glean": .clean, "green": .clean, "queen": .clean,
             "a gain": .again, "and do": .undo, "paws": .pause, "shakey": .shaky,
-            "necks": .next, "mist": .missed, "miss": .missed
+            "necks": .nextPage, "mist": .missed, "miss": .missed
         ]
         var candidates = Set(vocabulary.filter { isNear(phrase, $0.0) }.map { $0.1 })
         if let known = knownMishearings[phrase], supportedActions.contains(known) { candidates.insert(known) }
@@ -288,5 +290,35 @@ enum VoiceCommandRecognition: Equatable {
         var index = 0
         while index < short.count, short[index] == long[index] { index += 1 }
         return Array(short[index...]) == Array(long[(index + 1)...])
+    }
+}
+
+
+/// Values copied from Apple speech segments; no audio or recognizer objects cross actor boundaries.
+struct VoiceRecognizedSegment: Equatable, Sendable {
+    let text: String
+    let timestamp: TimeInterval
+    let duration: TimeInterval
+}
+
+enum VoiceFinalUtterances {
+    /// A recognizer may combine repeated verdicts into one final result. Split only identical,
+    /// exact one-word verdicts with distinct, ordered acoustic segments and >=300 ms gaps.
+    /// No word-count guessing: repeated/corrected partial text without timing remains one phrase.
+    static func phrases(_ transcript: String, segments: [VoiceRecognizedSegment],
+                        aliases: VoiceAliasConfiguration, supportedActions: Set<VoiceCommandAction>) -> [String] {
+        let phrase = VoiceCommand.normalizedPhrase(transcript)
+        guard (2...8).contains(segments.count) else { return [phrase] }
+        let words = segments.map { VoiceCommand.normalizedPhrase($0.text) }
+        guard words.allSatisfy({ $0 == words[0] && $0.split(separator: " ").count == 1 }),
+              words.joined(separator: " ") == phrase,
+              case .command(let command) = VoiceCommandRecognition.recognize(words[0], aliases: aliases, supportedActions: supportedActions),
+              [.clean, .sloppy, .again].contains(command),
+              segments.allSatisfy({ $0.timestamp.isFinite && $0.timestamp >= 0 && $0.duration.isFinite && $0.duration > 0 }) else { return [phrase] }
+        for index in 1..<segments.count {
+            let previousEnd = segments[index - 1].timestamp + segments[index - 1].duration
+            guard segments[index].timestamp - previousEnd >= 0.3 else { return [phrase] }
+        }
+        return words
     }
 }
