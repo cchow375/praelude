@@ -1,5 +1,9 @@
 # Praelude — How To Use
 
+## October 12 — personal update waiting for device readiness
+
+**Matches: installed personal native2.0.0/build15/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** Build16 source is prepared; installation failed and read-only status still confirms Build15. A retry timed out during backup, before installation. Unlock the personal iPad, open Praelude, pause any running set and leave it idle; confirm readiness before another guarded attempt. Keep the existing app installed. Command-first controls remain the Build16 candidate until delivery.
+
 ## October12 camera repair candidate
 
 **Matches: installed personal native2.0.0/build15/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** Build15 camera preview and recognition are reported unreliable. Build16 repairs and command-first controls are prepared for guarded personal delivery, with physical acceptance pending. Installed instructions below remain Build15 until delivery; candidate actions and exact limits are in `docs/qa/ios/2.0.0/build16/candidate-guide.md`.

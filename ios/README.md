@@ -1,5 +1,13 @@
 # Praelude Mobile
 
+## October 12 — Build16 delivery stopped safely; personal iPad still Build15
+
+**Last updated:2026-10-12. Source/candidate: native2.0.0/build16/schema5 at b61eb6e / ios-v2.0.0-build16-candidate. Installed personal iPad remains Build15; friend remains held at Build12; Macv11.1.0/schema21 unchanged.** The guarded update verifies a complete private backup of13 files/19,919,467bytes at schema5/revision3477, then builds/signs Release. The install command fails; read-only version check confirms Build15 remains. A guarded retry stops during backup copy with CoreDevice7000/POSIX60 timeout, before any second install. Its incomplete copy is retained and is not a verified backup. Explicit unlocked/open/idle readiness was requested before another retry; no uninstall/reset/restore/app termination occurred.
+
+Independent audit of the actual helper-signed Build16 passes50/50 checks and all279 source hashes. Its executable is a193d72dba9af0167379a7e0908e32744fac4ae7dcdb9085ea61780f68a3f691; exact personal-target/profile inclusion, deep strict signature, signer trust/entitlements, matching arm64 dSYM, resources and71-marker absence pass. Profile expires2026-10-17T16:14:24Z. Complete archive inventory readback is exact. These checks establish package validity, not successful installation or physical camera acceptance. Candidate/source and all retained test failures remain as recorded below. QA: docs/qa/ios/2.0.0/build16/personal-ipad-install.json.
+
+**Next steps:** wait for explicit personal-device unlocked/open/idle readiness, retry the guarded helper, verify full post-install preservation and launch, then check actual preview toggles and expression recognition. Keep the other iPad held. B169/B170 remain open for physical acceptance.
+
 ## October 12 — Build16 camera repair prepared for personal-device check
 
 **Last updated:2026-10-12. Source: native2.0.0/build16/schema5. Personal iPad remains installed/opened at Build15; friend remains held at Build12. Macv11.1.0/schema21 unchanged.** Christian reports crashes/freezes specifically when toggling **Show camera preview**, a visible face rejected as unclear, no gesture actions, and requests command-first customization. B169/B170 remain open for physical acceptance.

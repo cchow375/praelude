@@ -1,5 +1,9 @@
 # NOTES
 
+## October 12 — Build16 guarded delivery failure
+
+A valid helper artifact does not establish device installation: first install fails after a verified13-file backup; status still reports Build15. Retry then times out copying backup (CoreDevice7000/POSIX60), before installation. Preserve the incomplete copy and wait for explicit unlocked/open/idle readiness; do not infer a locked device or retry without readiness. Actual helper artifact passes50/50 independent checks. See docs/qa/ios/2.0.0/build16/personal-ipad-install.json.
+
 ## October 12 — camera preview and recognition contracts (Build16)
 
 - `VNFaceObservation.pitch` is populated by rectangle detection; landmark-only requests can omit it. Run rectangle revision3, then pass inputFaceObservations into landmarks and retain rectangle pose. Missing pose/lip/eye metrics are per-expression availability, never proof no face exists.

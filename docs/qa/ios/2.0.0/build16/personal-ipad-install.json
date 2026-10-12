@@ -1,0 +1,120 @@
+{
+  "verifiedUTC": "2026-10-12T17:51:20.540062+00:00",
+  "sourceCommit": "b61eb6ec14c9477911fd3bf75f7288965b944ec3",
+  "sourceCheckpoint": "ios-v2.0.0-build16-candidate",
+  "userAuthorization": "Personal-device Build15 request followed by ongoing camera repair request; other iPad remains held.",
+  "installedBuildReadback": "15",
+  "deliveryState": "blocked pending unlocked/open/idle user readiness after backup-copy timeout",
+  "attempts": [
+    {
+      "preBackup": "releases/ios-device-backups/20261012T174405Z-3491dc3c",
+      "preBackupIndependentRehash": true,
+      "fileCount": 13,
+      "bytes": 19919467,
+      "schema": 5,
+      "revision": 3477,
+      "install": "failed; exact error not retained by ordinary helper",
+      "postFailureVersionReadback": "2.0.0/build15",
+      "launch": "not attempted"
+    },
+    {
+      "incompleteBackup": "releases/ios-device-backups/20261012T174922Z-d21639ef",
+      "backup": "copy timeout; no manifest; not verified",
+      "errorDomainsAndCodes": [
+        "com.apple.dt.CoreDeviceError 7000",
+        "NSPOSIXErrorDomain 60"
+      ],
+      "install": "not attempted",
+      "launch": "not attempted"
+    }
+  ],
+  "actualHelperArtifactAudit": {
+    "result": "passed",
+    "checkCount": 50,
+    "passed": 50,
+    "failedChecks": [],
+    "checks": {
+      "exactly_one_named_device": true,
+      "device_udid_available": true,
+      "same_bundle": true,
+      "expected_version": true,
+      "expected_build": true,
+      "device_platform": true,
+      "no_test_fixtures": true,
+      "no_debug_diagnostic_strings": true,
+      "no_debug_injection_dylib": true,
+      "macho_architecture_read": true,
+      "arm64_device_executable": true,
+      "strict_signature_valid": true,
+      "profile_cms_decoded": true,
+      "profile_team_bundle_expiry": true,
+      "profile_includes_current_device": true,
+      "entitlements_read": true,
+      "signed_app_identifier": true,
+      "signed_team_identifier": true,
+      "signed_development_permission": true,
+      "all_signed_entitlements_permitted": true,
+      "signer_certificates_extracted": true,
+      "signer_certificate_present": true,
+      "signer_is_profile_member": true,
+      "usable_signing_identities_read": true,
+      "signer_has_valid_local_private_key_identity": true,
+      "signer_codesign_trust": true,
+      "app_uuid_read": true,
+      "dsym_uuid_read": true,
+      "app_dsym_uuid_matches": true,
+      "no_resource_symlinks": true,
+      "bundle_only_expected_code_signing_art_fonts_privacy": true,
+      "bundled_fonts_match_repository": true,
+      "all_279_current_source_hashes_match": true,
+      "provenance_version_build_schema": true,
+      "helper_executable_newer_than_prebackup": true,
+      "candidate_tag_resolves_current_source_commit": true,
+      "all_71_debug_test_seed_markers_absent": true,
+      "no_test_plugin_directory": true,
+      "no_dynamic_library_payload": true,
+      "exact_13_file_bundle_inventory": true,
+      "exact_3_file_dsym_inventory": true,
+      "two_bundled_fonts": true,
+      "source_privacy_manifest_exact": true,
+      "pinned_crypto_privacy_exact": true,
+      "crypto_resource_bundle_no_code": true,
+      "crypto_resource_only_info_and_privacy": true,
+      "no_simulator_platform": true,
+      "no_debug_in_info": true,
+      "no_nested_app_or_extension": true,
+      "no_unsanctioned_executables": true
+    },
+    "executableSHA256": "a193d72dba9af0167379a7e0908e32744fac4ae7dcdb9085ea61780f68a3f691",
+    "sourceFilesMatched": 279,
+    "sourceProvenanceSHA256": "ecf19004dd0b3f6260d06e4182c73ca1b61f36e609e7d4cf1024fb09dbefdbaa",
+    "sourceCommit": "b61eb6ec14c9477911fd3bf75f7288965b944ec3",
+    "profileExpiresUTC": "2026-10-17T16:14:24+00:00",
+    "excludedDiagnosticMarkerCount": 71,
+    "presentExcludedMarkers": [],
+    "recordedUTC": "2026-10-12T17:49:19.378062+00:00",
+    "boundary": "Read-only actual helper-signed Release package and saved prior personal-target evidence. Install failed per root; no successful install, postbackup, launch or physical acceptance implied. No device actions."
+  },
+  "actualHelperArtifactArchive": {
+    "archivePath": "releases/ios-build16-camera-helper-attempt1-20261012",
+    "manifestSHA256": "4078f66ae323158ac0b93f0d924d23eba6c75a207a9f2870b824266e55f793ab",
+    "archives": {
+      "Praelude-build16.app.zip": {
+        "bytes": 8719549,
+        "sha256": "dc5d53e79f736a2e93f01bd1733aa2da2baf1898b054aa2e20058132fd3b4e79",
+        "fullInventoryReadbackExact": true
+      },
+      "Praelude-build16.dSYM.zip": {
+        "bytes": 15114122,
+        "sha256": "9f2f6c88ad37fb46f28624622661b736cf9a22ff15119908fec1e449ee589860",
+        "fullInventoryReadbackExact": true
+      }
+    },
+    "executableSHA256": "a193d72dba9af0167379a7e0908e32744fac4ae7dcdb9085ea61780f68a3f691"
+  },
+  "postInstallPreservation": "not yet verified; Build16 installation failed",
+  "physicalFeatureAcceptance": "pending real camera preview/calibration/recognition feedback",
+  "otherIpad": "not selected or operated; held at last verified build12",
+  "mac": "v11.1.0/schema21 unchanged",
+  "destructiveActions": []
+}
