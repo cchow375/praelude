@@ -1,5 +1,21 @@
 # Praelude — How To Use
 
+## October 12 — installed Build16 camera controls
+
+**Matches: installed personal native2.0.0/build16/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** The personal update is installed, user-opened and observed running, with all13 saved files exact before/after/after opening. Camera fixes and command-first customization below are installed; actual camera preview and recognition acceptance remain pending. The earlier Build15/candidate sections below are historical.
+
+1. Open a score, choose **Score options → Camera gestures**, then **Enable camera**. The live preview opens. Sit as you will at the piano, relax your face and keep the iPad in its normal position. A stable recent face calibrates automatically; use **Recalibrate neutral face** after moving the iPad.
+2. Under **Choose an expression for each command**, pick an expression or **Unassigned** for **Next page**, **Previous page**, **Clean**, **Sloppy** and **Again**. Each expression controls one command; moving it makes its previous command Unassigned and explains the change.
+3. Available expressions are **Nod**, **Shake head**, **Grin**, **Open mouth** and **Close both eyes**. Nod up or down and return; shake to one side then the other and center. Hold a smile/open mouth briefly, then relax. Deliberate eye closure needs at least0.6seconds; ordinary blinks and a single closed eye are ignored.
+4. **Sensitivity** offers Easy, Standard and Deliberate. **Expression hold** defaults to0.4seconds (0.2–1.2); **Time between commands** defaults to1.25seconds (0.5–3). Easy accepts smaller movements; the gesture must still finish and return to relaxed before a command can fire.
+5. Test expressions in this panel: recognized input appears beside the preview, while score commands remain paused. **Available** names the gestures supported by current measurements. Missing pose or an individual landmark does not disable unrelated expressions; newly steady measurements can be recovered automatically without moving existing neutral.
+6. **Show live preview** shows/hides the video without restarting capture; **Show face landmarks** controls the overlay. Use **Turn camera off** to stop capture. Startup/shutdown stays asynchronous; the button waits for shutdown before another camera can start.
+7. Choose **Done** to use page commands on the score in Reading mode. Rep commands additionally need **Allow gestures to record reps**, a running set, score focus off and the first-attempt grade already chosen. The user supplies every verdict. Blocked contexts are explained rather than falsely reporting a recorded rep.
+
+Frames stay on-device and are discarded; no video recording, face identity or cloud upload is added. Camera mappings remain device-local and do not alter practice schema/history or create continuous desktop sync.
+
+**Next steps:** test preview hide/show and relaxed-face calibration/expression feedback in the settings panel, where score actions are paused. Report a freeze/crash or the exact persistent tracking message. Keep the friend iPad held.
+
 ## October 12 — personal update waiting for device readiness
 
 **Matches: installed personal native2.0.0/build15/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** Build16 source is prepared; installation failed and read-only status still confirms Build15. A retry timed out during backup, before installation. Unlock the personal iPad, open Praelude, pause any running set and leave it idle; confirm readiness before another guarded attempt. Keep the existing app installed. Command-first controls remain the Build16 candidate until delivery.

@@ -1,6 +1,6 @@
 # Build16 — camera controls and physical acceptance
 
-This describes the native2.0.0/build16/schema5 candidate. Read `personal-ipad-install.json` when present for actual delivery; simulator checks alone do not establish a working physical camera.
+This describes native2.0.0/build16/schema5, now installed and user-opened on the personal iPad with exact complete-file preservation. See `personal-ipad-install.json` for delivery; simulator checks alone do not establish a working physical camera.
 
 1. Open a score, choose **Score options → Camera gestures**, then **Enable camera**. The live preview opens. Sit as you will at the piano, relax your face and keep the iPad in its normal position. A stable recent face calibrates automatically; use **Recalibrate neutral face** after moving the iPad.
 2. Under **Choose an expression for each command**, pick an expression or **Unassigned** for **Next page**, **Previous page**, **Clean**, **Sloppy** and **Again**. Each expression controls one command; moving it makes its previous command Unassigned and explains the change.

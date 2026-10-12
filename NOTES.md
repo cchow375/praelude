@@ -1,5 +1,9 @@
 # NOTES
 
+## October 12 — Build16 delivered after explicit device readiness
+
+The next guarded refresh succeeds after Christian confirms unlocked/open/idle readiness. Exact full13-file/19,919,467byte preservation passes before/after/after user launch, schema5/revision3477 unchanged, no active set. Automatic launch denial again occurs after successful install; real user open plus running-process readback and full postlaunch backup establish launch separately. The actual installed helper executable af3d3e49c4719e676509a0a9f0aaa73ef6b2b2d369ba65128580280cc1f36f5e differs from the prior failed-attempt a193 artifact; both retain their scoped records. Full readback archived under releases/ios-build16-camera-helper-installed-20261012. No migration/reset/restore/termination occurs. B169/B170 need actual camera feedback. See docs/qa/ios/2.0.0/build16/personal-ipad-install.json.
+
 ## October 12 — Build16 guarded delivery failure
 
 A valid helper artifact does not establish device installation: first install fails after a verified13-file backup; status still reports Build15. Retry then times out copying backup (CoreDevice7000/POSIX60), before installation. Preserve the incomplete copy and wait for explicit unlocked/open/idle readiness; do not infer a locked device or retry without readiness. Actual helper artifact passes50/50 independent checks. See docs/qa/ios/2.0.0/build16/personal-ipad-install.json.

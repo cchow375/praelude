@@ -1,5 +1,13 @@
 # Praelude — Roadmap
 
+## October 12 — Build16 installed and opened on the personal iPad
+
+**Last updated:2026-10-12. Installed personal: native2.0.0/build16/schema5, user-opened and observed running. Friend remains held at Build12; Macv11.1.0/schema21 unchanged.** After Christian explicitly confirms unlocked/open/idle readiness, guarded same-bundle refresh succeeds. Complete pre/post/post-launch backups independently rehash all13 files/19,919,467bytes identically by filename, size and SHA-256. The entire schema5/revision3477 library remains exact:6pieces/77passages/75historical sets/47sessions/549ink/20stamps/6notes, no active set. No migration, uninstall/reset/restore/app termination or Mac import occurs.
+
+Automatic opening is declined after successful installation/preservation. Christian opens the app; read-only process inspection confirms running Build16. The actual helper Release executable is af3d3e49c4719e676509a0a9f0aaa73ef6b2b2d369ba65128580280cc1f36f5e, distinct from the retained first-attempt artifact. Fresh-context audit passes50/50 checks, including strict signature, signer trust/profile/entitlements, exact target, matching arm64 dSYM and71-marker absence. Its complete zipped app/dSYM inventory readback is exact; profile expires2026-10-17T16:14:24Z. Candidate source checkpoint is b61eb6e / ios-v2.0.0-build16-candidate, with all279 source hashes unchanged. Failed install/copy attempts remain recorded; this successful attempt supersedes their delivery blocker. Evidence: docs/qa/ios/2.0.0/build16/personal-ipad-install.json.
+
+**Next steps:** obtain actual Show live preview hide/show and automatic neutral/expression recognition feedback at piano distance. B169/B170 remain open for physical acceptance; simulator/native/package success does not prove camera accuracy or sustained crash-free practice. Keep the other iPad held. Installed controls and limits: docs/qa/ios/2.0.0/build16/candidate-guide.md.
+
 ## October 12 — Build16 delivery stopped safely; personal iPad still Build15
 
 **Last updated:2026-10-12. Source/candidate: native2.0.0/build16/schema5 at b61eb6e / ios-v2.0.0-build16-candidate. Installed personal iPad remains Build15; friend remains held at Build12; Macv11.1.0/schema21 unchanged.** The guarded update verifies a complete private backup of13 files/19,919,467bytes at schema5/revision3477, then builds/signs Release. The install command fails; read-only version check confirms Build15 remains. A guarded retry stops during backup copy with CoreDevice7000/POSIX60 timeout, before any second install. Its incomplete copy is retained and is not a verified backup. Explicit unlocked/open/idle readiness was requested before another retry; no uninstall/reset/restore/app termination occurred.
