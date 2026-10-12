@@ -1,5 +1,19 @@
 # Praelude — How To Use
 
+## October 12 — installed Build15 on the personal iPad
+
+**Matches: personal native2.0.0/build15/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** The personal update preserves every saved file exactly. Automatic opening was declined; unlock and open Praelude normally. If an untrusted-developer message appears, follow Settings → General → VPN & Device Management → Developer App for your own developer. User opening/readback is pending; the friend iPad remains held.
+
+Build15 includes the following installed personal-iPad controls and repairs:
+
+- Tap the passage pencil, or double-tap its name/selected saved box, to edit its name and performance goal. Ordinary editing does not start dictation; use Dictate explicitly or the saved-box triple tap. Save/Cancel returns score voice input to its previous enabled/muted state.
+- Use Pen and Undo/Redo for markings; a new drawing after Undo starts a new history branch. Manual zoom is retained when the practice controls change only the score's available height. Pencil and sustained physical behavior still need real use.
+- Bare **Next** turns the score page; **Next set** starts the next eligible set. First-attempt Metronome starts at the armed practice tempo. After the first recorded attempt, supported voice Undo is available. The user supplies every verdict.
+- The microphone attention indicator opens Hands-free details; recovery controls appear above command examples. Voice Check returns input ownership on Back/Done, and Mute retains capture while suppressing verdict dispatch. Recognition over piano remains unaccepted.
+- **End practice** is first in the current-practice menu and still requires confirmation. Optional camera gestures offer local nod/shake/grin mappings to pages, verdicts or Off, with separate rep-input opt-in. Real camera accuracy, audible click and long-session behavior remain unaccepted.
+
+**Next steps:** open the updated app and verify readback; then use the score normally. Report a concrete failure if one appears. Earlier candidate/hold instructions below are retained history and do not override this personal-iPad installation.
+
 ## October 11 — build15 follow-up; explicit no-install hold
 
 **Matches: installed native2.0.0/build12/schema5 on both iPads; Macv11.1.0/schema21. Last updated:2026-10-12.**

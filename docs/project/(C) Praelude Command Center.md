@@ -1,5 +1,15 @@
 # Praelude — Command Center
 
+## October 12 — Build15 installed on the personal iPad
+
+**Last updated: 2026-10-12. Personal iPad: native2.0.0/build15/schema5 installed; launch/readback awaiting user opening. Friend iPad: last verified build12/schema5, still held. Mac v11.1.0/schema21 unchanged.** Christian explicitly requested last night's verified Build15 on the plugged-in personal iPad, lifting the earlier no-install hold for this target only.
+
+Guarded same-bundle refresh from source `68d667f` / `ios-v2.0.0-build15-device-validation` passes exact target readiness, signing/profile inclusion, installation and complete-file preservation. All241 source hashes match the verified checkpoint. Private backups `20261012T162528Z-6f0225cd` and `20261012T162604Z-92f7b475` retain all13 files/19,420,130bytes exactly by filename/size/SHA-256. Ledger remains schema5/revision3423, with6 pieces/77 passages/73 historical sets/46 sessions/534 ink records/20 stamps/5 notes and a completed active-slot set. No running set was interrupted and no uninstall/reset/restore/termination occurred.
+
+The helper rebuilt Release for this device; actual executable SHA-256 is `e176ae5ad22e32766d665127791b9984f12d02e54134ce26de228af1560f88ea`, distinct from the earlier generic package. Independent full-file/record, strict signature, signer trust, entitlement/profile, exact target,65-marker absence, resources and matching arm64 dSYM checks pass; profile expires2026-10-17T16:14:24Z. iOS declined automatic launch after successful install/preservation; the first read-only process check finds no running Praelude. User opening and post-launch schema/library verification remain pending. No Mac import or physical Pencil/speech/camera/click/sustained-practice acceptance is claimed. Evidence: `docs/qa/ios/2.0.0/build15/personal-ipad-install.json`.
+
+**Next steps:** open Praelude on the personal iPad, then finish read-only launch/schema/library verification. Keep the other iPad held. Earlier preparation/hold and failed verification records below are historical; their evidence and physical-acceptance limits remain intact.
+
 ## October 11 — build15 follow-up; explicit no-install hold
 
 **Current source: native2.0.0/build15/schema5; Build15 prepared for controlled device validation; installation HELD. Both iPads remain last verified installed at build12/schema5; Macv11.1.0/schema21 is unchanged. Last updated:2026-10-12.** All authorized affected UI, independent live and package gates pass, with zero current scoped simulator failures. Physical acceptance is separate. Neither iPad was queried, installed or operated; the explicit user no-install hold remains binding. Final18’s failed record is retained below.
