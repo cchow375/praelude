@@ -65,9 +65,26 @@
     "provisioningExpiryUTC": "2026-10-17T16:14:24+00:00"
   },
   "automaticLaunch": "denied; install and preservation already passed",
-  "userOpened": false,
-  "processReadback": "not observed running; user opening still pending",
-  "postLaunchReadback": "pending user open",
+  "userOpened": true,
+  "processReadback": "running",
+  "postLaunchReadback": {
+    "schema": 5,
+    "revision": 3423,
+    "activeSetStatus": "completed",
+    "backup": "releases/ios-device-backups/20261012T163008Z-91208583",
+    "runningProcessObserved": true,
+    "fileCount": 13,
+    "totalBytes": 19420130,
+    "allFilesByteEqual": true,
+    "changedFiles": [],
+    "entireLibraryJSONEqual": true,
+    "libraryChangedTopLevelKeys": [],
+    "postLaunchInventoryRehashMatchesManifest": true,
+    "freshContextIndependentRehashPassed": true,
+    "changedFileCount": 0,
+    "addedOrRemovedFiles": [],
+    "schemaMigration": "none; schema5/revision3423 unchanged"
+  },
   "schemaMigration": "none expected: schema5 to schema5; exact pre-launch ledger retained",
   "macImport": "not performed",
   "physicalFeatureAcceptance": "not performed; installation does not establish acceptance",
@@ -91,6 +108,8 @@
     "allSignedEntitlementsPermittedByProfile": true,
     "privacyManifestsMatchSources": true
   },
-  "lastProcessCheckUTC": "2026-10-12T16:29:10.379001+00:00",
-  "runningProcessObserved": false
+  "lastProcessCheckUTC": "2026-10-12T16:30:08.368762+00:00",
+  "runningProcessObserved": true,
+  "userOpenConfirmation": "Praelude is open",
+  "postLaunchBackup": "releases/ios-device-backups/20261012T163008Z-91208583"
 }
