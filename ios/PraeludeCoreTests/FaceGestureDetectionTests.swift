@@ -4,10 +4,11 @@ import XCTest
 final class FaceGestureDetectionTests: XCTestCase {
     private func sample(_ t: Double, pitch: Double = 0, yaw: Double = 0, smile: Double = 0.8,
                         light: Double = 0.5, faces: Int = 1, confidence: Double = 0.99, area: Double = 0.1,
-                        mouth: Double? = 0.02, leftEye: Double? = 0.3, rightEye: Double? = 0.3) -> FaceGestureSample {
+                        mouth: Double? = 0.02, leftEye: Double? = 0.3, rightEye: Double? = 0.3,
+                        lift: Double? = nil, strength: Double? = nil) -> FaceGestureSample {
         .init(time: t, pitch: pitch, yaw: yaw, smileWidth: smile, luminance: light,
               confidence: confidence, faceCount: faces, faceArea: area,
-              mouthOpen: mouth, leftEyeOpen: leftEye, rightEyeOpen: rightEye)
+              mouthOpen: mouth, leftEyeOpen: leftEye, rightEyeOpen: rightEye, smileLift: lift, smileStrength: strength)
     }
     private func ready(settings: FaceGestureSettings = .init(), calibration: [FaceGestureSample]? = nil) -> FaceGestureDetector {
         var detector = FaceGestureDetector()
@@ -233,14 +234,12 @@ final class FaceGestureDetectionTests: XCTestCase {
         d.resetMotion(); XCTAssertNil(d.consume(sample(1.9)))
         d = ready(); XCTAssertNil(d.consume(sample(1.8, pitch: 0.25)))
         XCTAssertNil(d.consume(sample(1.9, yaw: 0.3))); XCTAssertNil(d.consume(sample(2)))
-        d = ready(); XCTAssertNil(d.consume(sample(1.8, pitch: 0.25)))
-        XCTAssertNil(d.consume(sample(1.95, pitch: 0.25, smile: 1.0))); XCTAssertNil(d.consume(sample(2.1)))
     }
-    func testRequiredMetricLossAfterHoldingCannotDispatchOnReappearance() {
+    func testProlongedRequiredMetricLossAfterHoldingCannotDispatchOnReappearance() {
         var d = ready(settings: only(.mouthOpen))
         for n in 18...24 { XCTAssertNil(d.consume(sample(Double(n)/10, mouth: 0.25))) }
-        XCTAssertNil(d.consume(sample(2.5, mouth: nil)))
-        XCTAssertNil(d.consume(sample(2.6)))
+        for t in [2.5, 2.7, 2.9] { XCTAssertNil(d.consume(sample(t, mouth: nil))) }
+        XCTAssertNil(d.consume(sample(3.0)))
     }
     func testFailedRecalibrationRevokesOldBaselineAndCannotDispatch() {
         var d = ready()
@@ -258,8 +257,8 @@ final class FaceGestureDetectionTests: XCTestCase {
             var settings = FaceGestureSettings()
             settings.sensitivity = sensitivity
             var d = ready(settings: settings)
-            XCTAssertNil(d.consume(sample(1.8, pitch: 0.14)))
-            XCTAssertNil(d.consume(sample(1.95, pitch: 0.14)))
+            XCTAssertNil(d.consume(sample(1.8, pitch: 0.11)))
+            XCTAssertNil(d.consume(sample(1.95, pitch: 0.11)))
             XCTAssertEqual(d.consume(sample(2.1)), sensitivity == .easy ? .nod : nil)
         }
     }
@@ -365,5 +364,145 @@ final class FaceGestureDetectionTests: XCTestCase {
         XCTAssertEqual(settings.action(for: .nod), .clean)
         XCTAssertEqual(settings.action(for: .mouthOpen), .off)
         XCTAssertEqual(settings.action(for: .eyesClosed), .off)
+    }
+    func testNaturalNodUsesApproachPeakAndSoftReturnDespiteAnOrdinarySmile() {
+        var d = ready()
+        let trace: [(Double, Double, Double, Double)] = [
+            (1.8, 0.07, 0.02, 0.84), (1.95, 0.13, 0.04, 0.89),
+            (2.1, 0.15, 0.06, 0.91), (2.25, 0.09, 0.05, 0.93), (2.4, 0.05, 0.03, 0.92)
+        ]
+        let gestures = trace.compactMap { d.consume(sample($0.0, pitch: $0.1, yaw: $0.2, smile: $0.3)) }
+        XCTAssertEqual(gestures, [.nod])
+    }
+    func testSparseFiveHzNodDoesNotNeedTwoHighPeakFrames() {
+        var d = ready()
+        XCTAssertNil(d.consume(sample(1.9, pitch: 0.075)))
+        XCTAssertNil(d.consume(sample(2.1, pitch: 0.135)))
+        XCTAssertNil(d.consume(sample(2.3, pitch: 0.09)))
+        XCTAssertEqual(d.consume(sample(2.5, pitch: 0.045)), .nod)
+    }
+    func testAsymmetricShakeSurvivesCenterCrossingAndRequiresObservedReturn() {
+        var d = ready()
+        XCTAssertNil(d.consume(sample(1.8, yaw: 0.09)))
+        XCTAssertNil(d.consume(sample(1.95, yaw: 0.18)))
+        XCTAssertNil(d.consume(sample(2.1, yaw: 0.025)))
+        XCTAssertNil(d.consume(sample(2.25, yaw: -0.10)))
+        XCTAssertEqual(d.consume(sample(2.4, yaw: -0.03)), .shake)
+    }
+    func testBriefPitchDropoutRetainsTrajectoryButLongLossRevokesIt() {
+        var d = ready(settings: only(.nod))
+        XCTAssertNil(d.consume(sample(1.8, pitch: 0.08)))
+        XCTAssertNil(d.consume(sample(1.95, pitch: 0.16)))
+        XCTAssertNil(d.consume(sample(2.05, pitch: .nan)))
+        XCTAssertEqual(d.consume(sample(2.15, pitch: 0.06)), .nod)
+        d = ready(settings: only(.nod))
+        XCTAssertNil(d.consume(sample(1.8, pitch: 0.08)))
+        XCTAssertNil(d.consume(sample(1.95, pitch: 0.16)))
+        for t in [2.05, 2.2, 2.4] { XCTAssertNil(d.consume(sample(t, pitch: .nan))) }
+        XCTAssertNil(d.consume(sample(2.5)))
+    }
+    func testBilateralSmileStrengthRecognizesNaturalNoisySmileWithoutVisionLipWidth() {
+        var d = FaceGestureDetector()
+        d.configure(settings: only(.grin))
+        XCTAssertTrue(d.calibrate((0...10).map {
+            sample(Double($0)/10, smile: .nan, strength: 0.02 + ($0.isMultiple(of: 2) ? 0.004 : -0.004))
+        }))
+        XCTAssertTrue(d.availableGestures.contains(.grin))
+        for n in 11...17 { XCTAssertNil(d.consume(sample(Double(n)/10, smile: .nan, strength: 0.02))) }
+        for n in 18...25 {
+            XCTAssertNil(d.consume(sample(Double(n)/10, smile: .nan,
+                                          strength: n.isMultiple(of: 2) ? 0.155 : 0.18)))
+        }
+        XCTAssertEqual(d.consume(sample(2.6, smile: .nan, strength: 0.025)), .grin)
+    }
+    func testVisionCornerLiftRecognizesNaturalSmileWithoutLargeLipWidening() {
+        var d = FaceGestureDetector()
+        d.configure(settings: only(.grin))
+        XCTAssertTrue(d.calibrate((0...10).map { sample(Double($0)/10, lift: 0) }))
+        for n in 11...17 { XCTAssertNil(d.consume(sample(Double(n)/10, lift: 0))) }
+        for n in 18...25 {
+            XCTAssertNil(d.consume(sample(Double(n)/10, smile: 0.825,
+                                          lift: n.isMultiple(of: 2) ? 0.027 : 0.034)))
+        }
+        XCTAssertEqual(d.consume(sample(2.6, smile: 0.805, lift: 0.003)), .grin)
+    }
+    func testBilateralSmileNoiseAndSeparatedShortSmilesNeverAccumulateIntoCommand() {
+        var d = FaceGestureDetector()
+        d.configure(settings: only(.grin))
+        XCTAssertTrue(d.calibrate((0...10).map { sample(Double($0)/10, smile: .nan, strength: 0.02) }))
+        for n in 11...70 {
+            let strength = n % 12 < 2 ? 0.2 : 0.02 + 0.015 * sin(Double(n))
+            XCTAssertNil(d.consume(sample(Double(n)/10, smile: .nan, strength: strength)))
+        }
+    }
+    func testBilateralSmileCooldownRequiresRelaxationAndNeverRepeatsWhileHeld() {
+        var d = FaceGestureDetector()
+        d.configure(settings: only(.grin))
+        XCTAssertTrue(d.calibrate((0...10).map { sample(Double($0)/10, smile: .nan, strength: 0.02) }))
+        for n in 11...17 { XCTAssertNil(d.consume(sample(Double(n)/10, smile: .nan, strength: 0.02))) }
+        for n in 18...24 { XCTAssertNil(d.consume(sample(Double(n)/10, smile: .nan, strength: 0.2))) }
+        XCTAssertEqual(d.consume(sample(2.5, smile: .nan, strength: 0.02)), .grin)
+        for n in 26...50 { XCTAssertNil(d.consume(sample(Double(n)/10, smile: .nan, strength: 0.2))) }
+        for n in 51...56 { XCTAssertNil(d.consume(sample(Double(n)/10, smile: .nan, strength: 0.02))) }
+        for n in 57...63 { XCTAssertNil(d.consume(sample(Double(n)/10, smile: .nan, strength: 0.19))) }
+        XCTAssertEqual(d.consume(sample(6.4, smile: .nan, strength: 0.02)), .grin)
+    }
+    func testCompleteNodWithSimultaneousNaturalSmileReleaseDispatchesOnlyNod() {
+        var d = ready()
+        let trace: [(Double, Double, Double)] = [
+            (1.8, 0.07, 0.88), (1.95, 0.14, 0.9), (2.1, 0.16, 0.9),
+            (2.25, 0.10, 0.9), (2.4, 0.0, 0.8)
+        ]
+        XCTAssertEqual(trace.compactMap { d.consume(sample($0.0, pitch: $0.1, smile: $0.2)) }, [.nod])
+    }
+    func testOrdinaryPianoSwayLandmarkNoiseAndBlinksDoNotDispatch() {
+        var settings = FaceGestureSettings()
+        settings.assign(.eyesClosed, to: .again)
+        settings.assign(.mouthOpen, to: .previousPage)
+        var d = ready(settings: settings)
+        for n in 18...120 {
+            let angle = Double(n) * 0.8
+            let blinking = n % 13 < 2
+            XCTAssertNil(d.consume(sample(Double(n)/10, pitch: 0.035 * sin(angle), yaw: 0.04 * cos(angle),
+                                          smile: 0.8 + 0.012 * sin(angle), mouth: 0.02 + 0.01 * cos(angle),
+                                          leftEye: blinking ? 0.03 : 0.3, rightEye: blinking ? 0.03 : 0.3)))
+        }
+    }
+    func testSlowLookDownAndOneSidedLookCannotBecomeCompleteCommands() {
+        var d = ready(settings: only(.nod))
+        for n in 18...50 {
+            XCTAssertNil(d.consume(sample(Double(n)/10, pitch: min(0.22, Double(n - 18) * 0.008))))
+        }
+        for n in 51...80 {
+            XCTAssertNil(d.consume(sample(Double(n)/10, pitch: max(0, 0.22 - Double(n - 50) * 0.008))))
+        }
+        d = ready(settings: only(.shake))
+        for (t, yaw) in [(1.8, 0.09), (1.95, 0.2), (2.1, 0.1), (2.25, 0.02), (2.4, 0.0)] {
+            XCTAssertNil(d.consume(sample(t, yaw: yaw)))
+        }
+    }
+    func testNoisyNeutralCalibrationRaisesPoseNoiseFloor() {
+        let noise = [-0.03, 0.025, 0.03, -0.025, 0.0]
+        var d = ready(calibration: (0...10).map { sample(Double($0)/10, pitch: noise[$0 % noise.count]) })
+        for (t, pitch) in [(1.8, 0.08), (1.95, 0.14), (2.1, 0.1), (2.25, 0.02)] {
+            XCTAssertNil(d.consume(sample(t, pitch: pitch)))
+        }
+    }
+    func testCalibrationWorksAtFiveHzAndCooldownDoesNotAddHiddenRearmDelay() {
+        var d = FaceGestureDetector()
+        XCTAssertTrue(d.calibrate((0...4).map { sample(Double($0)/5) }))
+        d = ready()
+        XCTAssertNil(d.consume(sample(1.8, pitch: 0.25)))
+        XCTAssertNil(d.consume(sample(1.95, pitch: 0.25)))
+        XCTAssertEqual(d.consume(sample(2.1)), .nod)
+        for n in 22...33 { XCTAssertNil(d.consume(sample(Double(n)/10))) }
+        XCTAssertNil(d.consume(sample(3.4, pitch: 0.15)))
+        XCTAssertNil(d.consume(sample(3.55, pitch: 0.08)))
+        XCTAssertEqual(d.consume(sample(3.7, pitch: 0.01)), .nod)
+    }
+    func testLongHeldHeadPoseNeverDispatchesOnLateReturn() {
+        var d = ready(settings: only(.nod))
+        for n in 18...40 { XCTAssertNil(d.consume(sample(Double(n)/10, pitch: 0.2))) }
+        for n in 41...48 { XCTAssertNil(d.consume(sample(Double(n)/10))) }
     }
 }

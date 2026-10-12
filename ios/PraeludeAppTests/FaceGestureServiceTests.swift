@@ -237,3 +237,58 @@ extension FaceGestureServiceTests {
         XCTAssertEqual(nextCapture.wait(timeout: .now()), .success)
     }
 }
+
+
+extension FaceGestureServiceTests {
+    @MainActor func testBusyUIReceivesNewestCameraFrameWithoutBacklog() async {
+        var delivered: [Double] = []
+        let first = expectation(description: "latest frame only")
+        let delivery = FaceCameraFrameDelivery { frame in delivered.append(frame.sample.time); first.fulfill() }
+        // Main is intentionally occupied by submitting a burst. Capture remains nonblocking and
+        // obsolete frames cannot later replay old expressions or flood UI layout.
+        for tick in 0..<1000 {
+            let sample = FaceGestureSample(time: Double(tick), pitch: 0, yaw: 0, smileWidth: 0.9,
+                luminance: 0.4, confidence: 1, faceCount: 1, faceArea: 0.1)
+            delivery.submit(FaceCameraFrame(sample: sample, face: nil, landmarks: []))
+        }
+        XCTAssertTrue(delivered.isEmpty)
+        await fulfillment(of: [first], timeout: 2)
+        XCTAssertEqual(delivered, [999])
+    }
+    func testSmileLiftUsesBothCornersAndIsRollAndEyeOrderInvariant() {
+        let lips = [CGPoint(x: -0.5,y: 0.12),CGPoint(x: -0.45,y: 0.11),
+                    CGPoint(x: -0.2,y: 0.02),CGPoint(x: 0,y: 0.04),CGPoint(x: 0.2,y: 0.02),
+                    CGPoint(x: 0.45,y: 0.11),CGPoint(x: 0.5,y: 0.12),
+                    CGPoint(x: 0.2,y: -0.02),CGPoint(x: 0,y: -0.04),CGPoint(x: -0.2,y: -0.02)]
+        let left=CGPoint(x: -0.5,y: 0.6), right=CGPoint(x: 0.5,y: 0.6)
+        let value=FaceCameraGeometry.lipCornerLift(lips,leftEye:left,rightEye:right)!
+        XCTAssertGreaterThan(value, 0.08)
+        XCTAssertEqual(value,FaceCameraGeometry.lipCornerLift(lips,leftEye:right,rightEye:left)!,accuracy:0.0001)
+        func rotate(_ p:CGPoint)->CGPoint { CGPoint(x:p.x*0.8-p.y*0.6,y:p.x*0.6+p.y*0.8) }
+        XCTAssertEqual(value,FaceCameraGeometry.lipCornerLift(lips.map(rotate),leftEye:rotate(left),rightEye:rotate(right))!,accuracy:0.0001)
+        XCTAssertNil(FaceCameraGeometry.lipCornerLift([CGPoint(x:CGFloat.nan,y:0)],leftEye:left,rightEye:right))
+    }
+    @MainActor func testPendingCommandContextIsRetiredByStopRemapAndGateRoundTrip() {
+        let suite = "Praelude-CommandContext-\(UUID().uuidString)"
+        let preferences = UserDefaults(suiteName: suite)!
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let service = FaceGestureService(preferences: preferences)
+        let original = service.commandContextID
+        service.showPreview.toggle()
+        XCTAssertEqual(service.commandContextID, original, "Rendering preferences must not retire an input")
+        service.stop()
+        XCTAssertNotEqual(service.commandContextID, original)
+        let stopped = service.commandContextID
+        service.settings.holdDuration = 0.6
+        XCTAssertNotEqual(service.commandContextID, stopped)
+        service.actionsAllowed = true
+        let allowed = service.commandContextID
+        service.actionsAllowed = false
+        service.actionsAllowed = true
+        XCTAssertNotEqual(service.commandContextID, allowed, "Reopening a gate cannot revive a pending command")
+        let restored = service.commandContextID
+        service.calibrate()
+        XCTAssertNotEqual(service.commandContextID, restored)
+    }
+
+}

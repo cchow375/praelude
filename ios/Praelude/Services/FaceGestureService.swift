@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+@preconcurrency import ARKit
 import Vision
 import Observation
 import UIKit
@@ -10,18 +11,40 @@ struct FaceCameraFrame: Sendable {
     var orientationRevision: Int = 0
     var trackingIssue: String? = nil
     var imageAspect: CGFloat = 0.75
+    var trackingMode: String = "Camera"
+    var processedAt: TimeInterval? = nil
+}
+
+/// Latest-only handoff: a busy UI cannot accumulate old camera frames or replay stale gestures.
+final class FaceCameraFrameDelivery: @unchecked Sendable {
+    private let lock = NSLock()
+    private var latest: FaceCameraFrame?
+    private var scheduled = false
+    private let receive: @MainActor @Sendable (FaceCameraFrame) -> Void
+    init(receive: @escaping @MainActor @Sendable (FaceCameraFrame) -> Void) { self.receive = receive }
+    func submit(_ frame: FaceCameraFrame) {
+        let enqueue = lock.withLock { latest = frame; if scheduled { return false }; scheduled = true; return true }
+        guard enqueue else { return }
+        Task { @MainActor [self] in
+            let frame = lock.withLock { let value = latest; latest = nil; scheduled = false; return value }
+            if let frame { receive(frame) }
+        }
+    }
 }
 
 /// Capture operations and main-actor preview connections share one logical FIFO across workers.
 /// The UI never waits for it, and old capture must finish stopping before ownership is released.
 protocol FaceCameraCapturing: AnyObject, Sendable {
     var captureSession: AVCaptureSession? { get }
+    var faceTrackingSession: ARSession? { get }
     func start(angle: CGFloat, revision: Int, completion: @escaping @Sendable () -> Void)
     func rotate(_ angle: CGFloat, revision: Int)
     func stop(completion: @escaping @Sendable () -> Void)
     func attachPreview(_ layer: AVCaptureVideoPreviewLayer)
     func detachPreview(_ layer: AVCaptureVideoPreviewLayer)
 }
+extension FaceCameraCapturing { var faceTrackingSession: ARSession? { nil } }
+
 typealias FaceCameraWorkerFactory = @Sendable (@escaping @Sendable (FaceCameraFrame) -> Void,
     @escaping @Sendable (String) -> Void) -> any FaceCameraCapturing
 
@@ -67,6 +90,8 @@ private final class FaceCameraWorker: NSObject, FaceCameraCapturing,
     private let lock = NSLock()
     private var cancelled = false
     private var orientationRevision = 0
+    private let rectangles = VNDetectFaceRectanglesRequest()
+    private let landmarksRequest = VNDetectFaceLandmarksRequest()
     private var lastFrame = -Double.infinity
     private var lastTrackingFailure = -Double.infinity
     private var connection: AVCaptureConnection?
@@ -74,6 +99,8 @@ private final class FaceCameraWorker: NSObject, FaceCameraCapturing,
     private var previews: [FacePreviewReference] = []
     init(deliver: @escaping @Sendable (FaceCameraFrame) -> Void, failed: @escaping @Sendable (String) -> Void) {
         self.deliver = deliver; self.failed = failed
+        rectangles.revision = VNDetectFaceRectanglesRequestRevision3
+        landmarksRequest.constellation = .constellation76Points
     }
     private var isCancelled: Bool { lock.withLock { cancelled } }
     func start(angle: CGFloat, revision: Int, completion: @escaping @Sendable () -> Void) {
@@ -161,8 +188,6 @@ private final class FaceCameraWorker: NSObject, FaceCameraCapturing,
         let revision = lock.withLock { orientationRevision }
         // Landmarks alone need not populate pitch. Rectangle revision3 provides all pose angles;
         // passing its observations into the landmark request preserves the corresponding pose.
-        let rectangles = VNDetectFaceRectanglesRequest()
-        rectangles.revision = VNDetectFaceRectanglesRequestRevision3
         let handler = VNImageRequestHandler(cvPixelBuffer: pixels, orientation: .up)
         do { try handler.perform([rectangles]) }
         catch {
@@ -180,9 +205,8 @@ private final class FaceCameraWorker: NSObject, FaceCameraCapturing,
         let pose = faces.count == 1 ? faces.first : nil
         var face = pose
         if let pose {
-            let landmarks = VNDetectFaceLandmarksRequest()
-            landmarks.inputFaceObservations = [pose]
-            if (try? handler.perform([landmarks])) != nil { face = landmarks.results?.first ?? pose }
+            landmarksRequest.inputFaceObservations = [pose]
+            if (try? handler.perform([landmarksRequest])) != nil { face = landmarksRequest.results?.first ?? pose }
         }
         let box = face.flatMap { FaceCameraGeometry.validatedBox($0.boundingBox) }
         let metrics = FaceCameraGeometry.metrics(face?.landmarks)
@@ -197,10 +221,10 @@ private final class FaceCameraWorker: NSObject, FaceCameraCapturing,
             yaw: pose?.yaw?.doubleValue ?? .nan, smileWidth: metrics.smile ?? .nan,
             luminance: Self.luminance(pixels, box: box), confidence: Double(pose?.confidence ?? 0),
             faceCount: faces.count, faceArea: Double(box.map { $0.width * $0.height } ?? 0),
-            mouthOpen: metrics.mouth, leftEyeOpen: metrics.leftEye, rightEyeOpen: metrics.rightEye)
+            mouthOpen: metrics.mouth, leftEyeOpen: metrics.leftEye, rightEyeOpen: metrics.rightEye, smileLift: metrics.smileLift)
         guard !isCancelled else { return }
         let aspect = CGFloat(CVPixelBufferGetWidth(pixels))/CGFloat(max(1,CVPixelBufferGetHeight(pixels)))
-        deliver(FaceCameraFrame(sample: sample, face: box, landmarks: points, orientationRevision: revision,imageAspect:aspect))
+        deliver(FaceCameraFrame(sample: sample, face: box, landmarks: points, orientationRevision: revision,imageAspect:aspect,trackingMode:"Landmarks",processedAt:ProcessInfo.processInfo.systemUptime))
     }
     private static func luminance(_ pixels: CVPixelBuffer, box: CGRect?) -> Double {
         CVPixelBufferLockBaseAddress(pixels, .readOnly)
@@ -227,7 +251,7 @@ private final class FaceCameraWorker: NSObject, FaceCameraCapturing,
 
 /// Geometry helpers keep unavailable individual landmarks separate from face visibility.
 enum FaceCameraGeometry {
-    struct Metrics { var smile: Double?; var mouth: Double?; var leftEye: Double?; var rightEye: Double? }
+    struct Metrics { var smile: Double?; var mouth: Double?; var leftEye: Double?; var rightEye: Double?; var smileLift: Double? }
     static func validatedBox(_ box: CGRect) -> CGRect? {
         guard [box.minX, box.minY, box.width, box.height].allSatisfy(\.isFinite), box.width > 0, box.height > 0 else { return nil }
         let clipped = box.intersection(CGRect(x: 0,y: 0,width: 1,height: 1))
@@ -250,6 +274,23 @@ enum FaceCameraGeometry {
         let width=horizontal.max()!-horizontal.min()!, height=vertical.max()!-vertical.min()!
         return width > 0.001 ? Double(height/width) : nil
     }
+    /// Aggregate both corner regions and the central contour; one jumping point cannot define a smile.
+    static func lipCornerLift(_ lips: [CGPoint], leftEye: CGPoint, rightEye: CGPoint) -> Double? {
+        guard lips.count >= 8, lips.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
+              [leftEye.x,leftEye.y,rightEye.x,rightEye.y].allSatisfy(\.isFinite) else { return nil }
+        let distance = hypot(rightEye.x-leftEye.x,rightEye.y-leftEye.y)
+        guard distance > 0.02 else { return nil }
+        let sign: CGFloat = rightEye.x >= leftEye.x ? 1 : -1
+        let dx=sign*(rightEye.x-leftEye.x)/distance, dy=sign*(rightEye.y-leftEye.y)/distance
+        let points=lips.map { CGPoint(x: ($0.x*dx+$0.y*dy)/distance, y: (-$0.x*dy+$0.y*dx)/distance) }
+        guard let minX=points.map(\.x).min(), let maxX=points.map(\.x).max(), maxX-minX > 0.05 else { return nil }
+        let width=maxX-minX, middle=(minX+maxX)/2
+        let left=points.filter { $0.x <= minX+width*0.2 }, right=points.filter { $0.x >= maxX-width*0.2 }
+        let center=points.filter { abs($0.x-middle) <= width*0.22 }
+        guard !left.isEmpty, !right.isEmpty, !center.isEmpty else { return nil }
+        func mean(_ p:[CGPoint]) -> Double { Double(p.map(\.y).reduce(0,+)/CGFloat(p.count)) }
+        return min(mean(left),mean(right))-mean(center)
+    }
     static func metrics(_ landmarks: VNFaceLandmarks2D?) -> Metrics {
         guard let landmarks else { return Metrics() }
         let left=landmarks.leftEye?.normalizedPoints ?? [], right=landmarks.rightEye?.normalizedPoints ?? []
@@ -266,6 +307,7 @@ enum FaceCameraGeometry {
             return Double((values.max()!-values.min()!)/distance)
         }
         result.smile=extent(outer,vertical:false); result.mouth=extent(inner,vertical:true)
+        result.smileLift = lipCornerLift(outer, leftEye: l, rightEye: r)
         return result
     }
 }
@@ -289,11 +331,14 @@ enum FaceCameraGeometry {
     var settings: FaceGestureSettings {
         didSet {
             if let data = try? JSONEncoder().encode(settings) { preferences.set(data,forKey: preferencesKey) }
+            if settings != oldValue { commandContextID = UUID() }
             detector.configure(settings: settings)
         }
     }
-    var actionsAllowed = false { didSet { if actionsAllowed != oldValue { detector.resetMotion() } } }
-    var verdictActionsAllowed = false { didSet { if verdictActionsAllowed != oldValue { detector.resetMotion() } } }
+    @ObservationIgnored private(set) var commandContextID = UUID()
+    var commandInFlight = false
+    var actionsAllowed = false { didSet { if actionsAllowed != oldValue { resetMotion() } } }
+    var verdictActionsAllowed = false { didSet { if verdictActionsAllowed != oldValue { resetMotion() } } }
     var verdictUnavailableReason = "Start a practice set to record reps"
     @ObservationIgnored var onAction: ((FaceGestureAction) -> Void)?
     @ObservationIgnored private let permission: @Sendable () async -> Bool
@@ -310,8 +355,12 @@ enum FaceCameraGeometry {
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     private(set) var rotationAngle: CGFloat = 90
     var session: AVCaptureSession? { isEnabled ? worker?.captureSession : nil }
+    var faceTrackingSession: ARSession? { isEnabled ? worker?.faceTrackingSession : nil }
     init(permission: @escaping @Sendable () async -> Bool = { await AVCaptureDevice.requestAccess(for: .video) },
-         workerFactory: @escaping FaceCameraWorkerFactory = { FaceCameraWorker(deliver: $0,failed: $1) },
+         workerFactory: @escaping FaceCameraWorkerFactory = { deliver, failed in
+             if ARFaceTrackingConfiguration.isSupported { return ARFaceCameraWorker(deliver: deliver, failed: failed) }
+             return FaceCameraWorker(deliver: deliver, failed: failed)
+         },
          preferences: UserDefaults = .standard,
          now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.preferences=preferences; self.now=now
@@ -351,12 +400,11 @@ enum FaceCameraGeometry {
                 self.status="Camera permission is off. Enable it in Settings to use gestures."; return
             }
             self.status="Starting camera…"
-            let worker=self.factory({ [weak self] frame in
-                Task { @MainActor [weak self] in
-                    guard let self, self.generation==token, self.isEnabled else { return }
-                    self.receive(frame)
-                }
-            },{ [weak self] message in
+            let delivery=FaceCameraFrameDelivery { [weak self] frame in
+                guard let self, self.generation==token, self.isEnabled else { return }
+                self.receive(frame)
+            }
+            let worker=self.factory({ frame in delivery.submit(frame) },{ [weak self] message in
                 Task { @MainActor [weak self] in
                     guard let self, self.generation==token else { return }
                     self.stop(message:message)
@@ -385,7 +433,7 @@ enum FaceCameraGeometry {
     func stop() { stop(message:"Camera is off") }
     private func stop(message:String) {
         guard !isStopping else { return }
-        generation=UUID(); observers.forEach(NotificationCenter.default.removeObserver); observers=[]
+        commandContextID=UUID(); generation=UUID(); observers.forEach(NotificationCenter.default.removeObserver); observers=[]
         isEnabled=false; isPreparing=false; calibrated=false; calibrationProgress=0; availableGestures=[]; frame=nil
         detector.clearCalibration(); recent=[]; lastCalibrationSupplement = -Double.infinity; status=message
         guard let retiring=worker else {
@@ -407,12 +455,13 @@ enum FaceCameraGeometry {
         case .landscapeRight:0; case .landscapeLeft:180; case .portraitUpsideDown:270; default:90
         }
         guard next != rotationAngle else { return }
-        rotationAngle=next; orientationRevision += 1
+        commandContextID=UUID(); rotationAngle=next; orientationRevision += 1
         worker?.rotate(next,revision:orientationRevision)
         detector.clearCalibration(); recent=[]; calibrated=false; calibrationProgress=0; availableGestures=[]
         if isEnabled { status="Orientation changed · hold relaxed while the camera recalibrates" }
     }
     func calibrate() {
+        commandContextID=UUID()
         detector.clearCalibration(); calibrated=false; availableGestures=[]
         finishCalibration()
         if !calibrated { status="Hold your face relaxed for a second · calibrating automatically" }
@@ -422,7 +471,7 @@ enum FaceCameraGeometry {
         calibrated=detector.calibrate(recent)
         if calibrated { availableGestures=detector.availableGestures; calibrationProgress=1 }
     }
-    func resetMotion() { detector.resetMotion() }
+    func resetMotion() { commandContextID=UUID(); detector.resetMotion() }
     // Internal for native tests: inject measurements through the real calibration/action gates.
     func receive(_ frame:FaceCameraFrame) {
         guard isEnabled, frame.orientationRevision==orientationRevision else { return }
@@ -463,11 +512,12 @@ enum FaceCameraGeometry {
         }
         if let gesture=detector.consume(frame.sample) {
             let action=settings.action(for:gesture)
-            let canAct=calibrated && actionsAllowed && action != .off && (!action.isVerdict || (settings.allowVerdicts && verdictActionsAllowed))
+            let canAct=calibrated && actionsAllowed && !commandInFlight && action != .off && (!action.isVerdict || (settings.allowVerdicts && verdictActionsAllowed))
             let detail:String
             if canAct { detail=action.title }
             else if action == .off { detail="recognized · unassigned" }
             else if !actionsAllowed { detail="recognized · test only" }
+            else if commandInFlight { detail="recognized · previous command finishing" }
             else if action.isVerdict && !settings.allowVerdicts { detail="recognized · rep gestures are off" }
             else { detail="recognized · \(verdictUnavailableReason)" }
             lastGesture="\(gesture.title) → \(detail)"

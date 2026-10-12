@@ -24,6 +24,7 @@ final class PracticeRuntime {
         guard !isRepInputSuspended else { throw PracticeError.conflict("Leave score focus mode before recording or changing repetitions.") }
     }
     @ObservationIgnored private var checkpointTimer: Timer?
+    @ObservationIgnored private var checkpointTask: Task<Void, Never>?
     /// SwiftUI can deliver the background pause's status change only after the app is active
     /// again. Remember that specific retained click so a late observer cannot silence it.
     @ObservationIgnored private var retainedBackgroundClickSetID: UUID?
@@ -69,8 +70,12 @@ final class PracticeRuntime {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 guard UIApplication.shared.applicationState == .active else { return }
-                if self.store.activeSet?.status == .running {
-                    do { try self.store.checkpoint() } catch { /* Store already exposes the failure. */ }
+                if self.store.activeSet?.status == .running, self.checkpointTask == nil {
+                    self.checkpointTask = Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        defer { self.checkpointTask = nil }
+                        do { try await self.store.checkpointPreparedAsync() } catch { /* Store retains write failures. */ }
+                    }
                 }
                 self.updateScreenAwake()
                 self.syncRecording() // Cheap, idempotent safety net alongside the `.onChange`-driven calls.
@@ -105,16 +110,66 @@ final class PracticeRuntime {
             }
         }
         guard try store.record(verdict, hands: hands, eventID: eventID) else { return false }
+        didRecord(verdict, eventID: eventID, before: before)
+        return true
+    }
+
+    /// Camera input can await immutable ledger preparation without blocking score rendering.
+    /// Input/context and audible tempo are checked again at the final atomic commit boundary.
+    @discardableResult
+    func recordPreparedAsync(_ verdict: Verdict, eventID: UUID = UUID(), hands: String? = nil,
+                             canCommit: @MainActor () -> Bool = { true }) async throws -> Bool {
+        try requireRepInput()
+        let before = store.activeSet
+        if let before, metronome.isPlaying, abs(metronome.bpm - before.currentBPM) > 0.001 {
+            let known = (store.state.history + [before]).contains { $0.attempts.contains { $0.id == eventID } }
+            if !known {
+                metronome.setTempo(before.currentBPM)
+                throw PracticeError.conflict("The click was restored to your set tempo. Repeat the passage before recording it.")
+            }
+        }
+        guard try await store.recordPreparedAsync(verdict, hands: hands,
+                expectedActiveSetID: before?.id ?? UUID(), eventID: eventID, canCommit: { [self] in
+                    guard !isRepInputSuspended, !Task.isCancelled, canCommit() else { return false }
+                    if let before, metronome.isPlaying, abs(metronome.bpm - before.currentBPM) > 0.001 {
+                        metronome.setTempo(before.currentBPM)
+                        return false
+                    }
+                    return true
+                }) else { return false }
+        let committedSetID = before?.id
+        let ruleCanCommit = { @MainActor [self] in
+            !Task.isCancelled && !isRepInputSuspended && store.activeSet?.id == committedSetID && canCommit()
+        }
+        if let set = store.activeSet, set.id == committedSetID {
+            await checkR6SlowDownPreparedAsync(for: set, justRecorded: verdict, canCommit: ruleCanCommit)
+        }
+        if verdict == .reset {
+            if store.activeSet?.id == committedSetID { feedback.stop() }
+            return true
+        }
+        if let set = store.activeSet, set.id == committedSetID {
+            await checkPulseCheckPreparedAsync(for: set, canCommit: ruleCanCommit)
+        }
+        if let before, let after = store.activeSet,
+           after.attempts.last?.id == eventID {
+            // A newer touch/voice attempt may have committed while a rule was prepared.
+            // Its confirmation must not be replaced by this older camera event.
+            confirmCommittedAttempt(before: before, after: after, verdict: verdict, eventID: eventID)
+        }
+        return true
+    }
+
+    private func didRecord(_ verdict: Verdict, eventID: UUID, before: ActiveSet?) {
         // R6's own replay counts a manual Reset exactly like a Sloppy (`evaluateR6SlowDown`: "3
         // *resets* in a row") toward its under-half-goal window, so this must run before the early
         // return below — a Reset that completes a qualifying run must still slow the set down.
         checkR6SlowDown(for: store.activeSet, justRecorded: verdict)
-        if verdict == .reset { feedback.stop(); return true }
+        if verdict == .reset { feedback.stop(); return }
         checkPulseCheck(for: store.activeSet)
         if let before, let after = store.activeSet {
             confirmCommittedAttempt(before: before, after: after, verdict: verdict, eventID: eventID)
         }
-        return true
     }
 
     /// A cold grade uses one Store transaction; acknowledge its saved attempt without writing
@@ -222,6 +277,17 @@ final class PracticeRuntime {
         try? store.adjustActiveTempo(newBPM)
     }
 
+    private func checkR6SlowDownPreparedAsync(for set: ActiveSet?, justRecorded verdict: Verdict,
+                                            canCommit: @MainActor () -> Bool) async {
+        guard verdict == .sloppy || verdict == .reset, let set, set.status == .running,
+              set.configuration.passageID != nil else { return }
+        let context = RuleContext(state: store.state, now: Date())
+        guard let decision = PracticeRulesEngine.evaluateR6SlowDown(set: set, context: context),
+              case let .tempoChange(newBPM) = decision.outcome, newBPM < set.currentBPM else { return }
+        // The log and tempo are one durable change; a later set/input change fences both.
+        _ = try? await store.applyPracticeRulePreparedAsync(decision, expectedSet: set, canCommit: canCommit)
+    }
+
     /// R14 (§11): after any recorded, non-reset attempt, offers a pulse check at most once per
     /// *running set* — not once per attempt, since staying near performance tempo for many reps in
     /// the same set should not keep re-silencing the click every single rep; `pulseCheckSetID` is the
@@ -239,6 +305,19 @@ final class PracticeRuntime {
         guard let decision = PracticeRulesEngine.evaluateR14PulseCheck(set: set, context: context),
               case .pulseCheck(let plan) = decision.outcome else { return }
         try? store.recordRuleEvent(decision.asRuleEvent(overridden: false))
+        startPulseCheck(decision, plan: plan, setID: set.id)
+    }
+
+    private func checkPulseCheckPreparedAsync(for set: ActiveSet?, canCommit: @MainActor () -> Bool) async {
+        guard let set, set.status == .running, set.configuration.useMetronome,
+              activePulseCheck == nil, pulseCheckSetID != set.id else { return }
+        let context = RuleContext(state: store.state, now: Date())
+        guard let decision = PracticeRulesEngine.evaluateR14PulseCheck(set: set, context: context),
+              case .pulseCheck(let plan) = decision.outcome else { return }
+        guard (try? await store.applyPracticeRulePreparedAsync(decision, expectedSet: set, canCommit: canCommit)) == true,
+              canCommit(),
+              store.activeSet?.id == set.id, store.activeSet?.status == .running,
+              activePulseCheck == nil, pulseCheckSetID != set.id else { return }
         startPulseCheck(decision, plan: plan, setID: set.id)
     }
 

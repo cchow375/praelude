@@ -193,6 +193,43 @@ import Observation
             next.pieces[index].lastPage = page; next.pieces[index].lastPageUpdatedAt = date
         }
     }
+
+    /// Prepare the full ledger away from the UI actor, merging only this reading position.
+    /// A later turn of the same score wins; unrelated edits are retained on a bounded retry.
+    public func updateLastPagePreparedAsync(pieceID: UUID, page: Int) async throws {
+        guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+        guard let original = state.pieces.first(where: { $0.id == pieceID && $0.deletedAt == nil }) else {
+            throw PracticeError.invalid("Piece not found.")
+        }
+        if original.lastPage == page { return }
+        let originalPageEdits = state.pageEdits.filter { $0.pieceID == pieceID }
+        let firstBaseline = state
+        let date = now()
+        for retry in 0..<4 {
+            try Task.checkCancellation()
+            guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+            guard let current = state.pieces.first(where: { $0.id == pieceID && $0.deletedAt == nil }),
+                  current.lastPage == original.lastPage, current.lastPageUpdatedAt == original.lastPageUpdatedAt,
+                  current.pdfFileName == original.pdfFileName, current.pageCount == original.pageCount,
+                  state.pageEdits.filter({ $0.pieceID == pieceID }) == originalPageEdits else {
+                throw PracticeError.conflict("The score position changed while saving this page.")
+            }
+            let baseline = retry == 0 ? firstBaseline : state
+            let (next, data) = try await prepareMutation(baseline) { next in
+                guard let index = next.pieces.firstIndex(where: { $0.id == pieceID }) else {
+                    throw PracticeError.invalid("Piece not found.")
+                }
+                next.pieces[index].lastPage = page
+                next.pieces[index].lastPageUpdatedAt = date
+            }
+            try Task.checkCancellation()
+            guard state.revision == baseline.revision else { continue }
+            guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+            try publishPrepared(next, data: data)
+            return
+        }
+        throw PracticeError.conflict("The library is busy saving other changes. Try saving this page again.")
+    }
     public func savePassage(_ passage: Passage) throws {
         try savePassage(passage, expected: nil, compareExpected: false)
     }
@@ -910,6 +947,73 @@ import Observation
         }
         return true
     }
+
+    /// A camera action keeps its identity and timestamp while projection, validation and JSON
+    /// encoding run off the UI actor. Only the MainActor may atomically write and publish it.
+    /// Timing checkpoints may be merged; a different set, verdict, Undo, tempo or status retires
+    /// the original action instead of applying it to a context the player did not gesture in.
+    @discardableResult public func recordPreparedAsync(_ verdict: Verdict, hands: String? = nil,
+                                                       expectedActiveSetID: UUID, eventID: UUID = UUID(),
+                                                       canCommit: @MainActor () -> Bool = { true }) async throws -> Bool {
+        if try existingEvent(eventID, verdict: verdict) { return false }
+        guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+        guard let original = activeSet, original.id == expectedActiveSetID, original.status == .running else {
+            throw PracticeError.conflict("Resume the same practice set before recording a repetition.")
+        }
+        if let hands, !PracticeHand.isExplicitSelection(hands) { throw PracticeError.invalid("Choose Left hand, Both hands or Right hand.") }
+        guard canCommit() else { throw PracticeError.conflict("This repetition is no longer available in the current score context.") }
+        let firstBaseline = state
+        let date = now()
+        for retry in 0..<4 {
+            try Task.checkCancellation()
+            if try existingEvent(eventID, verdict: verdict) { return false }
+            guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+            guard let current = activeSet, Self.sameRecordingContext(current, original) else {
+                throw PracticeError.conflict("The practice set changed while preparing this repetition.")
+            }
+            let baseline = retry == 0 ? firstBaseline : state
+            let (next, data) = try await prepareMutation(baseline) { next in
+                guard var set = next.activeSet, set.id == expectedActiveSetID, set.status == .running else {
+                    throw PracticeError.conflict("Resume the same practice set before recording a repetition.")
+                }
+                Self.accrue(&set, at: date)
+                set.attempts.append(Attempt(id: eventID, verdict: verdict, date: date, bpm: set.currentBPM, stageIndex: set.stageIndex))
+                if verdict != .reset, let selected = hands ?? PracticeHand.canonicalSelection(set.configuration.hands) {
+                    set.configuration.recordedHands[eventID.uuidString] = selected
+                }
+                set = PracticeEngine.project(set)
+                if set.status == .completed { set.endedAt = date; set.lastCheckpoint = nil }
+                next.activeSet = set
+            }
+            try Task.checkCancellation()
+            // The callback runs on MainActor and may inspect current score/scene/input gates.
+            // Nothing suspends between these final checks, atomic write and state publication.
+            guard canCommit() else { throw PracticeError.conflict("This repetition is no longer available in the current score context.") }
+            guard state.revision == baseline.revision else { continue }
+            guard !isReadOnly, let current = activeSet, Self.sameRecordingContext(current, original) else {
+                throw PracticeError.conflict("The practice set changed while preparing this repetition.")
+            }
+            try publishPrepared(next, data: data)
+            return true
+        }
+        throw PracticeError.conflict("The library is busy saving other changes. Try recording this repetition again.")
+    }
+
+    private func existingEvent(_ eventID: UUID, verdict: Verdict) throws -> Bool {
+        let existing = (state.history + [activeSet].compactMap { $0 }).lazy.flatMap(\.attempts).first { $0.id == eventID }
+        guard let existing else { return false }
+        guard existing.verdict == verdict else {
+            throw PracticeError.conflict("This event identifier was already used for a different verdict.")
+        }
+        return true
+    }
+
+    nonisolated private static func sameRecordingContext(_ lhs: ActiveSet, _ rhs: ActiveSet) -> Bool {
+        var lhs = lhs; var rhs = rhs
+        lhs.activeSeconds = 0; lhs.lastCheckpoint = nil
+        rhs.activeSeconds = 0; rhs.lastCheckpoint = nil
+        return lhs == rhs
+    }
     public func reset() throws { try record(.reset) }
     public func undo() throws {
         let date = now()
@@ -947,6 +1051,27 @@ import Observation
         try transaction { next in
             if var set = next.activeSet { Self.accrue(&set, at: date); next.activeSet = set }
         }
+    }
+    /// Foreground timing checkpoints prepare the same durable projection without holding the UI.
+    public func checkpointPreparedAsync() async throws {
+        guard let setID = activeSet?.id, activeSet?.status == .running else { return }
+        let firstBaseline = state
+        let date = now()
+        for retry in 0..<4 {
+            try Task.checkCancellation()
+            guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+            guard activeSet?.id == setID, activeSet?.status == .running else { return }
+            let baseline = retry == 0 ? firstBaseline : state
+            let (next, data) = try await prepareMutation(baseline) { next in
+                if var set = next.activeSet { Self.accrue(&set, at: date); next.activeSet = set }
+            }
+            try Task.checkCancellation()
+            guard state.revision == baseline.revision else { continue }
+            guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+            try publishPrepared(next, data: data)
+            return
+        }
+        throw PracticeError.conflict("The library is busy saving other changes. Practice timing will checkpoint again.")
     }
     public func pause() throws {
         guard state.activeSet?.status == .running else { return }
@@ -1194,6 +1319,52 @@ import Observation
     }
     public func recordRuleEvent(_ event: RuleEvent) throws { try transaction { $0.ruleEvents.append(event) } }
 
+    /// Apply the in-set rule and its log together after background preparation. The exact set,
+    /// settings and rule log used by the decision must still be current; unrelated saves rebase.
+    @discardableResult public func applyPracticeRulePreparedAsync(_ decision: Decision,
+                                                                  expectedSet: ActiveSet,
+                                                                  canCommit: @MainActor () -> Bool = { true }) async throws -> Bool {
+        let event = decision.asRuleEvent(overridden: false)
+        let expectedSettings = state.ruleSettings
+        let expectedEvents = state.ruleEvents
+        for _ in 0..<4 {
+            try Task.checkCancellation()
+            if let existing = state.ruleEvents.first(where: { $0.id == event.id }) {
+                guard existing == event else { throw PracticeError.conflict("This rule event identifier is already in use.") }
+                return false
+            }
+            guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+            guard canCommit() else { throw PracticeError.conflict("This practice rule is no longer available in the current score context.") }
+            guard let current = activeSet, current.status == .running,
+                  Self.sameRecordingContext(current, expectedSet), state.ruleSettings == expectedSettings,
+                  state.ruleEvents == expectedEvents else {
+                throw PracticeError.conflict("The practice context changed before applying this rule.")
+            }
+            let baseline = state
+            let (next, data) = try await prepareMutation(baseline) { next in
+                next.ruleEvents.append(event)
+                if case .tempoChange(let bpm) = decision.outcome {
+                    guard bpm.isFinite, var set = next.activeSet else { throw PracticeError.invalid("Choose a tempo from 20–300 BPM.") }
+                    let clamped = min(max(bpm, 20), 300)
+                    if clamped != set.currentBPM {
+                        let change = SetTempoChange(bpm: clamped, afterAttemptCount: set.attempts.count)
+                        if set.configuration.tempoChanges.last?.afterAttemptCount == set.attempts.count {
+                            set.configuration.tempoChanges[set.configuration.tempoChanges.count - 1] = change
+                        } else { set.configuration.tempoChanges.append(change) }
+                        next.activeSet = PracticeEngine.project(set)
+                    }
+                }
+            }
+            try Task.checkCancellation()
+            guard canCommit() else { throw PracticeError.conflict("This practice rule is no longer available in the current score context.") }
+            guard state.revision == baseline.revision else { continue }
+            guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+            try publishPrepared(next, data: data)
+            return true
+        }
+        throw PracticeError.conflict("The library is busy saving other changes. This rule was not applied.")
+    }
+
     // MARK: - §12 Warmups
     public func saveWarmupExercise(_ exercise: WarmupExercise) throws {
         let date = now()
@@ -1262,6 +1433,95 @@ import Observation
     public func updateRewardsState(_ rewardsState: RewardsState) throws {
         let date = now()
         try transaction { next in var rewardsState = rewardsState; rewardsState.updatedAt = date; next.rewardsState = rewardsState }
+    }
+
+    public struct RewardsReconciliationReceipt: Sendable {
+        public var badges: [Badge]
+        public var milestones: [MilestoneEvent]
+    }
+
+    /// Reconcile the same high-water awards as RewardsRuntime in one background-prepared change.
+    /// Each retry recomputes against the newest ledger, so another reconciler or sync cannot pay
+    /// an award twice or be overwritten. Receipts describe only this successful atomic commit.
+    public func reconcileRewardsPreparedAsync(asOf date: Date = Date()) async throws -> RewardsReconciliationReceipt {
+        let stamp = now()
+        for _ in 0..<4 {
+            try Task.checkCancellation()
+            guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+            let baseline = state
+            let (next, data) = try await prepareMutation(baseline) { next in
+                try Self.reconcileRewards(in: &next, asOf: date, stamp: stamp)
+            }
+            try Task.checkCancellation()
+            guard state.revision == baseline.revision else { continue }
+            guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+            try publishPrepared(next, data: data)
+            return RewardsReconciliationReceipt(badges: Array(next.badges.dropFirst(baseline.badges.count)),
+                                                 milestones: Array(next.milestoneEvents.dropFirst(baseline.milestoneEvents.count)))
+        }
+        throw PracticeError.conflict("The library is busy saving other changes. Rewards will reconcile again.")
+    }
+
+    nonisolated private static func reconcileRewards(in next: inout LibraryState, asOf date: Date, stamp: Date) throws {
+        let xpBefore = next.rewardLedger.reduce(0) { $0 + $1.xpDelta }
+        func award(_ event: RewardEvent, count: Int = 1) throws {
+            guard count > 0 else { return }
+            guard count <= 500_000 - next.rewardLedger.count else {
+                throw PracticeError.invalid("The reward ledger has reached its supported size. Export a backup before continuing.")
+            }
+            next.rewardLedger.append(contentsOf: (0..<count).map { _ in RewardsEngine.ledgerEntry(for: event, at: date) })
+        }
+        func celebrate(_ kind: MilestoneKind, detail: String, pieceID: UUID? = nil, passageID: UUID? = nil) {
+            next.milestoneEvents.append(MilestoneEvent(kind: kind.rawValue, date: date, detail: detail,
+                                                      pieceID: pieceID, passageID: passageID))
+        }
+        let sets = next.history + [next.activeSet].compactMap { $0 }
+        try award(.completedRep, count: sets.flatMap(\.attempts).filter(\.isEffective).count
+                  - next.rewardLedger.filter { $0.reason == "Completed repetition" }.count)
+        try award(.completedSet, count: next.history.filter { $0.status == .completed }.count
+                  - next.rewardLedger.filter { $0.reason == "Completed set" }.count)
+        let passagesByID = Dictionary(uniqueKeysWithValues: next.passages.map { ($0.id, $0) })
+        let onTime = next.coldGrades.filter { grade in
+            guard let due = passagesByID[grade.passageID]?.schedule.dueDate else { return false }
+            return grade.date <= due
+        }.count
+        try award(.onTimeReview, count: onTime - next.rewardLedger.filter { $0.reason == "Reviewed on time" }.count)
+        let passageMilestones = Set(next.milestoneEvents.filter { $0.kind == MilestoneKind.passageReady.rawValue }.compactMap(\.passageID))
+        for passage in next.passages.filter({ $0.learningState == .performanceReady && $0.deletedAt == nil })
+            .sorted(by: { $0.id.uuidString < $1.id.uuidString }) where !passageMilestones.contains(passage.id) {
+            try award(.performanceReadyPassage)
+            celebrate(.passageReady, detail: MilestoneKind.passageReady.detail(passage.title), pieceID: passage.pieceID, passageID: passage.id)
+        }
+        let pieceMilestones = Set(next.milestoneEvents.filter { $0.kind == MilestoneKind.pieceReady.rawValue }.compactMap(\.pieceID))
+        for piece in next.pieces.filter({ $0.id != WarmupsPiece.id && $0.deletedAt == nil })
+            .sorted(by: { $0.id.uuidString < $1.id.uuidString }) where !pieceMilestones.contains(piece.id) {
+            let passages = next.passages.filter { $0.pieceID == piece.id && !$0.archived && $0.deletedAt == nil }
+            guard !passages.isEmpty, passages.allSatisfy({ $0.learningState == .performanceReady }) else { continue }
+            try award(.pieceFullyReady)
+            celebrate(.pieceReady, detail: MilestoneKind.pieceReady.detail(piece.title), pieceID: piece.id)
+        }
+        let today = next.sessions.filter { Calendar.current.isDate($0.startedAt, inSameDayAs: date) }
+        if RewardsEngine.dayQualifies(focusedSeconds: today.reduce(0) { $0 + $1.activeSeconds },
+                                     completedSets: today.reduce(0) { $0 + $1.completedSets }) {
+            let before = next.rewardsState
+            var after = RewardsEngine.recordQualifyingDay(before, today: date)
+            if after != before {
+                after.updatedAt = stamp; next.rewardsState = after
+                if after.streakDays > before.streakDays, RewardsEngine.isStreakMilestone(after.streakDays) {
+                    celebrate(.streakMilestone, detail: MilestoneKind.streakMilestone.detail("\(after.streakDays)"))
+                }
+            }
+        }
+        let oldRank = RewardsEngine.rankProgress(totalXP: xpBefore)
+        let rank = RewardsEngine.rankProgress(totalXP: next.rewardLedger.reduce(0) { $0 + $1.xpDelta })
+        if rank.rankName != next.rewardsState.rank || rank.division != next.rewardsState.division {
+            next.rewardsState.rank = rank.rankName; next.rewardsState.division = rank.division; next.rewardsState.updatedAt = stamp
+        }
+        if rank.rank > oldRank.rank { celebrate(.rankUp, detail: MilestoneKind.rankUp.detail(rank.rankName)) }
+        let badges = RewardsEngine.evaluateBadges(history: next.history, passages: next.passages, warmups: next.warmupExercises,
+                                                  streakDays: next.rewardsState.streakDays,
+                                                  alreadyEarned: Set(next.badges.map(\.key)), asOf: date)
+        next.badges.append(contentsOf: badges.map { Badge(key: $0, earnedAt: date) })
     }
 
     // MARK: - §15 Notebook
@@ -1379,11 +1639,45 @@ import Observation
             throw error
         }
     }
-    private static func accrue(_ set: inout ActiveSet, at date: Date) {
+    nonisolated private static func accrue(_ set: inout ActiveSet, at date: Date) {
         guard set.status == .running, let last = set.lastCheckpoint else { return }
         // Bounded crash/suspension credit; foreground UI checkpoints every 15 seconds.
         set.activeSeconds += min(60, max(0, date.timeIntervalSince(last)))
-        set.lastCheckpoint = date
+        set.lastCheckpoint = max(last, date)
+    }
+
+    private func prepareMutation(_ baseline: LibraryState,
+                       change: @escaping @Sendable (inout LibraryState) throws -> Void) async throws -> (LibraryState, Data?) {
+        let preparation = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            var next = baseline
+            try change(&next)
+            if next.history != baseline.history || next.activeSet != baseline.activeSet || next.sessions != baseline.sessions {
+                Self.projectSessions(&next)
+            }
+            if next == baseline { return (next, Data?.none) }
+            next.revision = baseline.revision + 1
+            try Self.validate(next, trustedPrevious: baseline)
+            try Task.checkCancellation()
+            let data = try Self.encoder().encode(next)
+            guard data.count <= 64 * 1024 * 1024 else {
+                throw PracticeError.invalid("The practice library has reached its supported 64 MB size. Export a backup before continuing.")
+            }
+            return (next, Optional(data))
+        }
+        do {
+            return try await withTaskCancellationHandler {
+                try await preparation.value
+            } onCancel: { preparation.cancel() }
+        } catch is CancellationError { throw CancellationError() }
+        catch { errorMessage = error.localizedDescription; throw error }
+    }
+
+    private func publishPrepared(_ next: LibraryState, data: Data?) throws {
+        do {
+            if let data { try writeData(data, fileURL); state = next }
+            errorMessage = nil
+        } catch { errorMessage = error.localizedDescription; throw error }
     }
     nonisolated private static func projectSessions(_ state: inout LibraryState) {
         let sets = state.history + [state.activeSet].compactMap { $0 }

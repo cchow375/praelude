@@ -1,5 +1,9 @@
 # Praelude — How To Use
 
+## October 12 — current installed camera limitation
+
+**Matches: installed personal native2.0.0/build16/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** Preview toggling is user-confirmed responsive, but natural expression recognition remains unreliable and a score page/rep command can pause about1second. Build17 is verified in native/Simulator/package scope and awaiting guarded personal delivery; real-camera accuracy and latency remain unaccepted. The Build16 controls below remain current; do not treat the new camera path as shipped yet.
+
 ## October 12 — installed Build16 camera controls
 
 **Matches: installed personal native2.0.0/build16/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** The personal update is installed, user-opened and observed running, with all13 saved files exact before/after/after opening. Camera fixes and command-first customization below are installed; actual camera preview and recognition acceptance remain pending. The earlier Build15/candidate sections below are historical.

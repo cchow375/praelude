@@ -1,0 +1,21 @@
+{
+  "build": "16",
+  "device": "personal iPad",
+  "reportedDate": "2026-10-12",
+  "previewToggle": {
+    "result": "user-reported pass",
+    "statement": "Yes, responsive with no freeze/crash",
+    "scope": "several Show live preview toggles; not sustained acceptance"
+  },
+  "recognition": {
+    "result": "user-reported fail",
+    "statement": "roughly10 percent reliable; especially nod/shake; natural grin should work",
+    "measurement": "rough estimate from user, not an instrumented accuracy percentage"
+  },
+  "actionResponsiveness": {
+    "result": "user-reported fail",
+    "statement": "roughly one-second pause when a recognized gesture turns a page or records a rep",
+    "locationClarification": "On the score when it turns a page or records a rep"
+  },
+  "build17": "in progress; not installed or physically accepted"
+}

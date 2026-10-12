@@ -117,6 +117,7 @@ struct ScoreWorkspace: View {
     #endif
     @State private var voiceOwnerID = UUID()
     @State private var camera = FaceGestureService()
+    @State private var cameraActionTask: Task<Void, Never>?
     @State private var arm = PracticeArmController()
     @State private var page = 1
     @State private var scopedSectionID: UUID?
@@ -384,7 +385,7 @@ struct ScoreWorkspace: View {
         // over the score — the status bar and the home-indicator/Dynamic Island's persistent
         // overlays — on top of the app's own chrome already hidden above.
         .background(FaceCameraOrientationProbe(changed: camera.rotate).allowsHitTesting(false))
-        .overlay(alignment: .topTrailing) { if camera.isEnabled && !performanceMode { cameraOverlay.padding(8).padding(.top, 48) } }
+        .overlay(alignment: .topTrailing) { if camera.isEnabled && !performanceMode && sheet == nil { cameraOverlay.padding(8).padding(.top, 48) } }
         .statusBarHidden(performanceMode)
         .persistentSystemOverlays(performanceMode ? .hidden : .automatic)
         .overlay(alignment: .bottom) {
@@ -523,11 +524,11 @@ struct ScoreWorkspace: View {
     private var lifecycleScore: some View {
         presentedScore
         .onAppear(perform: scoreAppeared)
-        .onDisappear { resumeScoreVoiceAfterSettings = false; editorVoiceHandoff = nil; flushBookmark(); exportTask?.cancel(); _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); camera.stop(); camera.onAction = nil; runtime.scoreDisappeared(ownerID: voiceOwnerID) }
+        .onDisappear { resumeScoreVoiceAfterSettings = false; editorVoiceHandoff = nil; flushBookmark(); exportTask?.cancel(); _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); cameraActionTask?.cancel(); camera.stop(); camera.onAction = nil; runtime.scoreDisappeared(ownerID: voiceOwnerID) }
         .onChange(of: pieceID) { _, _ in
             resumeScoreVoiceAfterSettings = false
             editorVoiceHandoff = nil
-            flushBookmark(); setFocus(false); camera.stop(); camera.onAction = nil
+            flushBookmark(); setFocus(false); cameraActionTask?.cancel(); camera.stop(); camera.onAction = nil
             exportTask?.cancel()
             markup.onConfirmSelection = saveSelection
             markup.showPassageBoxes = showPassageBoxes
@@ -543,7 +544,7 @@ struct ScoreWorkspace: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
                 flushBookmark(); _ = markup.flushInk()
-                if phase == .background { resumeScoreVoiceAfterSettings = false; editorVoiceHandoff = nil; camera.stop() }
+                if phase == .background { resumeScoreVoiceAfterSettings = false; editorVoiceHandoff = nil; cameraActionTask?.cancel(); camera.stop() }
             }
             if phase == .active { restoreScoreVoiceIfNeeded(); restoreEditorVoiceIfNeeded() }
             updateCameraContext()
@@ -1387,7 +1388,12 @@ struct ScoreWorkspace: View {
         pageSaveTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            flushBookmark()
+            guard let pending = pendingBookmark else { return }
+            do {
+                try await store.updateLastPagePreparedAsync(pieceID: pending.pieceID, page: pending.page)
+                if pendingBookmark?.pieceID == pending.pieceID && pendingBookmark?.page == pending.page { pendingBookmark = nil }
+            } catch is CancellationError { }
+            catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
     }
     private func flushBookmark() {
@@ -1539,19 +1545,7 @@ struct ScoreWorkspace: View {
         runtime.refreshMetronome(for: active)
     }
     private var cameraOverlay: some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            if camera.showPreview { FaceCameraPreview(camera: camera).frame(width: 200, height: 160).clipShape(RoundedRectangle(cornerRadius: 10)) }
-            HStack(spacing: 2) {
-                Button { sheet = .camera } label: { Image(systemName: "faceid").frame(width: 44, height: 44) }
-                    .accessibilityLabel("Camera gesture settings")
-                Button { camera.showPreview.toggle() } label: { Image(systemName: camera.showPreview ? "minus" : "video").frame(width: 44, height: 44) }
-                    .accessibilityLabel(camera.showPreview ? "Minimize camera" : "Show camera")
-                Button { camera.stop() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
-                    .accessibilityLabel("Turn camera off")
-            }.praeludeScoreChrome().clipShape(Capsule())
-            Text(camera.status).font(.caption2).multilineTextAlignment(.trailing).frame(maxWidth: 200)
-                .padding(6).praeludeScoreChrome().clipShape(RoundedRectangle(cornerRadius: 8))
-        }.accessibilityIdentifier("scoreCameraControls")
+        ScoreCameraControls(camera: camera, openSettings: { sheet = .camera })
     }
     private func updateCameraContext() {
         if camera.isEnabled { camera.onAction = handleCameraAction }
@@ -1579,7 +1573,33 @@ struct ScoreWorkspace: View {
         case .previousPage: turnPage(-1)
         case .clean, .sloppy, .again:
             guard camera.settings.allowVerdicts, !focusMode, !arm.awaitingColdGrade, active?.status == .running else { return }
-            record(action == .clean ? .clean : action == .sloppy ? .sloppy : .again)
+            guard cameraActionTask == nil else { return }
+            let verdict: Verdict = action == .clean ? .clean : action == .sloppy ? .sloppy : .again
+            let camera = camera
+            let originatingCameraContextID = camera.commandContextID
+            let originatingSetID = active?.id
+            let originatingPage = page
+            let originatingPassageID = selectedPassage?.id
+            camera.commandInFlight = true
+            cameraActionTask = Task { @MainActor in
+                defer { camera.commandInFlight = false; cameraActionTask = nil }
+                do {
+                    FeedbackService.shared.isEnabled = feedbackEnabled
+                    let committed = try await runtime.recordPreparedAsync(verdict, hands: selectedHands, canCommit: {
+                        !Task.isCancelled && camera.commandContextID == originatingCameraContextID &&
+                        acceptsCameraActions && active?.id == originatingSetID && page == originatingPage &&
+                        selectedPassage?.id == originatingPassageID && camera.isEnabled &&
+                        camera.actionsAllowed && camera.verdictActionsAllowed && camera.settings.allowVerdicts
+                    })
+                    guard committed, !Task.isCancelled, camera.isEnabled,
+                          camera.commandContextID == originatingCameraContextID, acceptsCameraActions,
+                          active?.id == originatingSetID, page == originatingPage,
+                          selectedPassage?.id == originatingPassageID else { return }
+                    updateVoiceContext(); offerBreakPointTap = verdict == .sloppy
+                    advancePassagePageIfNeeded()
+                } catch is CancellationError { }
+                catch { if !Task.isCancelled && camera.isEnabled { self.error = error.localizedDescription } }
+            }
         }
     }
 
@@ -1720,5 +1740,23 @@ struct ScoreWorkspace: View {
         case .nextPage: turnPage(1)
         case .previousPage: turnPage(-1)
         }
+    }
+}
+
+/// Observe live camera feedback in this small subtree, leaving score/PDF layout independent.
+private struct ScoreCameraControls: View {
+    @Bindable var camera: FaceGestureService
+    let openSettings: () -> Void
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            if camera.showPreview { FaceCameraPreview(camera: camera).frame(width: 200, height: 160).clipShape(RoundedRectangle(cornerRadius: 10)) }
+            HStack(spacing: 2) {
+                Button(action: openSettings) { Image(systemName: "faceid").frame(width: 44, height: 44) }.accessibilityLabel("Camera gesture settings")
+                Button { camera.showPreview.toggle() } label: { Image(systemName: camera.showPreview ? "minus" : "video").frame(width: 44, height: 44) }.accessibilityLabel(camera.showPreview ? "Minimize camera" : "Show camera")
+                Button { camera.stop() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel("Turn camera off")
+            }.praeludeScoreChrome().clipShape(Capsule())
+            Text(camera.status).font(.caption2).multilineTextAlignment(.trailing).frame(maxWidth: 200)
+                .padding(6).praeludeScoreChrome().clipShape(RoundedRectangle(cornerRadius: 8))
+        }.accessibilityIdentifier("scoreCameraControls")
     }
 }

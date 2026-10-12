@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+@preconcurrency import ARKit
 import SwiftUI
 
 struct FaceGestureControlsView: View {
@@ -38,6 +39,8 @@ struct FaceGestureControlsView: View {
                     }
                     if camera.isEnabled {
                         Text(camera.lastGesture).font(.subheadline.weight(.semibold))
+                            .lineLimit(2, reservesSpace: true)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                             .accessibilityIdentifier("lastFaceGesture")
                         Toggle("Show live preview", isOn: $camera.showPreview)
                             .accessibilityIdentifier("showFacePreview")
@@ -51,7 +54,7 @@ struct FaceGestureControlsView: View {
                         }
                     }
                 } footer: {
-                    Text("Camera frames stay on this device and are discarded. Praelude does not record video, identify you or judge your playing.")
+                    Text("Camera frames and face measurements stay on this device and are discarded. Praelude does not save or share face data, record video, identify you or judge your playing.")
                 }
 
                 Section {
@@ -141,34 +144,74 @@ struct FaceGestureControlsView: View {
     }
 }
 
-/// The same aspect-fit transform maps normalized Vision points and the preview; it does not
-/// stretch landmarks into the letterbox or mirror them a second time.
+/// Both capture backends publish top-left normalized points. The preview uses the same
+/// oriented image aspect ratio, without stretching or mirroring the points a second time.
 struct FaceCameraPreview: View {
     @Bindable var camera: FaceGestureService
     var body: some View {
         GeometryReader { geometry in
+            let aspect = camera.frame?.imageAspect ?? 0.75
+            let validAspect: CGFloat = aspect.isFinite && aspect > 0 ? aspect : 0.75
+            let size = geometry.size
+            let width = min(size.width, size.height * validAspect)
+            let height = min(size.height, size.width / validAspect)
+            let origin = CGPoint(x: (size.width - width) / 2, y: (size.height - height) / 2)
             ZStack {
                 Color.black
-                if camera.session != nil {
+                if let session = camera.faceTrackingSession {
+                    ARFaceCameraPreviewLayer(session: session)
+                        .frame(width: width, height: height)
+                } else if camera.session != nil {
                     FaceCameraPreviewLayer(camera: camera)
                 }
                 if camera.showMapping, let frame = camera.frame {
-                    let aspect: CGFloat = frame.imageAspect.isFinite && frame.imageAspect > 0 ? frame.imageAspect : 0.75
-                    let size = geometry.size
-                    let width = min(size.width,size.height * aspect), height = min(size.height,size.width/aspect)
-                    let origin = CGPoint(x: (size.width-width)/2,y: (size.height-height)/2)
                     Canvas { context, _ in
                         if let box = frame.face {
                             let r = CGRect(x: origin.x+box.minX*width,y: origin.y+box.minY*height,width: box.width*width,height: box.height*height)
                             context.stroke(Path(roundedRect: r,cornerRadius: 8),with: .color(frame.sample.usable ? .green : .orange),lineWidth: 2)
                         }
+                        let radius: CGFloat = camera.faceTrackingSession == nil ? 1.5 : 0.65
                         for point in frame.landmarks {
-                            context.fill(Path(ellipseIn: CGRect(x: origin.x+point.x*width-1.5,y: origin.y+point.y*height-1.5,width: 3,height: 3)),with: .color(.green))
+                            context.fill(Path(ellipseIn: CGRect(x: origin.x+point.x*width-radius,y: origin.y+point.y*height-radius,width: 2*radius,height: 2*radius)),with: .color(.green))
                         }
                     }.allowsHitTesting(false)
                 }
             }
+            .overlay(alignment: .bottom) {
+                if let frame = camera.frame {
+                    Text(frame.trackingMode + (frame.face == nil ? " · waiting for face" : " · \(frame.landmarks.count) points"))
+                        .font(.caption.monospacedDigit()).foregroundStyle(.white)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(.black.opacity(0.7), in: Capsule())
+                        .padding(6).allowsHitTesting(false)
+                }
+            }
         }.accessibilityLabel("Live camera preview with optional face landmarks")
+    }
+}
+
+/// ARKit keeps capturing when this view is hidden. The view only renders the worker's
+/// existing session; showing or hiding the preview never starts or pauses a camera.
+private struct ARFaceCameraPreviewLayer: UIViewRepresentable {
+    let session: ARSession
+    func makeUIView(context: Context) -> ARSCNView {
+        let view = ARSCNView(frame: .zero)
+        view.automaticallyUpdatesLighting = false
+        view.rendersCameraGrain = false
+        view.rendersMotionBlur = false
+        view.preferredFramesPerSecond = 20
+        view.isUserInteractionEnabled = false
+        view.session = session
+        view.isPlaying = true
+        return view
+    }
+    func updateUIView(_ view: ARSCNView, context: Context) {
+        if view.session !== session { view.session = session }
+    }
+    static func dismantleUIView(_ view: ARSCNView, coordinator: ()) {
+        view.isPlaying = false
+        // Releasing the view retires its renderer. The worker keeps the session and owns
+        // its capture lifecycle, so preview removal must not pause the shared session.
     }
 }
 private struct FaceCameraPreviewLayer: UIViewRepresentable {

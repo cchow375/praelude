@@ -20,6 +20,8 @@ final class RewardsRuntime {
     /// nothing else is capturing the screen). Small celebrations (a badge, a completed set — the
     /// latter already has its own tone via `FeedbackService`) never enter this queue.
     private(set) var celebrationQueue: [MilestoneEvent] = []
+    @ObservationIgnored private var reconciliationTask: Task<Void, Never>?
+    @ObservationIgnored private var requestedReconciliationDate: Date?
 
     init(store: PracticeStore, sound: RewardSoundService = .shared, sharePublisher: any MilestoneSharePublisher = NullMilestoneSharePublisher()) {
         self.store = store
@@ -40,6 +42,34 @@ final class RewardsRuntime {
         } catch {
             // A reward side effect never blocks or corrupts the practice ledger it reads from; the
             // store already surfaces its own write failures through `errorMessage`.
+        }
+    }
+
+    /// UI observers coalesce requests while one immutable reward snapshot is being prepared.
+    /// A request received during preparation gets one fresh pass against the committed ledger.
+    func requestReconciliation(asOf now: Date = Date()) {
+        requestedReconciliationDate = now
+        guard reconciliationTask == nil else { return }
+        reconciliationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { reconciliationTask = nil }
+            while let date = requestedReconciliationDate, !Task.isCancelled {
+                requestedReconciliationDate = nil
+                await reconcilePreparedAsync(asOf: date)
+            }
+        }
+    }
+
+    func reconcilePreparedAsync(asOf now: Date = Date()) async {
+        do {
+            let receipt = try await store.reconcileRewardsPreparedAsync(asOf: now)
+            // Only this successful commit's receipt can create transient feedback. Another
+            // reconciler's awards are already in its baseline and never appear in this receipt.
+            celebrationQueue.append(contentsOf: receipt.milestones)
+            for _ in receipt.milestones { sound.play(.celebration) }
+            for _ in receipt.badges { sound.play(.badge) }
+        } catch {
+            // Reward failures never roll back a saved repetition; Store retains write errors.
         }
     }
 

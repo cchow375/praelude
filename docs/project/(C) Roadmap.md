@@ -1,5 +1,23 @@
 # Praelude — Roadmap
 
+## October 12 — Build17 natural face input candidate verified; personal delivery next
+
+**Last updated:2026-10-12. Personal iPad remains installed at native2.0.0/build16/schema5. Build17 candidate verification is recorded in `docs/qa/ios/2.0.0/build17/`; friend remains held at Build12 and Macv11.1.0/schema21 unchanged.** Build16 preview toggling has a scoped user pass, while natural nod/shake/grin recognition and roughly one-second score page/rep pauses remain user-reported failures (B170/B171 OPEN). These estimates are not measured accuracy or latency.
+
+Build17 selects ARKit face tracking on supported hardware, with direct camera-relative pose, bilateral smile/jaw/blink coefficients and a dense projected mesh. Vision remains the fallback with denser landmarks and bilateral corner-lift measurements. Natural gestures use independent arming, calibrated noise floors, asymmetric shake sweeps, softer returns and brief missing-measurement recovery. Command-first mappings and sensitivity/hold/interval customization are retained. Preview renderers share the capture session and do not restart it when hidden; the score renderer is hidden behind sheets. Frames and face measurements stay local and are discarded.
+
+Rep, page bookmark, practice-rule, timer-checkpoint and reward preparation now run away from the UI actor. Final revision/context checks and atomic write-before-publication remain on the UI actor. Originating set/page/passage/camera-context gates retire stale commands; old asynchronous confirmations cannot overwrite a newer verdict's feedback. Independent review found and repaired those concrete races. This is a source and scoped test result, not proof of real-device response time. Atomic replacement, AVAudioSession/AVAudioPlayer startup and physical AR preview/recognition latency remain unmeasured. No practice schema migration or data import is added.
+
+**Next steps:** guarded personal delivery, exact full-file preservation and launch readback, then real-camera natural nod/shake/grin and score page/rep responsiveness acceptance. Keep the friend iPad held. Detailed pass/fail/untested boundaries and retained intermediate failures are in the Build17 QA record.
+
+## October 12 — Build16 physical feedback; Build17 recognition and response repair in progress
+
+**Last updated:2026-10-12. Personal iPad remains installed/opened at native2.0.0/build16/schema5. Build17 source is in progress; friend held at Build12 and Macv11.1.0/schema21 unchanged.** Christian reports several Show live preview toggles stay responsive without crash: a scoped physical pass, not sustained acceptance. Recognition remains poor, estimated by the user around10% rather than measured, particularly nod/shake and natural grin (B170 remains OPEN). A recognized score action also pauses about1second, specifically page turning or rep recording (new B171 OPEN); settings-only recognition is not the reported stall.
+
+Investigation finds overly rigid shared-neutral/trajectory gates and coarse Vision pose measurements. The personal iPad supports dedicated ARKit face tracking; Build17 adds direct tracked pose, bilateral smile/jaw/blink measurements and a dense projected mesh, retaining the Vision fallback. Detector work accepts independent natural trajectories with calibrated noise floors, asymmetric shakes and bounded dropouts. Score actions currently prepare/encode the entire library synchronously, including bookmark, rep, rules and reward follow-up transactions. Build17 moves immutable preparation off the UI actor while retaining revision/context checks and atomic write-before-publication. These changes are under verification and have not been installed or physically accepted.
+
+**Next steps:** complete targeted adversarial detector/geometry/persistence and actual affected-flow checks, independently review the finished source/package, then guarded personal delivery and new real-camera/action-response acceptance. Keep the other iPad held. Evidence: docs/qa/ios/2.0.0/build17/physical-feedback-build16.json.
+
 ## October 12 — Build16 installed and opened on the personal iPad
 
 **Last updated:2026-10-12. Installed personal: native2.0.0/build16/schema5, user-opened and observed running. Friend remains held at Build12; Macv11.1.0/schema21 unchanged.** After Christian explicitly confirms unlocked/open/idle readiness, guarded same-bundle refresh succeeds. Complete pre/post/post-launch backups independently rehash all13 files/19,919,467bytes identically by filename, size and SHA-256. The entire schema5/revision3477 library remains exact:6pieces/77passages/75historical sets/47sessions/549ink/20stamps/6notes, no active set. No migration, uninstall/reset/restore/app termination or Mac import occurs.

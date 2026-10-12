@@ -745,16 +745,16 @@ private struct RewardsWiring: ViewModifier {
             // a recorded/undone attempt, a set pushed to history, or app foreground — so annotating
             // or editing library metadata never pays an O(n) reward-ledger scan it has nothing to
             // do with. Reconcile is idempotent, so this is a scheduling choice, not a correctness one.
-            .onChange(of: store.activeSet?.attempts.count) { _, _ in rewards.reconcile(); presentNextCelebrationIfSafe() }
-            .onChange(of: store.state.history.count) { _, _ in rewards.reconcile(); presentNextCelebrationIfSafe() }
+            .onChange(of: store.activeSet?.attempts.count) { _, _ in rewards.requestReconciliation(); presentNextCelebrationIfSafe() }
+            .onChange(of: store.state.history.count) { _, _ in rewards.requestReconciliation(); presentNextCelebrationIfSafe() }
             .onChange(of: rewards.celebrationQueue.count) { _, _ in presentNextCelebrationIfSafe() }
-            .onChange(of: scenePhase) { _, phase in if phase == .active { rewards.reconcile(); presentNextCelebrationIfSafe() } }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { rewards.requestReconciliation(); presentNextCelebrationIfSafe() } }
             .onChange(of: selectedPiece) { _, _ in presentNextCelebrationIfSafe() }
             .onChange(of: phoneScoreID) { _, _ in presentNextCelebrationIfSafe() }
             .onChange(of: practicingWarmup) { _, _ in presentNextCelebrationIfSafe() }
             .onAppear {
                 if hasNoLiveInstruments { showOnboarding = true }
-                rewards.reconcile() // one catch-up pass for whatever happened since the last launch
+                rewards.requestReconciliation() // one catch-up pass for whatever happened since the last launch
             }
             .onChange(of: hasNoLiveInstruments) { _, empty in
                 // Never force-closes here: deleting the last instrument reopens onboarding, but

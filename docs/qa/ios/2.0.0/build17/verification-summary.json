@@ -1,0 +1,81 @@
+{
+  "build": 17,
+  "schema": 5,
+  "core": {
+    "executed": 507,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 3.298,
+    "targetedGestures": 46
+  },
+  "serviceAssertions": 2340,
+  "nativeInitial": {
+    "executed": 324,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 17.552,
+    "boundary": "intermediate source"
+  },
+  "nativeFinal2": {
+    "executed": 330,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 16.267,
+    "boundary": "before latest-feedback guard refinement"
+  },
+  "buildFinalFailure": {
+    "scope": "new test fixture called private endPulseCheck API",
+    "repair": "teardown uses internal dismissPulseCheck",
+    "productionFault": false
+  },
+  "nativeFinal4": {
+    "executed": 331,
+    "skipped": 1,
+    "failures": 1,
+    "seconds": 18.743,
+    "failure": "new context test assigned hold=.6 when persisted defaults already=.6, so no change should retire context",
+    "repair": "unique isolated UserDefaults suite",
+    "productionFault": false,
+    "runtimeIntegrationCases": 6,
+    "runtimeIntegrationFailures": 0
+  },
+  "uiFinal4": {
+    "case": "first-attempt click on/off before Missed grade, Stop, process relaunch, persisted Upcoming Tough passage review",
+    "passed": true,
+    "seconds": 60.353,
+    "camera": "off"
+  },
+  "nativeFinal5": {
+    "executed": 331,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 20.298,
+    "newRuntimeIntegrationCases": 6,
+    "source": "native-final5-provenance.json; production/resources exact to Release final4; isolated test-only preference fixture correction"
+  },
+  "physicalAcceptance": "pending",
+  "friendIPad": "held, untouched",
+  "logSHA256": {
+    "praelude-build17-core-persistence.log": "cc910c465f287c5ce9636002268111e29c5a64d509cae884d523bc71ff94931b",
+    "praelude-build17-check.log": "e44387419da358d23cb92905d6dbb933b928e0294258f75afe9c4cc05713c144",
+    "praelude-build17-native-initial.log": "15bb60ed6835d1d448e561083b9b7de32181303ee647bdeba3c74707409d0201",
+    "praelude-build17-build-final.log": "b738ea80a2b526eb9aa942603b7288d181bca72715e572e784cbd816d67da6aa",
+    "praelude-build17-native-final2.log": "de09048a6f362576b43424da2caea7ac27739db5b79c3b7e9243bb4fd9eb7f93",
+    "praelude-build17-final4.log": "610919c8783ca1d4da0a37f4efb988ffdb799b23d2520ed3309fc2cc3121173e",
+    "praelude-build17-build-final5.log": "9fafc2437c7d32cb7a3c9ca9982ed2f4792f642d70dd98682f890ca65111056a",
+    "praelude-build17-native-final5.log": "55fccf035c771b9614c31d21c623dcac7b1fb40661ea85e6b6d5b2cf82dabd54",
+    "praelude-build17-release-final4.log": "e14624c1ecf3a88298f45ac8c79b75b951cb1248dcfc9d37e14928ff664cc986"
+  },
+  "independentLive": {
+    "status": "passed_with_input_observation",
+    "report": "independent-live-final5.json",
+    "previewHideShowDoneOverlayCycles": 6,
+    "settingsReopens": 5,
+    "exclusiveAssignmentPersisted": true,
+    "cameraSettingsLibraryByteExact": true,
+    "ordinaryPageSaved": true,
+    "explicitTouchRepAndOneRewardSaved": true,
+    "inputObservation": "first quick center click no-op; one bounded120ms thumb input succeeded; remaining cycles succeeded; cause unproven",
+    "boundary": "neutral-only synthetic frames; real AR camera and changing-face to score-command flow remain untested"
+  }
+}

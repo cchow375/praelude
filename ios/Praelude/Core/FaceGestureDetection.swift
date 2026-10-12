@@ -17,7 +17,7 @@ enum FaceGesture: String, CaseIterable, Codable, Sendable, Identifiable {
         switch self {
         case .nod: "Nod up or down, then return to your usual position."
         case .shake: "Turn to one side, then the other, and return to center."
-        case .grin: "Widen your smile, hold it briefly, then relax."
+        case .grin: "Smile naturally, hold it briefly, then relax."
         case .mouthOpen: "Open your mouth, hold it briefly, then close it."
         case .eyesClosed: "Close both eyes for at least 0.6 seconds, then open them. Ordinary blinks are ignored."
         }
@@ -140,6 +140,9 @@ struct FaceGestureSample: Sendable {
     var mouthOpen: Double? = nil
     var leftEyeOpen: Double? = nil
     var rightEyeOpen: Double? = nil
+    /// Vision mouth-corner elevation / inter-eye distance; bilateral ARKit smile strength.
+    var smileLift: Double? = nil
+    var smileStrength: Double? = nil
     /// Visibility is independent of optional landmarks and pose. A small face can still have
     /// sound measurements; gesture-specific calibration decides which inputs are usable.
     var usable: Bool {
@@ -153,6 +156,8 @@ struct FaceGestureSample: Sendable {
     fileprivate var measuredMouth: Double? { mouthOpen.flatMap { Self.valid($0, in: 0...2) } }
     fileprivate var measuredLeftEye: Double? { leftEyeOpen.flatMap { Self.valid($0, in: 0...1) } }
     fileprivate var measuredRightEye: Double? { rightEyeOpen.flatMap { Self.valid($0, in: 0...1) } }
+    fileprivate var measuredLift: Double? { smileLift.flatMap { Self.valid($0, in: -1...1) } }
+    fileprivate var measuredStrength: Double? { smileStrength.flatMap { Self.valid($0, in: 0...1) } }
     private static func valid(_ value: Double, in range: ClosedRange<Double>) -> Double? {
         value.isFinite && range.contains(value) ? value : nil
     }
@@ -164,30 +169,41 @@ struct FaceGestureBaseline: Sendable, Equatable {
     let mouthOpen: Double?
     let leftEyeOpen: Double?
     let rightEyeOpen: Double?
+    let smileLift: Double?
+    let smileStrength: Double?
 }
 struct FaceGestureDetector: Sendable {
     private(set) var baseline: FaceGestureBaseline?
     private var settings = FaceGestureSettings()
-    private var neutralSince: TimeInterval?
+    private var neutralSince: [FaceGesture: TimeInterval] = [:]
     private var lastTime: TimeInterval?
     private var cooldownUntil: TimeInterval = 0
-    private var armed = false
+    private var armed: Set<FaceGesture> = []
+    private var pitchNoise = 0.0, yawNoise = 0.0, smileNoise = 0.0, liftNoise = 0.0, strengthNoise = 0.0
     private struct Excursion: Sendable {
         let gesture: FaceGesture
         let start: TimeInterval
         let direction: Double
+        let initialPitch: Double?
+        let initialYaw: Double?
+        var lastValid: TimeInterval
         var evidenceCount = 1
-        var holdSince: TimeInterval?
+        var peak = 0.0
+        var oppositePeak = 0.0
+        var peakTime: TimeInterval
+        var oppositePeakTime: TimeInterval?
+        var heldDuration: TimeInterval = 0
+        var interrupted = false
         var qualified = false
     }
-    private var excursion: Excursion?
+    private var excursions: [FaceGesture: Excursion] = [:]
 
     var availableGestures: Set<FaceGesture> {
         guard let baseline else { return [] }
         var result: Set<FaceGesture> = []
         if baseline.pitch != nil { result.insert(.nod) }
         if baseline.yaw != nil { result.insert(.shake) }
-        if baseline.smileWidth != nil { result.insert(.grin) }
+        if baseline.smileWidth != nil || baseline.smileLift != nil || baseline.smileStrength != nil { result.insert(.grin) }
         if baseline.mouthOpen != nil { result.insert(.mouthOpen) }
         if let left = baseline.leftEyeOpen, let right = baseline.rightEyeOpen, left >= 0.12, right >= 0.12 {
             result.insert(.eyesClosed)
@@ -206,9 +222,9 @@ struct FaceGestureDetector: Sendable {
     /// cannot disable head gestures, and missing pitch cannot disable facial expressions.
     mutating func calibrate(_ samples: [FaceGestureSample]) -> Bool {
         clearCalibration()
-        guard samples.count >= 8, let first = samples.first, let last = samples.last,
-              last.time - first.time >= 0.8, last.time - first.time <= 2.5,
-              zip(samples, samples.dropFirst()).allSatisfy({ $1.time > $0.time && $1.time - $0.time <= 0.35 }),
+        guard samples.count >= 5, let first = samples.first, let last = samples.last,
+              last.time - first.time >= 0.65, last.time - first.time <= 2.5,
+              zip(samples, samples.dropFirst()).allSatisfy({ $1.time > $0.time && $1.time - $0.time <= 0.5 }),
               samples.allSatisfy(\.usable) else { return false }
         baseline = FaceGestureBaseline(
             pitch: stableMedian(samples.map(\.measuredPitch), spread: 0.12),
@@ -216,8 +232,13 @@ struct FaceGestureDetector: Sendable {
             smileWidth: stableMedian(samples.map(\.measuredSmile), spread: 0.10),
             mouthOpen: stableMedian(samples.map(\.measuredMouth), spread: 0.08),
             leftEyeOpen: stableMedian(samples.map(\.measuredLeftEye), spread: 0.10),
-            rightEyeOpen: stableMedian(samples.map(\.measuredRightEye), spread: 0.10))
+            rightEyeOpen: stableMedian(samples.map(\.measuredRightEye), spread: 0.10),
+            smileLift: stableMedian(samples.map(\.measuredLift), spread: 0.06),
+            smileStrength: stableMedian(samples.map(\.measuredStrength), spread: 0.10))
         guard !availableGestures.isEmpty else { baseline = nil; return false }
+        pitchNoise = noise(samples.map(\.measuredPitch)); yawNoise = noise(samples.map(\.measuredYaw))
+        smileNoise = noise(samples.map(\.measuredSmile)); liftNoise = noise(samples.map(\.measuredLift))
+        strengthNoise = noise(samples.map(\.measuredStrength))
         resetMotion()
         lastTime = nil
         return true
@@ -238,6 +259,8 @@ struct FaceGestureDetector: Sendable {
                   return close(sample.measuredPitch, to: original.pitch, tolerance: pitchThreshold * 0.5)
                       && close(sample.measuredYaw, to: original.yaw, tolerance: yawThreshold * 0.45)
                       && close(sample.measuredSmile, to: original.smileWidth, tolerance: smileThreshold * 0.6)
+                      && close(sample.measuredLift, to: original.smileLift, tolerance: liftThreshold * 0.6)
+                      && close(sample.measuredStrength, to: original.smileStrength, tolerance: strengthThreshold * 0.6)
                       && close(sample.measuredMouth, to: original.mouthOpen, tolerance: mouthThreshold * 0.45)
                       && close(sample.measuredLeftEye, to: original.leftEyeOpen,
                                tolerance: max(0.001, (original.leftEyeOpen ?? 0) * 0.28))
@@ -253,86 +276,131 @@ struct FaceGestureDetector: Sendable {
             smileWidth: original.smileWidth ?? additions.smileWidth,
             mouthOpen: original.mouthOpen ?? additions.mouthOpen,
             leftEyeOpen: original.leftEyeOpen ?? additions.leftEyeOpen,
-            rightEyeOpen: original.rightEyeOpen ?? additions.rightEyeOpen)
+            rightEyeOpen: original.rightEyeOpen ?? additions.rightEyeOpen,
+            smileLift: original.smileLift ?? additions.smileLift,
+            smileStrength: original.smileStrength ?? additions.smileStrength)
+        if original.pitch == nil { pitchNoise = incoming.pitchNoise }
+        if original.yaw == nil { yawNoise = incoming.yawNoise }
+        if original.smileWidth == nil { smileNoise = incoming.smileNoise }
+        if original.smileLift == nil { liftNoise = incoming.liftNoise }
+        if original.smileStrength == nil { strengthNoise = incoming.strengthNoise }
         let expanded = availableGestures != previousAvailability
         if expanded { resetMotion() }
         return expanded
     }
     mutating func clearCalibration() { baseline = nil; resetMotion(); lastTime = nil }
-    mutating func resetMotion() { excursion = nil; armed = false; neutralSince = nil }
+    mutating func resetMotion() {
+        excursions.removeAll(keepingCapacity: true)
+        armed.removeAll(keepingCapacity: true)
+        neutralSince.removeAll(keepingCapacity: true)
+    }
 
     mutating func consume(_ sample: FaceGestureSample) -> FaceGesture? {
         defer { lastTime = sample.time }
         guard let baseline, sample.usable,
-              lastTime.map({ sample.time > $0 && sample.time - $0 <= 0.35 }) ?? true else {
+              lastTime.map({ sample.time > $0 && sample.time - $0 <= 0.55 }) ?? true else {
             resetMotion(); return nil
         }
-        guard sample.time >= cooldownUntil else { resetMotion(); return nil }
-        let measurements = Measurements(sample: sample, baseline: baseline)
+        let m = Measurements(sample: sample, baseline: baseline)
         let assigned = assignedGestures
-        let present = assigned.filter { measurements.has($0) }
-        guard !present.isEmpty else { resetMotion(); return nil }
-        let neutral = present.allSatisfy { isNeutral($0, measurements) }
-        if !armed {
-            if neutral {
-                neutralSince = neutralSince ?? sample.time
-                if sample.time - neutralSince! >= 0.45 { armed = true }
-            } else { neutralSince = nil }
-            return nil
-        }
-        if var current = excursion {
-            guard measurements.has(current.gesture),
-                  sample.time - current.start <= max(2.4, settings.effectiveHoldDuration + 1.6),
-                  !ambiguous(current.gesture, measurements, assigned: assigned) else {
-                resetMotion(); return nil
+        var completed: [FaceGesture] = []
+        for gesture in FaceGesture.allCases where assigned.contains(gesture) {
+            guard m.has(gesture) else {
+                // A single missing landmark must not discard a complete head trajectory.
+                // It contributes no hold evidence and a prolonged loss revokes this gesture.
+                if var track = excursions[gesture] {
+                    if sample.time - track.lastValid > 0.32 { revoke(gesture) }
+                    else { track.interrupted = true; excursions[gesture] = track }
+                } else { neutralSince[gesture] = nil }
+                continue
             }
-            switch current.gesture {
-            case .nod:
-                if let pitch = measurements.pitch, pitch * current.direction >= pitchThreshold * 0.65 {
-                    current.evidenceCount += 1
-                    current.qualified = current.evidenceCount >= 2 && sample.time - current.start >= 0.06
-                }
-            case .shake:
-                if let yaw = measurements.yaw, yaw * current.direction <= -yawThreshold {
-                    current.qualified = true
-                }
-            case .grin, .mouthOpen, .eyesClosed:
-                if isActive(current.gesture, measurements, releasing: true) {
-                    current.holdSince = current.holdSince ?? sample.time
-                    if sample.time - current.holdSince! >= requiredHold(for: current.gesture) {
-                        current.qualified = true
+            let neutral = isNeutral(gesture, m)
+            if !armed.contains(gesture) {
+                if neutral {
+                    neutralSince[gesture] = neutralSince[gesture] ?? sample.time
+                    if sample.time - neutralSince[gesture]! >= 0.25 { armed.insert(gesture) }
+                } else { neutralSince[gesture] = nil }
+                continue
+            }
+            // Neutral rearming proceeds during cooldown, so cooldown does not secretly add
+            // another calibration pause. No new excursion may start before it expires.
+            guard sample.time >= cooldownUntil else { continue }
+            if var track = excursions[gesture] {
+                let duration = sample.time - track.start
+                let limit = gesture == .nod || gesture == .shake ? 1.8 : max(2.4, settings.effectiveHoldDuration + 1.6)
+                guard duration <= limit, !crossAxisMotion(track, m) else { revoke(gesture); continue }
+                let dt = track.interrupted ? 0 : min(0.25, sample.time - track.lastValid)
+                track.interrupted = false
+                track.lastValid = sample.time
+                var returned = neutral
+                switch gesture {
+                case .nod:
+                    let value = m.pitch! * track.direction
+                    if value > track.peak { track.peak = value; track.peakTime = sample.time }
+                    if value >= pitchThreshold * 0.45 { track.evidenceCount += 1 }
+                    // Two trajectory samples may straddle the peak. Requiring two frames
+                    // above a hard threshold rejects natural quick nods at camera frame rates.
+                    if track.peak >= pitchThreshold, track.evidenceCount >= 2,
+                       duration >= 0.08, track.peakTime - track.start <= 0.7 { track.qualified = true }
+                    returned = abs(m.pitch!) <= max(pitchThreshold * 0.5, track.peak * 0.4)
+                        && sample.time > track.peakTime
+                case .shake:
+                    let value = m.yaw! * track.direction
+                    if value > track.peak { track.peak = value; track.peakTime = sample.time }
+                    if -value > track.oppositePeak {
+                        track.oppositePeak = -value; track.oppositePeakTime = sample.time
                     }
-                } else if !current.qualified { current.holdSince = nil }
-            }
-            excursion = current
-            if neutral {
-                let minimumMotionTime: TimeInterval = current.gesture == .shake ? 0.24 : 0.18
-                if current.qualified && sample.time - current.start >= minimumMotionTime {
-                    cooldownUntil = sample.time + settings.effectiveCooldown
-                    resetMotion()
-                    return current.gesture
+                    // Natural shakes are asymmetric. Require both sides and a meaningful
+                    // total sweep, rather than identical absolute angles on both sides.
+                    track.qualified = track.peak >= yawThreshold * 0.8
+                        && track.oppositePeak >= yawThreshold * 0.45
+                        && track.peak + track.oppositePeak >= yawThreshold * 1.55
+                        && duration >= 0.24
+                    returned = track.oppositePeakTime.map { sample.time > $0 } ?? false
+                    returned = returned && abs(m.yaw!) <= max(yawThreshold * 0.35, track.oppositePeak * 0.5)
+                case .grin, .mouthOpen, .eyesClosed:
+                    let strength = activation(gesture, m)
+                    track.peak = max(track.peak, strength)
+                    if strength >= 0.65 { track.heldDuration += dt }
+                    else if !neutral && !track.qualified { track.heldDuration = 0 }
+                    track.qualified = track.qualified || (track.peak >= 1 && track.heldDuration >= requiredHold(for: gesture))
                 }
-                resetMotion()
+                excursions[gesture] = track
+                if returned {
+                    let minimumDuration = gesture == .shake ? 0.24 : 0.18
+                    if track.qualified && duration >= minimumDuration { completed.append(gesture) }
+                    if gesture != .shake || track.qualified { revoke(gesture) }
+                }
+                continue
             }
-            return nil
+            guard activation(gesture, m) >= 0.55 else { continue }
+            let direction = gesture == .nod ? (m.pitch! >= 0 ? 1.0 : -1.0)
+                : gesture == .shake ? (m.yaw! >= 0 ? 1.0 : -1.0) : 1.0
+            let peak = gesture == .nod ? abs(m.pitch!) : gesture == .shake ? abs(m.yaw!) : activation(gesture, m)
+            excursions[gesture] = Excursion(gesture: gesture, start: sample.time, direction: direction,
+                initialPitch: m.pitch, initialYaw: m.yaw, lastValid: sample.time, peak: peak, peakTime: sample.time)
         }
-        var active = present.filter { isActive($0, measurements) }
-        // Opening the jaw may also widen the lips. Prefer the specific opening measurement.
-        if active.contains(.mouthOpen) { active.remove(.grin) }
-        guard active.count == 1, let gesture = active.first else {
-            if active.count > 1 { resetMotion() }
-            return nil
-        }
-        guard !ambiguous(gesture, measurements, assigned: assigned) else { resetMotion(); return nil }
-        let direction = gesture == .nod ? (measurements.pitch! >= 0 ? 1.0 : -1.0)
-            : gesture == .shake ? (measurements.yaw! >= 0 ? 1.0 : -1.0) : 1.0
-        excursion = Excursion(gesture: gesture, start: sample.time, direction: direction,
-                              holdSince: gesture == .nod || gesture == .shake ? nil : sample.time)
-        return nil
+        // A smile commonly accompanies an intentional nod. A completed head trajectory
+        // has the stronger intent evidence and must produce one command rather than vanish.
+        let headGestures = completed.filter { $0 == .nod || $0 == .shake }
+        if headGestures.count == 1 { completed = headGestures }
+        if completed.contains(.mouthOpen) { completed.removeAll { $0 == .grin } }
+        guard !completed.isEmpty else { return nil }
+        cooldownUntil = sample.time + settings.effectiveCooldown
+        resetMotion()
+        // Simultaneously completed explicit gestures are ambiguous, never two verdicts.
+        return completed.count == 1 ? completed[0] : nil
     }
-    private var pitchThreshold: Double { 0.16 * settings.sensitivity.thresholdScale }
-    private var yawThreshold: Double { 0.22 * settings.sensitivity.thresholdScale }
-    private var smileThreshold: Double { 0.08 * settings.sensitivity.thresholdScale }
+    private mutating func revoke(_ gesture: FaceGesture) {
+        excursions[gesture] = nil
+        armed.remove(gesture)
+        neutralSince[gesture] = nil
+    }
+    private var pitchThreshold: Double { max(0.12 * settings.sensitivity.thresholdScale, pitchNoise * 5) }
+    private var yawThreshold: Double { max(0.15 * settings.sensitivity.thresholdScale, yawNoise * 5) }
+    private var smileThreshold: Double { max(0.055 * settings.sensitivity.thresholdScale, smileNoise * 5) }
+    private var liftThreshold: Double { max(0.025 * settings.sensitivity.thresholdScale, liftNoise * 5) }
+    private var strengthThreshold: Double { max(0.14 * settings.sensitivity.thresholdScale, strengthNoise * 5) }
     private var mouthThreshold: Double { 0.13 * settings.sensitivity.thresholdScale }
     private var closedEyeRatio: Double {
         switch settings.sensitivity { case .easy: 0.50; case .standard: 0.42; case .deliberate: 0.34 }
@@ -342,46 +410,50 @@ struct FaceGestureDetector: Sendable {
     }
     private func isNeutral(_ gesture: FaceGesture, _ m: Measurements) -> Bool {
         switch gesture {
-        case .nod: m.pitch.map { abs($0) < pitchThreshold * 0.5 } ?? false
-        case .shake: m.yaw.map { abs($0) < yawThreshold * 0.45 } ?? false
-        case .grin: m.smile.map { $0 < smileThreshold * 0.6 } ?? false
+        case .nod: m.pitch.map { abs($0) < pitchThreshold * 0.6 } ?? false
+        case .shake: m.yaw.map { abs($0) < yawThreshold * 0.55 } ?? false
+        case .grin: m.has(.grin) && activation(.grin, m) < 0.4
         case .mouthOpen: m.mouth.map { $0 < mouthThreshold * 0.45 } ?? false
         case .eyesClosed:
             if let left = m.leftEye, let right = m.rightEye { left > 0.72 && right > 0.72 } else { false }
         }
     }
-    private func isActive(_ gesture: FaceGesture, _ m: Measurements, releasing: Bool = false) -> Bool {
-        let releaseScale = releasing ? 0.85 : 1.0
+    private func activation(_ gesture: FaceGesture, _ m: Measurements) -> Double {
         switch gesture {
-        case .nod: return m.pitch.map { abs($0) >= pitchThreshold } ?? false
-        case .shake: return m.yaw.map { abs($0) >= yawThreshold } ?? false
-        case .grin: return m.smile.map { $0 >= smileThreshold * releaseScale } ?? false
-        case .mouthOpen: return m.mouth.map { $0 >= mouthThreshold * releaseScale } ?? false
+        case .nod: return m.pitch.map { abs($0) / pitchThreshold } ?? 0
+        case .shake: return m.yaw.map { abs($0) / yawThreshold } ?? 0
+        case .grin:
+            return max(m.smile.map { $0 / smileThreshold } ?? 0,
+                       m.lift.map { $0 / liftThreshold } ?? 0,
+                       m.strength.map { $0 / strengthThreshold } ?? 0)
+        case .mouthOpen: return m.mouth.map { $0 / mouthThreshold } ?? 0
         case .eyesClosed:
-            guard let left = m.leftEye, let right = m.rightEye else { return false }
-            return left <= closedEyeRatio && right <= closedEyeRatio
+            guard let left = m.leftEye, let right = m.rightEye else { return 0 }
+            return max(left, right) <= closedEyeRatio ? 1 : 0
         }
     }
-    private func ambiguous(_ gesture: FaceGesture, _ m: Measurements, assigned: Set<FaceGesture>) -> Bool {
-        // Pose checks are optional. Vision can provide sound lip/eye landmarks without pitch.
-        switch gesture {
-        case .nod:
-            if let yaw = m.yaw, abs(yaw) > yawThreshold { return true }
-        case .shake:
-            if let pitch = m.pitch, abs(pitch) > pitchThreshold * 1.2 { return true }
+    private func crossAxisMotion(_ track: Excursion, _ m: Measurements) -> Bool {
+        func change(_ current: Double?, _ initial: Double?) -> Double {
+            guard let current, let initial else { return 0 }
+            return abs(current - initial)
+        }
+        switch track.gesture {
+        case .nod: return change(m.yaw, track.initialYaw) > max(0.16, track.peak * 0.7)
+        case .shake: return change(m.pitch, track.initialPitch) > max(0.16, track.peak * 0.7)
         case .grin, .mouthOpen, .eyesClosed:
-            if let pitch = m.pitch, abs(pitch) > pitchThreshold * 1.3 { return true }
-            if let yaw = m.yaw, abs(yaw) > yawThreshold * 1.2 { return true }
+            return change(m.pitch, track.initialPitch) > 0.22 || change(m.yaw, track.initialYaw) > 0.25
         }
-        for other in assigned where other != gesture {
-            if gesture == .mouthOpen && other == .grin { continue }
-            if isActive(other, m) { return true }
-        }
-        return false
+    }
+    private func noise(_ values: [Double?]) -> Double {
+        let valid = values.compactMap { $0 }.sorted()
+        guard !valid.isEmpty else { return 0 }
+        let median = valid[valid.count / 2]
+        let deviations = valid.map { abs($0 - median) }.sorted()
+        return deviations[deviations.count / 2] * 1.4826
     }
     private func stableMedian(_ values: [Double?], spread: Double) -> Double? {
         let sorted = values.compactMap { $0 }.sorted()
-        guard sorted.count >= max(6, Int(ceil(Double(values.count) * 0.75))) else { return nil }
+        guard sorted.count >= max(4, Int(ceil(Double(values.count) * 0.7))) else { return nil }
         // Ignore an isolated landmark jump at either end, but reject sustained movement.
         let trim = sorted.count >= 10 ? 1 : 0
         guard sorted[sorted.count - 1 - trim] - sorted[trim] < spread else { return nil }
@@ -395,6 +467,8 @@ struct FaceGestureDetector: Sendable {
         let mouth: Double?
         let leftEye: Double?
         let rightEye: Double?
+        let lift: Double?
+        let strength: Double?
         init(sample: FaceGestureSample, baseline: FaceGestureBaseline) {
             func difference(_ measured: Double?, _ neutral: Double?) -> Double? {
                 guard let measured, let neutral else { return nil }
@@ -407,6 +481,8 @@ struct FaceGestureDetector: Sendable {
             pitch = difference(sample.measuredPitch, baseline.pitch)
             yaw = difference(sample.measuredYaw, baseline.yaw)
             smile = difference(sample.measuredSmile, baseline.smileWidth)
+            lift = difference(sample.measuredLift, baseline.smileLift)
+            strength = difference(sample.measuredStrength, baseline.smileStrength)
             mouth = difference(sample.measuredMouth, baseline.mouthOpen)
             leftEye = ratio(sample.measuredLeftEye, baseline.leftEyeOpen)
             rightEye = ratio(sample.measuredRightEye, baseline.rightEyeOpen)
@@ -415,7 +491,7 @@ struct FaceGestureDetector: Sendable {
             switch gesture {
             case .nod: pitch != nil
             case .shake: yaw != nil
-            case .grin: smile != nil
+            case .grin: smile != nil || lift != nil || strength != nil
             case .mouthOpen: mouth != nil
             case .eyesClosed: leftEye != nil && rightEye != nil
             }
