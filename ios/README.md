@@ -1,6 +1,19 @@
 # Praelude Mobile
 
-## October 11 — build15 verification complete; candidate not ready
+
+## October12 — Build15 prepared for controlled device validation, installation held
+
+**All affected simulator/live/package gates pass. Both physical iPads remain untouched and last verified12; Mac11.1.0/schema21 is unchanged.** Native2.0.0/build15/schema5 is prepared for the next authorized device-validation step, with no bug-free or physical-acceptance claim. Checkpoint `ios-v2.0.0-build15-device-validation` identifies the final source; the original failed `ios-v2.0.0-build15-candidate` tag remains unchanged.
+
+Actual44pt armed Edit padding/name112.5/Save/process-relaunch passes, including independent normal-UI readback. Only intended passage fields/update metadata and revision change; other records/PDF are exact. Absolute manual zoom now survives height-only practice-HUD changes: actual pinch/pan/arm passes64.577s and independently70.062s, all16 strict predicates, exact2.4332361227405377 across927→901pt; two affected native layout checks pass. At-fit, explicit refit, width/rotation and automatic short-landscape rules are retained.
+
+The named fifth/fourteenth/third-launch test failures have matched simulator logs: XCTest's virtual digitizer disappears while its contact remains down, causing cancellation before UIWindow forwarding. A HARNESS-only single120ms same-center contact/no retry passes20 delivery-checked and10 untraced fresh launches with protected practice state,20began/20ended/0cancelled and no live-contact teardown in OS logs. No production cancelled-touch fallback is introduced. Independent normal navigation/first arm/Edit/Focus/Close/relaunch/Cancel also pass.
+
+Generic signed Release15 and archive readback pass:29 root/40 independent checks,65 diagnostic markers absent, matching arm64 dSYM/fonts/resources; profile valid through2026-10-17 16:14:24UTC. Signed executable `b3c21602064f27282cf40e0d04f79a2445d6dae2424f179cb6fe4a9c2742f4f8`; ignored archive `releases/ios-build15-verified-20261012`. Exact-device inclusion is not queried or claimed. Manual landscape rotation was not established; separately recorded actual rotation/native scopes remain in QA. Physical speech/camera/Pencil/click/OS/sustained acceptance and unmatched historical failures remain unproven.
+
+**Next steps:** maintain the no-install hold. Future authorized device validation must separately pass exact-target/profile, fresh idle/paused backup, full-file preservation, launch/readback and physical acceptance. Evidence/screenshots: `docs/qa/ios/2.0.0/build15/README.md`.
+
+## Historical October11 bounded build15 report — failed final18
 
 **Native2.0.0/build15/schema5 is held. Both physical iPads remain untouched and last verified at build12; Mac11.1.0/schema21 is unchanged.** The user narrowed the task to finishing the current tap/note/Back/rotation verification and reporting passes, failures and untested boundaries, without further scope or diagnostic loops.
 

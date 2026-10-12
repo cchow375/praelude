@@ -1,0 +1,52 @@
+{
+  "failedRun": "final22",
+  "failedFreshLaunch": 3,
+  "successfulBeforeFailure": 2,
+  "seconds": 72.182,
+  "appExecutableSHA256": "f18c220c56eed9d2d30bc3b68e2c3e315e5fa79f7a17c20c75daa83c196fe645",
+  "failedPDFReadoutSHA256": "729fdfec87088df91f65783c6efe75584d3c1480c7f2b974eca26ea507913de2",
+  "failedDeliveryRing": "passiveReading=[reading.receive overlay=true allowed=true point=(410.0, 437.5) local=(297.5, 421.0) touch=0 phase=0 taps=1 time=634421.3890731666 leaf=PKSelectionGestureView descendant=true sameWindow=true reading=true|reading.window beforePhase=0 afterPhase=0 type=0 beforeTime=634421.3890731666 afterTime=634421.3890731666 x=410.0 y=523.5 endDelta=-1.0 sameWindow=true keyWindow=true scene=0 appState=0 appStates=[pageTap:state=0,enabled=true|rename:state=0,enabled=true|dictate:state=0,enabled=true|longPress:state=0,enabled=true] recognizers=[]|reading.window beforePhase=4 afterPhase=4 type=0 beforeTime=634421.5623907084 afterTime=634421.5623907084 x=410.0 y=523.5 endDelta=0.17331754171755165 sameWindow=true keyWindow=true scene=0 appState=0 appStates=[pageTap:state=0,enabled=true|rename:state=0,enabled=true|dictate:state=0,enabled=true|longPress:state=0,enabled=true] recognizers=[]]",
+  "actualWindowSequence": "began0 \u2192 cancelled4; no ended3; cancellation already present before original UIWindow forwarding",
+  "elapsedSeconds": 0.17331754171755165,
+  "activeState": "sameWindow=true;keyWindow=true;scene=foregroundActive0;appState=active0",
+  "requestedInput": "one unchanged fixed-center410,523.5 down\u2192up at offsets0\u21920.05 seconds; successful and failed synthesis archives differ only by targetPID",
+  "provedCause": "testmanagerd removes Recap virtual digitizer while a contact remains touching/locked; BackBoard cancels it because the digitizer disappeared. Matching original final18 fifth-launch and final19 fourteenth-launch failures have the same upstream cause.",
+  "scope": "This explains the named simulator failures. It is not physical-device acceptance or proof of every previously reported tap issue. Exact Apple-internal race origin remains unknown.",
+  "productionDecision": "Do not fire passage actions from cancelled touches. No additional production gesture mutation justified by these failures.",
+  "nextVerification": "Harness-only candidate: one120ms same-coordinate contact, no retry; require actual ended/no cancelled delivery and original strict arming/protected-state assertions, then untraced normal-flags acceptance.",
+  "systemLogEvidence": {
+    "final18": {
+      "appPID": 4733,
+      "cancellationLocalTime": "2026-10-11 23:36:06.473 EDT",
+      "rawLogSHA256": "e7540ece53e900dfc9e838f28a18a052955bd86b6b17a44928cabe0a8302a0bb",
+      "excerpts": [
+        "2026-10-11 23:36:06.472 Df testmanagerd[89874:dd9bf7] [com.apple.recap:Playback] service canceled: (<RCPVirtualHIDService: 0x101e04d70> (recapulon) 0x0D/0x04: (Recap) touchscreen digitizer)",
+        "2026-10-11 23:36:06.473 Df backboardd[89731:dd9e9d] [com.apple.BackBoard:TouchEvents] cancel -- digitizer did disappear:<BKDirectTouchState: 0x10af44620; touchScreen; builtin; senderID: 0x103AC100002AE; contacts: contacts: [pathIndex: 2; touchIdentifier: 707; touching; locked; destinations: ((hitTest); contextID: 0xBA8494B7; clientPort: 0x2FA8B; inheritedSceneHostSettings: <identifier: sceneID:<synthetic-test-scene>; touchBehavior: foreground>, (touchStream|filterDetachedTouches); contextID: 0x35AB2408; clientPort: 0x530B)]; destinations: [<BKTouchDestination: 0x10a1a7a50; (hitTest); contextID: 0x3F3E947D; clientPort: 0x530B; externalReferences: 1>, <BKTouchDestination: 0x10a1a6370; (hitTest); contextID: 0xCBD9F5D1; clientPort: 0x530B; externalReferences: 1>, <BKTouchDestination: 0x10a1a6af0; (hitTest); contextID: 0xBA8494B7; clientPort: 0x2FA8B; inheritedSceneHostSettings: <identifier: sceneID:<synthetic-test-scene>; touchBehavior: foreground>; externalReferences: 1>]; latentSystemGestureDestinations: ()>",
+        "    soft cancel: 1,",
+        "        Praelude.4733 contextID BA8494B7: {"
+      ]
+    },
+    "final19": {
+      "appPID": 8044,
+      "cancellationLocalTime": "2026-10-12 00:04:48.325 EDT",
+      "rawLogSHA256": "9266bcf72695af8d22dec410f06c02ef62db82f64b68249d37aaef3f3a06cbf5",
+      "excerpts": [
+        "2026-10-12 00:04:48.325 Df testmanagerd[7398:de230a] [com.apple.recap:Playback] service canceled: (<RCPVirtualHIDService: 0x10461c5f0> (recapulon) 0x0D/0x04: (Recap) touchscreen digitizer)",
+        "2026-10-12 00:04:48.325 Df backboardd[89731:de2307] [com.apple.BackBoard:TouchEvents] cancel -- digitizer did disappear:<BKDirectTouchState: 0x111a2f640; touchScreen; builtin; senderID: 0x103AC1A0002E7; contacts: contacts: [pathIndex: 2; touchIdentifier: 763; touching; locked; destinations: ((hitTest); contextID: 0x54ACAFE2; clientPort: 0x25B33; inheritedSceneHostSettings: <identifier: sceneID:<synthetic-test-scene>; touchBehavior: foreground>, (touchStream|filterDetachedTouches); contextID: 0x35AB2408; clientPort: 0x530B)]; destinations: [<BKTouchDestination: 0x10a1db7b0; (hitTest); contextID: 0x3F3E947D; clientPort: 0x530B; externalReferences: 1>, <BKTouchDestination: 0x10a1dba50; (hitTest); contextID: 0x54ACAFE2; clientPort: 0x25B33; inheritedSceneHostSettings: <identifier: sceneID:<synthetic-test-scene>; touchBehavior: foreground>; externalReferences: 1>, <BKTouchDestination: 0x10a1dac10; (hitTest); contextID: 0xCBD9F5D1; clientPort: 0x530B; externalReferences: 1>]; latentSystemGestureDestinations: ()>",
+        "    soft cancel: 1,",
+        "        Praelude.8044 contextID 54ACAFE2: {"
+      ]
+    },
+    "final22": {
+      "appPID": 11364,
+      "cancellationLocalTime": "2026-10-12 00:41:06.869 EDT",
+      "rawLogSHA256": "348924f7976cf2e95a02ff2c513d2e59b4791115347f01f41fa64f77a847049f",
+      "excerpts": [
+        "2026-10-12 00:41:06.869 Df testmanagerd[11198:df13fc] [com.apple.recap:Playback] service canceled: (<RCPVirtualHIDService: 0x106615180> (recapulon) 0x0D/0x04: (Recap) touchscreen digitizer)",
+        "2026-10-12 00:41:06.869 Df backboardd[89731:df1747] [com.apple.BackBoard:TouchEvents] cancel -- digitizer did disappear:<BKDirectTouchState: 0x10af440e0; touchScreen; builtin; senderID: 0x103AC32000319; contacts: contacts: [pathIndex: 2; touchIdentifier: 814; touching; locked; destinations: ((touchStream|filterDetachedTouches); contextID: 0x62CE2345; clientPort: 0x14FF3, (hitTest); contextID: 0x6D3A160D; clientPort: 0x2D79B; inheritedSceneHostSettings: <identifier: sceneID:<synthetic-test-scene>; touchBehavior: foreground>)]; destinations: [<BKTouchDestination: 0x10a1d8450; (hitTest); contextID: 0xA9CD4F42; clientPort: 0x14FF3; externalReferences: 1>, <BKTouchDestination: 0x10a1dbde0; (hitTest); contextID: 0x5F75146E; clientPort: 0x14FF3; externalReferences: 1>, <BKTouchDestination: 0x10a1da9d0; (hitTest); contextID: 0x6D3A160D; clientPort: 0x2D79B; inheritedSceneHostSettings: <identifier: sceneID:<synthetic-test-scene>; touchBehavior: foreground>; externalReferences: 1>]; latentSystemGestureDestinations: ()>",
+        "    soft cancel: 1,",
+        "        Praelude.11364 contextID 6D3A160D: {"
+      ]
+    }
+  }
+}

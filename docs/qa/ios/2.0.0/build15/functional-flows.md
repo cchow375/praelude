@@ -189,3 +189,39 @@ The separate zoom case fails69.327s after real pinch/pan and a successful passag
 The same hierarchy exposes an armed-pencil9.5×9.5pt AX target. A proposed44pt shape/new padding test and passive20-launch/full-value diagnostic helpers were never compiled/run. They are reverted after the user requests a bounded report without scope expansion/diagnostic loops. All source files return to final18 hashes. No final19, extra diagnostic sweep, fresh manual latest-binary acceptance or signed build15 Release audit follows. Both physical iPads remain untouched/last-verified12 under hold; Mac11.1.0/schema21 unchanged.
 
 Current concise table, untested limits and next-step boundary: README.md. Executed summary/provenance: functional-final18-summary.json and functional-final18-provenance.json; independent review: final18-independent-review.json. All earlier failures and superseded hypotheses remain above.
+
+
+## Resumed affected-flow repair — final19 through final22 (in progress)
+
+The user explicitly resumes the fifth-launch tap/small armed Edit/zoom work after the bounded final18 report, still forbidding all physical iPad actions. The earlier failures remain evidence; only affected flows run.
+
+- Final19: armed Edit lower-padding/name/112.5-goal/Save/process-relaunch passes94.063s. The actual target is44×44pt and the one padding tap lies outside the24pt glyph exclusion. Actual zoom fails70.791s only at absolute scale preservation: viewport927→901pt changes fit1.0766550522648084→1.0464576074332173 and scale2.4332361227405377→2.3649900178956038; relative zoom is unchanged2.2599960104418586. A height-only fit-relative recalculation is the proved cause.
+- Final19 passive first-center-tap fails on fresh launch14 after13 successes,290.722s. The correct allowed began reaches the native pageTap delegate; no shouldBegin/action/selection follows. Later possible-state snapshots cannot prove the preceding cancellation or dependency. This is a concrete unresolved tap failure, not waived by later successes.
+- Final20: height-only manual-scale repair passes actual pinch/pan/one-arm-tap UI64.577s: exact absolute2.4332361227405377 is retained across927→901pt; all16 final predicates pass. Two affected native layout cases pass0.123s/0.022s. Independent source/evidence review accepts this scoped zoom repair.
+- Final20 forwarding-lifecycle20-launch diagnostic passes395.020s. Final21 original UIKit classes plus full window trace passes20 actual fresh-process executions; summary aggregates1 unique test. All20 window contacts complete without cancellation. Neither diagnostic pass closes final19 or final18.
+- Final22 is running only the original UIKit20-fresh-launch first-center-tap diagnostic with explicitly enabled DEBUG in-memory window phase/state capture. No full trace/I/O/heartbeat/lifecycle wrappers. Independent safety review accepts bounded observation, with diagnostic perturbation retained as a limit. The run stops at its first failed single tap.
+
+Current readiness: NOT READY while the native tap cause remains open. Fresh final-binary live verification and generic signed Release audit are pending. Physical microphone/camera/Pencil/click/sustained-use acceptance is untested; both physical iPads are untouched.
+
+
+### Final22 causal capture and final23 input verification (in progress)
+
+Final22 stops on fresh launch3 after2 passes,72.182s. The original UIKit page recognizer accepts began; UIWindow then receives cancelledphase4 before original forwarding after173.318ms, no endedphase3, while scene/app/key-window remain active. System unified logs identify the precise upstream event: testmanagerd Recap virtual digitizer removal while a contact is still touching/locked, followed by BackBoard soft cancel1. Matching original final18 fifth-launch(PID4733) and final19 fourteenth-launch(PID8044) logs prove the same cause for those named failures. Successful/failed synthesis plans both request one50ms fixed-center down/up, so TouchEventsCompleted is not proof of delivered up. Independent review confirms each timestamp/target. Exact Apple-internal race origin remains unknown; other historical failures and physical-device behavior remain separately scoped.
+
+A cancelled touch must not trigger passage practice. No new production gesture fallback is justified. Final23 changes only the test contact to one120ms same fixed point/no retry, retaining all readiness/target/arming/protected-ledger checks. Window20 additionally requires exactly one began, one ended, no phase4 and one retained direct ended touch; normal10 excludes all diagnostic hook flags. Actual app hash remainsf18c220c…, installed runnerbd8fbeee…; both built/installed hashes match. Delivery verification is running, not yet accepted. Evidence: `tap-cancellation-cause-final22.json`, `window-touch-final22-summary.json`, `window-touch-final22-provenance.json`, `tap-input-final23-provenance.json`.
+
+
+### Final23 completed — input delivery and untraced first-contact acceptance PASS
+
+The affected run completes2 cases/0 failures/0 skips: window20 launches424.045s and untraced10 launches200.221s. Root parses20 complete PDF receipts and verifies20began/20ended/0cancelled; each has one retained direct ended touch. Ten untraced state receipts retain the strict zero-practice ledger/owner/click/page/armed60 contract. The normal case excludes all trace/passive/window/lifecycle flags. One120ms same-center contact per fresh process, no retries or direct model actions. Bounded OS logs show30 virtual-digitizer disappearance states, all with empty contacts,0 still-touching/locked cancellations. The harness input workaround passes; no production action is fired on cancellation.
+
+Both installed appf18c220c… and runnerbd8fbeee… match the built artifacts; all241 source hashes are frozen. App source/executable are identical to final22's causal capture. Earlier failed runs remain unchanged in their records. Independent live final24 UI verification is now in progress; generic signed Release audit remains pending. Both physical iPads remain untouched.
+
+
+## Final24 live and Release/package gates — completed, installation held
+
+Independent normal visible-UI navigation/first arm/44pt Edit padding/name112.5/Save/Focus/Close/process-relaunch/reopen/Cancel pass. Union-key comparison allows only the intended passage title/performanceTempo/updatedAt and revision7→8; every other record and source PDF/artifact is exact, with zero practice activity. Independent one real pinch/pan/arm case passes70.062s, all16 strict predicates, absolute2.4332361227405377 unchanged across927→901pt. Installed appf18c220c…/runnerbd8fbeee… and241 source hashes match. Manual landscape is not established by casing-only rotation; historical actual/native rotation evidence remains separately scoped.
+
+Generic signed Release15 build/source provenance passes. Root29 and independent40 artifact checks pass,65 test/diagnostic markers absent, two fonts exact,13 expected bundle files and3 dSYM files. Profile expires2026-10-17T16:14:24Z. The independent verifier corrected a too-narrow resource allowlist for the resolved swift-crypto4.5.2 privacy-only bundle; its bytes match the resolved checkout, with no artifact change. ZIPs in ignored releases/ios-build15-verified-20261012 extract to exact app/dSYM inventories. Signed executableb3c21602064f27282cf40e0d04f79a2445d6dae2424f179cb6fe4a9c2742f4f8. No physical-device query, installation or app/data operation occurs.
+
+Current status: prepared for controlled device validation, installation HELD. Physical recognition/camera/Pencil/click/OS/sustained use and unmatched historical failure attribution remain unaccepted. Source checkpointios-v2.0.0-build15-device-validation; original failed final18 candidate tag is preserved. No zero-defect claim.

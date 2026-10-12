@@ -212,7 +212,27 @@ final class FreshBuild13UITests: XCTestCase {
 
     @MainActor func testDirectNameAndDecimalGoalSaveAndReopenWithoutStartingSet() {
         let app = XCUIApplication(); openScore(app); armPassage(app)
-        tap(app.buttons["armEditPassage"], app: app)
+        let edit = app.buttons["armEditPassage"]
+        var previous = CGRect.zero
+        var changed = Date.now
+        let editReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard edit.exists, edit.isHittable, edit.frame.width >= 44, edit.frame.height >= 44,
+                  app.frame.contains(edit.frame), app.otherElements["practiceArmPanel"].frame.contains(edit.frame) else { return false }
+            if edit.frame != previous { previous = edit.frame; changed = .now; return false }
+            return Date.now.timeIntervalSince(changed) >= 0.4
+        }, object: nil)
+        let readiness = XCTWaiter.wait(for: [editReady], timeout: 8)
+        let frame = edit.frame
+        let paddingPoint = CGPoint(x: frame.midX, y: frame.midY + 15)
+        let glyphExclusion = CGRect(x: frame.midX - 12, y: frame.midY - 12, width: 24, height: 24)
+        let target = XCTAttachment(string: "button=\(frame) paddingPoint=\(paddingPoint) centralGlyphExclusion=\(glyphExclusion) panel=\(app.otherElements["practiceArmPanel"].frame) hittable=\(edit.isHittable) readiness=\(readiness.rawValue)")
+        target.name = "fresh13-arm-edit-44pt-lower-padding-target"; target.lifetime = .keepAlways; add(target)
+        shot("fresh13-arm-edit-before-single-lower-padding-tap", app: app)
+        XCTAssertEqual(readiness, .completed, "The complete armed-passage Edit target must settle at least 44×44pt.\n\(app.debugDescription)")
+        XCTAssertTrue(frame.contains(paddingPoint) && !glyphExclusion.contains(paddingPoint),
+                      "The single tap must land inside the button's lower padding, outside the central pencil glyph.")
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+            dx: paddingPoint.x - app.frame.minX, dy: paddingPoint.y - app.frame.minY)).tap()
         let name = app.textViews["passageRenameField"].exists ? app.textViews["passageRenameField"] : app.textFields["passageRenameField"]
         XCTAssertTrue(name.waitForExistence(timeout: 5), app.debugDescription)
         tap(name, app: app)

@@ -7,7 +7,35 @@ import ObjectiveC
 @MainActor enum InteractionAudit {
     private(set) static var isEnabled = false
     private(set) static var isPassiveReadingDelivery = false
+    private(set) static var isReadingLifecycleEnabled = false
+    private(set) static var isReadingWindowEnabled = false
     private(set) static var passiveReadingEvents: [String] = []
+    fileprivate struct ReadingWindowSnapshot {
+        let touch: UITouch
+        let phase: UITouch.Phase
+        let type: UITouch.TouchType
+        let timestamp: TimeInterval
+        let point: CGPoint
+        let sameWindow: Bool
+        let keyWindow: Bool
+        let sceneState: Int
+    }
+    private struct RetainedReadingWindowTouch {
+        let touch: UITouch
+        let beganAt: TimeInterval?
+        let beforePhase: UITouch.Phase
+        let afterPhase: UITouch.Phase
+        let beforeTime: TimeInterval
+        let afterTime: TimeInterval
+    }
+    private static var readingWindowTouches: [RetainedReadingWindowTouch] = []
+    private static var readingWindowForwardCount = 0
+    private final class WeakReadingWindowGesture {
+        weak var value: UIGestureRecognizer?
+        init(_ value: UIGestureRecognizer) { self.value = value }
+    }
+    private static let readingWindowRoles = ["pageTap", "rename", "dictate", "longPress"]
+    private static var readingWindowGestures: [String: WeakReadingWindowGesture] = [:]
     private static var installed = false
     private static var sequence = 0
     private static var heartbeatCount = 0
@@ -26,6 +54,14 @@ import ObjectiveC
             installed = true
             isEnabled = true
             isPassiveReadingDelivery = true
+            let windowRequested = arguments.contains("--audit-reading-window")
+            isReadingLifecycleEnabled = arguments.contains("--audit-reading-lifecycle") && !windowRequested
+            if windowRequested,
+               let original = class_getInstanceMethod(UIWindow.self, #selector(UIWindow.sendEvent(_:))),
+               let observed = class_getInstanceMethod(UIWindow.self, #selector(UIWindow.praeludeReadingWindowSendEvent(_:))) {
+                method_exchangeImplementations(original, observed)
+                isReadingWindowEnabled = true
+            }
             return
         }
         guard arguments.contains("--audit-taps") else { return }
@@ -65,7 +101,8 @@ import ObjectiveC
                 stage = String(message.prefix(1_200))
             } else { return }
             passiveReadingEvents.append(stage)
-            if passiveReadingEvents.count > 64 { passiveReadingEvents.removeFirst(passiveReadingEvents.count - 64) }
+            let limit = isReadingLifecycleEnabled || isReadingWindowEnabled ? 128 : 64
+            if passiveReadingEvents.count > limit { passiveReadingEvents.removeFirst(passiveReadingEvents.count - limit) }
             return
         }
         sequence += 1
@@ -81,6 +118,69 @@ import ObjectiveC
         data.append(0x0A)
         writer.append(data)
         NSLog("PraeludeInteractionAudit #%ld %@", sequence, safe)
+    }
+
+    /// Public touch state only. Reading this AX diagnostic never updates retained state or
+    /// asks UIKit to deliver, cancel, recognize, hit-test or otherwise process an event.
+    static var readingWindowDiagnostic: String {
+        guard isReadingWindowEnabled else { return "" }
+        let touches = readingWindowTouches.enumerated().map { index, retained in
+            let touch = retained.touch
+            let point = touch.location(in: touch.window)
+            return "touch=\(index) type=\(touch.type.rawValue) beganAt=\(retained.beganAt ?? -1) beforePhase=\(retained.beforePhase.rawValue) afterPhase=\(retained.afterPhase.rawValue) beforeTime=\(retained.beforeTime) afterTime=\(retained.afterTime) currentPhase=\(touch.phase.rawValue) currentTime=\(touch.timestamp) x=\(point.x) y=\(point.y)"
+        }.joined(separator: "|")
+        return "forwarded=\(readingWindowForwardCount);retained=\(readingWindowTouches.count);touches=[\(touches)];appStates=[\(readingWindowGestureDiagnostic)]"
+    }
+
+    static func registerReadingWindowGesture(_ gesture: UIGestureRecognizer, role: String) {
+        guard isReadingWindowEnabled, readingWindowRoles.contains(role) else { return }
+        readingWindowGestures[role] = WeakReadingWindowGesture(gesture)
+    }
+
+    private static var readingWindowGestureDiagnostic: String {
+        readingWindowRoles.map { role in
+            guard let gesture = readingWindowGestures[role]?.value else { return "\(role):missing" }
+            return "\(role):state=\(gesture.state.rawValue),enabled=\(gesture.isEnabled)"
+        }.joined(separator: "|")
+    }
+
+    fileprivate static func readingWindowBeforeForward(_ event: UIEvent, in window: UIWindow) -> [ReadingWindowSnapshot] {
+        guard isReadingWindowEnabled, event.type == .touches else { return [] }
+        // Only primitive touch fields are sampled before forwarding. No recognizer/view
+        // reflection, strings, memory log append or event mutation happens on this path.
+        return (event.allTouches ?? []).prefix(4).map {
+            ReadingWindowSnapshot(touch: $0, phase: $0.phase, type: $0.type,
+                                  timestamp: $0.timestamp, point: $0.location(in: window),
+                                  sameWindow: $0.window === window, keyWindow: window.isKeyWindow,
+                                  sceneState: window.windowScene?.activationState.rawValue ?? -1)
+        }
+    }
+
+    fileprivate static func readingWindowAfterForward(_ snapshots: [ReadingWindowSnapshot]) {
+        guard isReadingWindowEnabled, !snapshots.isEmpty else { return }
+        readingWindowForwardCount += 1
+        for before in snapshots {
+            let index = readingWindowTouches.firstIndex { $0.touch === before.touch }
+            let beganAt = before.phase == .began ? before.timestamp : index.flatMap { readingWindowTouches[$0].beganAt }
+            let afterPhase = before.touch.phase
+            let afterTime = before.touch.timestamp
+            let terminal = before.phase == .ended || before.phase == .cancelled || afterPhase == .ended || afterPhase == .cancelled
+            let endDelta = terminal ? beganAt.map { before.timestamp - $0 } ?? -1 : -1
+            let retained = RetainedReadingWindowTouch(touch: before.touch, beganAt: beganAt,
+                beforePhase: before.phase, afterPhase: afterPhase, beforeTime: before.timestamp, afterTime: afterTime)
+            if let index { readingWindowTouches[index] = retained }
+            else {
+                if readingWindowTouches.count == 4 { readingWindowTouches.removeFirst() }
+                readingWindowTouches.append(retained)
+            }
+            // Class/state inspection is deliberately limited to terminal touches and only
+            // runs after the original UIWindow implementation has received the same event.
+            let recognizers = terminal ? (before.touch.gestureRecognizers ?? []).prefix(24).map {
+                "\(NSStringFromClass(type(of: $0))):\($0.state.rawValue)"
+            }.joined(separator: ",") : ""
+            let appStates = before.phase == .began || terminal ? readingWindowGestureDiagnostic : ""
+            record("pdf reading.window beforePhase=\(before.phase.rawValue) afterPhase=\(afterPhase.rawValue) type=\(before.type.rawValue) beforeTime=\(before.timestamp) afterTime=\(afterTime) x=\(before.point.x) y=\(before.point.y) endDelta=\(endDelta) sameWindow=\(before.sameWindow) keyWindow=\(before.keyWindow) scene=\(before.sceneState) appState=\(UIApplication.shared.applicationState.rawValue) appStates=[\(appStates)] recognizers=[\(recognizers)]")
+        }
     }
 
     fileprivate static func observe(_ event: UIEvent, in window: UIWindow) {
@@ -154,6 +254,14 @@ import ObjectiveC
 }
 
 fileprivate extension UIWindow {
+    @objc func praeludeReadingWindowSendEvent(_ event: UIEvent) {
+        let before = InteractionAudit.readingWindowBeforeForward(event, in: self)
+        // After exchange this selector is the original implementation. Every event,
+        // including non-touch events, is forwarded synchronously and exactly once.
+        praeludeReadingWindowSendEvent(event)
+        InteractionAudit.readingWindowAfterForward(before)
+    }
+
     @objc func praeludeAuditSendEvent(_ event: UIEvent) {
         InteractionAudit.observe(event, in: self)
         let snapshotAfter = InteractionAudit.isEnabled && event.allTouches?.contains(where: {
@@ -266,6 +374,99 @@ private final class InteractionAuditWriter: @unchecked Sendable {
     private func reportWriteFailure(_ error: Error) {
         let failure = error as NSError
         NSLog("PraeludeInteractionAudit writer failed domain=%@ code=%ld", failure.domain, failure.code)
+    }
+}
+
+/// Opt-in recognizer diagnostics. All superclass callbacks execute exactly once and every
+/// recognition/prevention result is returned unchanged. Normal and Release gestures use UIKit.
+@MainActor private func recordReadingLifecycle(_ gesture: UIGestureRecognizer, role: String,
+                                              stage: String, touches: Set<UITouch>? = nil,
+                                              other: UIGestureRecognizer? = nil) {
+    guard InteractionAudit.isReadingLifecycleEnabled else { return }
+    let touch = touches?.first
+    let dependencies = (gesture.view?.gestureRecognizers ?? []).compactMap { item -> String? in
+        if let tap = item as? ReadingLifecycleTapGestureRecognizer { return "\(tap.auditRole):\(tap.state.rawValue)" }
+        if let press = item as? ReadingLifecycleLongPressGestureRecognizer { return "\(press.auditRole):\(press.state.rawValue)" }
+        return nil
+    }.joined(separator: ",")
+    InteractionAudit.record("pdf reading.lifecycle role=\(role) stage=\(stage) state=\(gesture.state.rawValue) time=\(ProcessInfo.processInfo.systemUptime) phase=\(touch?.phase.rawValue ?? -1) touchTime=\(touch?.timestamp ?? -1) count=\(touches?.count ?? 0) other=\(other.map { String(describing: type(of: $0)) } ?? "nil") otherState=\(other?.state.rawValue ?? -1) deps=\(dependencies)")
+}
+
+final class ReadingLifecycleTapGestureRecognizer: UITapGestureRecognizer {
+    var auditRole = "tap"
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        recordReadingLifecycle(self, role: auditRole, stage: "began.before", touches: touches)
+        super.touchesBegan(touches, with: event)
+        recordReadingLifecycle(self, role: auditRole, stage: "began.after", touches: touches)
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        recordReadingLifecycle(self, role: auditRole, stage: "ended.before", touches: touches)
+        super.touchesEnded(touches, with: event)
+        recordReadingLifecycle(self, role: auditRole, stage: "ended.after", touches: touches)
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        recordReadingLifecycle(self, role: auditRole, stage: "cancelled.before", touches: touches)
+        super.touchesCancelled(touches, with: event)
+        recordReadingLifecycle(self, role: auditRole, stage: "cancelled.after", touches: touches)
+    }
+    override func reset() {
+        recordReadingLifecycle(self, role: auditRole, stage: "reset.before")
+        super.reset()
+        recordReadingLifecycle(self, role: auditRole, stage: "reset.after")
+    }
+    override func canBePrevented(by other: UIGestureRecognizer) -> Bool {
+        let result = super.canBePrevented(by: other)
+        if result { recordReadingLifecycle(self, role: auditRole, stage: "canBePrevented.true", other: other) }
+        return result
+    }
+    override func shouldRequireFailure(of other: UIGestureRecognizer) -> Bool {
+        let result = super.shouldRequireFailure(of: other)
+        if result { recordReadingLifecycle(self, role: auditRole, stage: "requiresFailure.true", other: other) }
+        return result
+    }
+    override func shouldBeRequiredToFail(by other: UIGestureRecognizer) -> Bool {
+        let result = super.shouldBeRequiredToFail(by: other)
+        if result { recordReadingLifecycle(self, role: auditRole, stage: "requiredToFail.true", other: other) }
+        return result
+    }
+}
+
+final class ReadingLifecycleLongPressGestureRecognizer: UILongPressGestureRecognizer {
+    var auditRole = "longPress"
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        recordReadingLifecycle(self, role: auditRole, stage: "began.before", touches: touches)
+        super.touchesBegan(touches, with: event)
+        recordReadingLifecycle(self, role: auditRole, stage: "began.after", touches: touches)
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        recordReadingLifecycle(self, role: auditRole, stage: "ended.before", touches: touches)
+        super.touchesEnded(touches, with: event)
+        recordReadingLifecycle(self, role: auditRole, stage: "ended.after", touches: touches)
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        recordReadingLifecycle(self, role: auditRole, stage: "cancelled.before", touches: touches)
+        super.touchesCancelled(touches, with: event)
+        recordReadingLifecycle(self, role: auditRole, stage: "cancelled.after", touches: touches)
+    }
+    override func reset() {
+        recordReadingLifecycle(self, role: auditRole, stage: "reset.before")
+        super.reset()
+        recordReadingLifecycle(self, role: auditRole, stage: "reset.after")
+    }
+    override func canBePrevented(by other: UIGestureRecognizer) -> Bool {
+        let result = super.canBePrevented(by: other)
+        if result { recordReadingLifecycle(self, role: auditRole, stage: "canBePrevented.true", other: other) }
+        return result
+    }
+    override func shouldRequireFailure(of other: UIGestureRecognizer) -> Bool {
+        let result = super.shouldRequireFailure(of: other)
+        if result { recordReadingLifecycle(self, role: auditRole, stage: "requiresFailure.true", other: other) }
+        return result
+    }
+    override func shouldBeRequiredToFail(by other: UIGestureRecognizer) -> Bool {
+        let result = super.shouldBeRequiredToFail(by: other)
+        if result { recordReadingLifecycle(self, role: auditRole, stage: "requiredToFail.true", other: other) }
+        return result
     }
 }
 #endif

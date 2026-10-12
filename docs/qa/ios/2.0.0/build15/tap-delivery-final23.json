@@ -1,0 +1,247 @@
+{
+  "result": "passed",
+  "appSHA256": "f18c220c56eed9d2d30bc3b68e2c3e315e5fa79f7a17c20c75daa83c196fe645",
+  "runnerSHA256": "bd8fbeeeca9b4046b66ffff2bc962a8535c6acc255ace8891772afc2b96adb9c",
+  "input": "one fixed-center410,523.5 direct120ms contact per fresh process; no retries",
+  "windowCheckedLaunches": 20,
+  "untracedLaunches": 10,
+  "totalActualLaunches": 30,
+  "windowTestSeconds": 424.045,
+  "normalTestSeconds": 200.221,
+  "beganCount": 20,
+  "endedCount": 20,
+  "cancelledCount": 0,
+  "windowRows": [
+    {
+      "launch": 1,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "1b589a7658b1b067376561d26b7baa71af91f43cb77b3e04658c9f8e2361f5b7"
+    },
+    {
+      "launch": 2,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "9502082a524958b23f6c6a5753b3c3ed1d417718bdb98757472ba5735e00aa86"
+    },
+    {
+      "launch": 3,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "fdd37c5a8c4177f1e2a0ee3fdf634cc43981dddfe32884f5dff8d61821c8b3eb"
+    },
+    {
+      "launch": 4,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "cbdd398579c7ae28828297da9dab3734339fe26ec076c0ea977047d975aed384"
+    },
+    {
+      "launch": 5,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "03f88334f42e10e063fcc15ed919c33baf33c06a3296b495479f796cc6b62c65"
+    },
+    {
+      "launch": 6,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "2d0cb149665fe8410ec01338f3cfb21b2ab8cf8b8d1decb5b6dcd915988f5b83"
+    },
+    {
+      "launch": 7,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "58c8fb50bfab60b318af3c53d8a7a8744fc7e44d11a98d6d8079c17ba5066c32"
+    },
+    {
+      "launch": 8,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "2045608b2ebb0940c2afa9156df24dac4bcc740a57439022dfb93f310ef93ab6"
+    },
+    {
+      "launch": 9,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "a94c0f60c94d804f6928f8339b7b97e02a2219cb0163a2e0568d6436fe9db2a0"
+    },
+    {
+      "launch": 10,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "fdb5b13881de49f8fd2f7f194b2afa07dd6b7edf748473e7bf1239f063991795"
+    },
+    {
+      "launch": 11,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "e70d748000b8683351bf44892521244d842f0661db3b3005582742295b2c584d"
+    },
+    {
+      "launch": 12,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "9c541d0634eebfdb7704ce89019477af8f473eec859d5b520324943936325634"
+    },
+    {
+      "launch": 13,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "afd258a07b20b29f70866f76485e9dc81208022216a05b0331223b9a82aac81d"
+    },
+    {
+      "launch": 14,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "d9a219a10daf169dc19dc2ca2fc33ff8e3ad0d0eef260680eef7432102f628ad"
+    },
+    {
+      "launch": 15,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "ae0bf3d1bbb9b729f84d5355ce34577be75acb57b376a2559559ccb5e7e48b3d"
+    },
+    {
+      "launch": 16,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "b306cd75f64ea6528f70c3ae46681b0a0524f746de55c59d532fa83c9f39cef2"
+    },
+    {
+      "launch": 17,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "32b32f69d3ca438ae4e9f973f82a54a12c366ae3728a74a7fe590714c5367977"
+    },
+    {
+      "launch": 18,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "c48379b94639f89a940325067f69612242c5ccc4ceb66afdf15a7655d846147c"
+    },
+    {
+      "launch": 19,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "4569ce4d1d06b598578c73de2fb3a00ea919b4130852cf84d6f2bd232c221b6d"
+    },
+    {
+      "launch": 20,
+      "began": 1,
+      "ended": 1,
+      "cancelled": 0,
+      "singleRetainedTouch": true,
+      "currentPhaseEnded": true,
+      "readoutSHA256": "9c244c27374aec7e4271d1c0c24a442eb43253de82d8f3dbee78c282b40fb8eb"
+    }
+  ],
+  "untracedStateReadouts": [
+    {
+      "launch": 1,
+      "syntheticState": "[\"ownerPresent\": \"0\", \"page\": \"1\", \"resumePending\": \"0\", \"scoreOwner\": \"0\", \"click\": \"0\", \"ending\": \"0\", \"sessions\": \"0\", \"armedBPM\": \"60.0\", \"muted\": \"0\", \"dialogPending\": \"0\", \"attempts\": \"0\", \"root\": \"0\", \"listening\": \"0\", \"supported\": \"again,clean,faster,metronomeStart,metronomeStop,missed,next,nextPage,pause,previousPage,resume,shaky,sloppy,slower,start,stop,tempo,undo\", \"rawAttemptRows\": \"0\", \"undoneRows\": \"0\", \"historySets\": \"0\", \"dialogBatch\": \"0\", \"clickBPM\": \"60.0\", \"dialogDeliveryEnding\": \"0\"]"
+    },
+    {
+      "launch": 2,
+      "syntheticState": "[\"listening\": \"0\", \"armedBPM\": \"60.0\", \"historySets\": \"0\", \"undoneRows\": \"0\", \"supported\": \"again,clean,faster,metronomeStart,metronomeStop,missed,next,nextPage,pause,previousPage,resume,shaky,sloppy,slower,start,stop,tempo,undo\", \"dialogPending\": \"0\", \"root\": \"0\", \"ownerPresent\": \"0\", \"scoreOwner\": \"0\", \"resumePending\": \"0\", \"ending\": \"0\", \"attempts\": \"0\", \"page\": \"1\", \"rawAttemptRows\": \"0\", \"clickBPM\": \"60.0\", \"dialogBatch\": \"0\", \"dialogDeliveryEnding\": \"0\", \"muted\": \"0\", \"click\": \"0\", \"sessions\": \"0\"]"
+    },
+    {
+      "launch": 3,
+      "syntheticState": "[\"listening\": \"0\", \"armedBPM\": \"60.0\", \"muted\": \"0\", \"page\": \"1\", \"ownerPresent\": \"0\", \"attempts\": \"0\", \"dialogDeliveryEnding\": \"0\", \"undoneRows\": \"0\", \"historySets\": \"0\", \"root\": \"0\", \"rawAttemptRows\": \"0\", \"ending\": \"0\", \"dialogPending\": \"0\", \"scoreOwner\": \"0\", \"resumePending\": \"0\", \"supported\": \"again,clean,faster,metronomeStart,metronomeStop,missed,next,nextPage,pause,previousPage,resume,shaky,sloppy,slower,start,stop,tempo,undo\", \"click\": \"0\", \"clickBPM\": \"60.0\", \"sessions\": \"0\", \"dialogBatch\": \"0\"]"
+    },
+    {
+      "launch": 4,
+      "syntheticState": "[\"scoreOwner\": \"0\", \"click\": \"0\", \"dialogDeliveryEnding\": \"0\", \"clickBPM\": \"60.0\", \"armedBPM\": \"60.0\", \"historySets\": \"0\", \"rawAttemptRows\": \"0\", \"page\": \"1\", \"supported\": \"again,clean,faster,metronomeStart,metronomeStop,missed,next,nextPage,pause,previousPage,resume,shaky,sloppy,slower,start,stop,tempo,undo\", \"root\": \"0\", \"dialogPending\": \"0\", \"resumePending\": \"0\", \"undoneRows\": \"0\", \"sessions\": \"0\", \"ownerPresent\": \"0\", \"ending\": \"0\", \"attempts\": \"0\", \"listening\": \"0\", \"dialogBatch\": \"0\", \"muted\": \"0\"]"
+    },
+    {
+      "launch": 5,
+      "syntheticState": "[\"historySets\": \"0\", \"muted\": \"0\", \"dialogPending\": \"0\", \"listening\": \"0\", \"root\": \"0\", \"ownerPresent\": \"0\", \"page\": \"1\", \"scoreOwner\": \"0\", \"undoneRows\": \"0\", \"supported\": \"again,clean,faster,metronomeStart,metronomeStop,missed,next,nextPage,pause,previousPage,resume,shaky,sloppy,slower,start,stop,tempo,undo\", \"clickBPM\": \"60.0\", \"sessions\": \"0\", \"ending\": \"0\", \"dialogBatch\": \"0\", \"dialogDeliveryEnding\": \"0\", \"rawAttemptRows\": \"0\", \"resumePending\": \"0\", \"attempts\": \"0\", \"click\": \"0\", \"armedBPM\": \"60.0\"]"
+    },
+    {
+      "launch": 6,
+      "syntheticState": "[\"dialogPending\": \"0\", \"historySets\": \"0\", \"attempts\": \"0\", \"clickBPM\": \"60.0\", \"muted\": \"0\", \"scoreOwner\": \"0\", \"rawAttemptRows\": \"0\", \"ending\": \"0\", \"page\": \"1\", \"supported\": \"again,clean,faster,metronomeStart,metronomeStop,missed,next,nextPage,pause,previousPage,resume,shaky,sloppy,slower,start,stop,tempo,undo\", \"dialogDeliveryEnding\": \"0\", \"click\": \"0\", \"dialogBatch\": \"0\", \"ownerPresent\": \"0\", \"undoneRows\": \"0\", \"resumePending\": \"0\", \"sessions\": \"0\", \"armedBPM\": \"60.0\", \"root\": \"0\", \"listening\": \"0\"]"
+    },
+    {
+      "launch": 7,
+      "syntheticState": "[\"dialogBatch\": \"0\", \"scoreOwner\": \"0\", \"ownerPresent\": \"0\", \"ending\": \"0\", \"dialogDeliveryEnding\": \"0\", \"root\": \"0\", \"listening\": \"0\", \"rawAttemptRows\": \"0\", \"sessions\": \"0\", \"resumePending\": \"0\", \"click\": \"0\", \"attempts\": \"0\", \"supported\": \"again,clean,faster,metronomeStart,metronomeStop,missed,next,nextPage,pause,previousPage,resume,shaky,sloppy,slower,start,stop,tempo,undo\", \"clickBPM\": \"60.0\", \"page\": \"1\", \"armedBPM\": \"60.0\", \"muted\": \"0\", \"undoneRows\": \"0\", \"historySets\": \"0\", \"dialogPending\": \"0\"]"
+    },
+    {
+      "launch": 8,
+      "syntheticState": "[\"page\": \"1\", \"rawAttemptRows\": \"0\", \"dialogPending\": \"0\", \"ownerPresent\": \"0\", \"root\": \"0\", \"muted\": \"0\", \"undoneRows\": \"0\", \"historySets\": \"0\", \"scoreOwner\": \"0\", \"resumePending\": \"0\", \"clickBPM\": \"60.0\", \"armedBPM\": \"60.0\", \"sessions\": \"0\", \"ending\": \"0\", \"click\": \"0\", \"dialogDeliveryEnding\": \"0\", \"listening\": \"0\", \"dialogBatch\": \"0\", \"supported\": \"again,clean,faster,metronomeStart,metronomeStop,missed,next,nextPage,pause,previousPage,resume,shaky,sloppy,slower,start,stop,tempo,undo\", \"attempts\": \"0\"]"
+    },
+    {
+      "launch": 9,
+      "syntheticState": "[\"root\": \"0\", \"attempts\": \"0\", \"click\": \"0\", \"dialogPending\": \"0\", \"clickBPM\": \"60.0\", \"scoreOwner\": \"0\", \"dialogBatch\": \"0\", \"supported\": \"again,clean,faster,metronomeStart,metronomeStop,missed,next,nextPage,pause,previousPage,resume,shaky,sloppy,slower,start,stop,tempo,undo\", \"undoneRows\": \"0\", \"historySets\": \"0\", \"muted\": \"0\", \"sessions\": \"0\", \"ending\": \"0\", \"page\": \"1\", \"dialogDeliveryEnding\": \"0\", \"ownerPresent\": \"0\", \"listening\": \"0\", \"armedBPM\": \"60.0\", \"rawAttemptRows\": \"0\", \"resumePending\": \"0\"]"
+    },
+    {
+      "launch": 10,
+      "syntheticState": "[\"dialogDeliveryEnding\": \"0\", \"clickBPM\": \"60.0\", \"historySets\": \"0\", \"sessions\": \"0\", \"ending\": \"0\", \"click\": \"0\", \"root\": \"0\", \"resumePending\": \"0\", \"supported\": \"again,clean,faster,metronomeStart,metronomeStop,missed,next,nextPage,pause,previousPage,resume,shaky,sloppy,slower,start,stop,tempo,undo\", \"listening\": \"0\", \"attempts\": \"0\", \"dialogBatch\": \"0\", \"muted\": \"0\", \"rawAttemptRows\": \"0\", \"armedBPM\": \"60.0\", \"page\": \"1\", \"undoneRows\": \"0\", \"dialogPending\": \"0\", \"scoreOwner\": \"0\", \"ownerPresent\": \"0\"]"
+    }
+  ],
+  "boundary": "Simulator iOS26.5 only; named original failures attributed to input cancellation. Physical input and broader historical no-ops remain separately scoped.",
+  "systemLogDeliveryAudit": {
+    "rawSHA256": "821254f54c9f63222b97b5487a4b3275dcf22f754283e8758550b219ddf9f81e",
+    "window": "2026-10-12 00:48:40\u201300:59:24 EDT",
+    "serviceDisappearanceStates": 30,
+    "liveTouchDisappearanceStates": 0,
+    "result": "passed",
+    "boundary": "Normal service teardown with empty contacts is expected; only teardown with a still-touching/locked contact indicates the matched failure."
+  }
+}

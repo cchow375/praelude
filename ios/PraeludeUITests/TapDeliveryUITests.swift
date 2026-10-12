@@ -395,9 +395,32 @@ final class TapDeliveryUITests: XCTestCase {
         let indicator = app.buttons["pageIndicator"]
 
         func readout() -> String { pdf.value as? String ?? "" }
-        func nativeScale() -> Double? {
-            guard let value = readout().components(separatedBy: ";scale=").dropFirst().first else { return nil }
+        func nativeScale(from readoutValue: String? = nil) -> Double? {
+            guard let value = (readoutValue ?? readout()).components(separatedBy: ";scale=").dropFirst().first else { return nil }
             return Double(value.components(separatedBy: ",")[0])
+        }
+        func minimumScale(from value: String) -> Double? {
+            guard let scaleSection = value.components(separatedBy: ";scale=").dropFirst().first,
+                  let minimum = scaleSection.components(separatedBy: ";")[0].components(separatedBy: ",")
+                    .first(where: { $0.hasPrefix("min=") }) else { return nil }
+            return Double(minimum.dropFirst(4))
+        }
+        func relativeZoom(from value: String) -> Double? {
+            guard let scale = nativeScale(from: value), let minimum = minimumScale(from: value), minimum > 0 else { return nil }
+            return scale / minimum
+        }
+        func diagnosticNumber(_ value: Double?) -> Any {
+            guard let value, value.isFinite else { return NSNull() }
+            return value
+        }
+        func zoomSnapshot(_ value: String, viewport: CGRect) -> [String: Any] {
+            let scale = nativeScale(from: value)
+            let minimum = minimumScale(from: value)
+            return ["fullPDFReadout": value,
+                    "absoluteScale": diagnosticNumber(scale),
+                    "minimumScale": diagnosticNumber(minimum),
+                    "relativeZoom": diagnosticNumber(relativeZoom(from: value)),
+                    "viewport": [viewport.minX, viewport.minY, viewport.width, viewport.height]]
         }
         func nativeOverlayFrame() -> CGRect? {
             let value = readout()
@@ -450,7 +473,9 @@ final class TapDeliveryUITests: XCTestCase {
                                         [overlay.frame.minX, overlay.frame.minY, overlay.frame.width, overlay.frame.height]) {
             XCTAssertEqual(native, accessible, accuracy: 0.5, "The initially fully visible AX overlay must confirm native window coordinates.")
         }
-        let initialScale = try XCTUnwrap(nativeScale(), readout())
+        let initialPDFReadout = readout()
+        let initialViewport = pdf.frame
+        let initialScale = try XCTUnwrap(nativeScale(from: initialPDFReadout), initialPDFReadout)
         let initialPage = indicator.label
         let pinchCenter = CGPoint(x: paper.frame.midX, y: paper.frame.midY)
         XCTAssertTrue(savedBox().contains(pinchCenter) && pdf.frame.contains(pinchCenter),
@@ -463,7 +488,9 @@ final class TapDeliveryUITests: XCTestCase {
         require("unselected-zoom-native-scale-increased-without-selection", app: app) {
             nativeScale().map { $0 > initialScale * 1.25 } == true && unselected()
         }
-        let pinchedScale = try XCTUnwrap(nativeScale(), readout())
+        let pinchedPDFReadout = readout()
+        let pinchedViewport = pdf.frame
+        let pinchedScale = try XCTUnwrap(nativeScale(from: pinchedPDFReadout), pinchedPDFReadout)
         var previousOverlay = CGRect.zero
         var changed = Date.now
         let panReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
@@ -505,16 +532,63 @@ final class TapDeliveryUITests: XCTestCase {
         capture("unselected-zoom-before-one-actual-arm-tap", app: app)
         let finalBox = savedBox().intersection(pdf.frame).intersection(app.frame).insetBy(dx: 8, dy: 8)
         let target = CGPoint(x: finalBox.midX, y: finalBox.midY)
-        evidence("unselected-zoom-single-arm-target", "result=\(armReadiness.rawValue) target=\(target) box=\(savedBox()) nativeOverlay=\(String(describing: nativeOverlayFrame())) axOverlay=\(overlay.frame) pdf=\(pdf.frame) value=\(readout())")
+        let preArmPDFReadout = readout()
+        let preArmViewport = pdf.frame
+        evidence("unselected-zoom-single-arm-target", "result=\(armReadiness.rawValue) target=\(target) box=\(savedBox()) nativeOverlay=\(String(describing: nativeOverlayFrame())) axOverlay=\(overlay.frame) pdf=\(preArmViewport) value=\(preArmPDFReadout)")
         XCTAssertEqual(armReadiness, .completed)
         XCTAssertTrue(savedBox().contains(target) && pdf.frame.contains(target) && app.frame.contains(target))
         app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: target.x - origin.x, dy: target.y - origin.y)).tap()
-        require("unselected-zoom-single-tap-arms-correct-passage", app: app) {
+        let armed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             untouched() && indicator.label == initialPage && arm.staticTexts["Evenness and pulse"].exists &&
                 !arm.staticTexts["Whole piece"].exists && app.buttons["coldGrade_missed"].isHittable &&
                 app.buttons["skipColdGrade"].isHittable && nativeScale().map { abs($0 - pinchedScale) < 0.01 } == true
-        }
-        evidence("unselected-zoom-final-full-readout", readout())
+        }, object: nil)
+        let armedResult = XCTWaiter.wait(for: [armed], timeout: 8)
+        // Retain every condition and the complete native readout before a failing wait
+        // aborts the case. Relative zoom is evidence only; absolute scale remains required.
+        let postArmPDFReadout = readout()
+        let postArmViewport = pdf.frame
+        let postArmScale = nativeScale(from: postArmPDFReadout)
+        let relativeZoomDeltaFromPinch: Double? = if let after = relativeZoom(from: postArmPDFReadout),
+                                                   let before = relativeZoom(from: pinchedPDFReadout) { after - before } else { nil }
+        let relativeZoomDeltaFromPreArm: Double? = if let after = relativeZoom(from: postArmPDFReadout),
+                                                    let before = relativeZoom(from: preArmPDFReadout) { after - before } else { nil }
+        let postconditions: [String: Bool] = [
+            "displayedPageOne": postArmPDFReadout.split(separator: ";").contains("displayedPage=1"),
+            "zeroInkOnPageOne": postArmPDFReadout.contains("inkPage1=0"),
+            "pageIndicatorExists": indicator.exists,
+            "pageIndicatorStillPageOne": indicator.exists && indicator.label.contains("Page 1 of"),
+            "pageIndicatorUnchanged": indicator.exists && indicator.label == initialPage,
+            "readingAnnotateHittable": app.buttons["annotateScore"].isHittable,
+            "finishMarkupAbsent": !app.buttons["finishScoreMarkup"].exists,
+            "runningCleanAbsent": !app.buttons["verdict_clean"].exists,
+            "pausePracticeAbsent": !app.buttons["pausePractice"].exists,
+            "stopSetAbsent": !app.buttons["stopSet"].exists,
+            "repProgressAbsent": !app.staticTexts["repProgress"].exists,
+            "correctPassageArmed": arm.staticTexts["Evenness and pulse"].exists,
+            "wholePieceAbsent": !arm.staticTexts["Whole piece"].exists,
+            "firstAttemptMissedHittable": app.buttons["coldGrade_missed"].isHittable,
+            "startWithoutGradingHittable": app.buttons["skipColdGrade"].isHittable,
+            "absoluteScaleWithinPointZeroOne": postArmScale.map { abs($0 - pinchedScale) < 0.01 } == true
+        ]
+        let diagnostic: [String: Any] = [
+            "waitResult": armedResult.rawValue, "postconditions": postconditions,
+            "initial": zoomSnapshot(initialPDFReadout, viewport: initialViewport),
+            "afterPinch": zoomSnapshot(pinchedPDFReadout, viewport: pinchedViewport),
+            "beforeArm": zoomSnapshot(preArmPDFReadout, viewport: preArmViewport),
+            "afterArm": zoomSnapshot(postArmPDFReadout, viewport: postArmViewport),
+            "absoluteScaleDeltaFromPinch": diagnosticNumber(postArmScale.map { $0 - pinchedScale }),
+            "relativeZoomDeltaFromPinch": diagnosticNumber(relativeZoomDeltaFromPinch),
+            "relativeZoomDeltaFromPreArm": diagnosticNumber(relativeZoomDeltaFromPreArm),
+            "singleArmTarget": [target.x, target.y], "singleArmTapCount": 1
+        ]
+        let diagnosticData = try JSONSerialization.data(withJSONObject: diagnostic, options: [.prettyPrinted, .sortedKeys])
+        let diagnosticJSON = String(decoding: diagnosticData, as: UTF8.self)
+        evidence("unselected-zoom-final-postconditions-and-full-readouts", diagnosticJSON)
+        evidence("unselected-zoom-final-full-readout", postArmPDFReadout)
+        capture("unselected-zoom-single-tap-arms-correct-passage", app: app)
+        XCTAssertEqual(armedResult, .completed,
+                       "Required transition: unselected-zoom-single-tap-arms-correct-passage\n\(diagnosticJSON)\n\(app.debugDescription)")
     }
 
     @MainActor func testPracticeStudyGridCenterTapOpensActualScore() {

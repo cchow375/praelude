@@ -1,0 +1,279 @@
+{
+  "appBytes": 43817784,
+  "appSHA256": "f18c220c56eed9d2d30bc3b68e2c3e315e5fa79f7a17c20c75daa83c196fe645",
+  "independentZoom": {
+    "absoluteScaleDelta": 0,
+    "afterArmScale": 2.4332361227405377,
+    "allSixteenStrictPostconditions": true,
+    "durationSeconds": 70.062,
+    "inkRemainedZero": true,
+    "noPracticeStartedOrGraded": true,
+    "pageOneRetained": true,
+    "provenance": "independent-zoom-final24-provenance.json",
+    "realPinchScaleAfter": 2.4332361227405377,
+    "realPinchScaleInitial": 1.0766550522648084,
+    "result": "passed",
+    "screenshotIndependentlyInspected": true,
+    "singleArmActionCount": 1,
+    "summary": "independent-zoom-final24-summary.json",
+    "values": "independent-zoom-final24-values.json"
+  },
+  "limits": [
+    "Manual landscape rotation was not established; prior root automated rotation evidence remains separate.",
+    "CUA offers no real multi-touch pinch; the one independent existing XCTest exercised actual two-finger pinch and drag.",
+    "This manual run did not repeat Undo/new-stroke, triple-tap dictation, voice/camera recognition, camera permission, speech over piano, audible metronome or sustained physical use. Prior separately recorded scoped tests retain their own binaries and boundaries.",
+    "Historical failures remain preserved; this pass does not retroactively explain unmatched no-op or alias-focus failures."
+  ],
+  "manual": {
+    "directScoreOpen": false,
+    "initialLaunchFlags": [
+      "--uitesting",
+      "--reset",
+      "--seed",
+      "--seed-sections",
+      "--audit-gesture-preservation"
+    ],
+    "inputEvidence": {
+      "clickDurationMs": 120,
+      "editGlyphApproximateCenterInSimulatorWindow": [
+        327,
+        1502
+      ],
+      "editPaddingPointInSimulatorWindow": [
+        327,
+        1522
+      ],
+      "goalSwitchPointInSimulatorWindow": [
+        904,
+        908
+      ],
+      "initialSavedBoxPointInSimulatorWindow": [
+        619,
+        904
+      ]
+    },
+    "manualRotation": {
+      "reason": "The public Simulator rotate toolbar rotated its casing while app content remained portrait; public Portrait restored the casing. No actual app landscape transition or production rotation failure is inferred.",
+      "result": "untested"
+    },
+    "method": "Independent CUA actual Simulator clicks and typing; observed accessibility state and pixels after actions. One click per intended action, no failed-action retry.",
+    "newProcessConfirmed": true,
+    "operatorCorrections": [
+      "An initially persistent list-layout preference was explicitly changed to grid for the card check. This UserDefaults view preference lies outside library.json.",
+      "One top toolbar target opened Movements & pieces; it was closed without writes. The subsequent AX-identified Passages control opened the required picker. No failure/retry claim is based on the wrong target."
+    ],
+    "passedFlows": [
+      "Today \u2192 owned Show Sidebar \u2192 Pieces \u2192 owned Hide Sidebar \u2192 grid card \u2192 actual score",
+      "One saved-box center click \u2192 correct passage armed and first-attempt controls visible",
+      "Lower Edit label padding below glyph \u2192 ordinary name-and-goal editor on one click",
+      "Actual keyboard name entry and native goal switch plus decimal112.5 \u2192 Save \u2192 dock updated",
+      "Focus enter/exit \u2192 original page1 and selected passage retained",
+      "Close score \u2192 terminate/relaunch \u2192 Today saved title and Goal112.5 \u2192 owned Sidebar/Pieces/card \u2192 score",
+      "Actual Passages control \u2192 saved list \u2192 row Edit \u2192 exact saved title, enabled goal and112.5 after real process relaunch",
+      "Cancel readback editor \u2192 Close picker without further Save"
+    ],
+    "processRelaunchObserved": true,
+    "readback": {
+      "goalEnabled": true,
+      "ordinaryDictationButton": "Dictate name",
+      "performanceTempo": 112.5,
+      "title": "Live verified passage"
+    },
+    "relaunchFlags": [
+      "--uitesting"
+    ],
+    "result": "passed",
+    "simulatedVoice": false,
+    "traceOrPassiveHooks": false
+  },
+  "manualPreservation": {
+    "allOtherTopLevelRecords": {
+      "badges": {
+        "count": 0,
+        "unchanged": true
+      },
+      "bookmarks": {
+        "count": 0,
+        "unchanged": true
+      },
+      "breakPointTaps": {
+        "count": 0,
+        "unchanged": true
+      },
+      "coldGrades": {
+        "count": 0,
+        "unchanged": true
+      },
+      "desktopImports": {
+        "count": 0,
+        "unchanged": true
+      },
+      "folders": {
+        "count": 0,
+        "unchanged": true
+      },
+      "goals": {
+        "count": 0,
+        "unchanged": true
+      },
+      "history": {
+        "count": 0,
+        "unchanged": true
+      },
+      "inkStrokes": {
+        "count": 0,
+        "unchanged": true
+      },
+      "instruments": {
+        "count": 1,
+        "unchanged": true
+      },
+      "milestoneEvents": {
+        "count": 0,
+        "unchanged": true
+      },
+      "notebookEntries": {
+        "count": 0,
+        "unchanged": true
+      },
+      "pageEdits": {
+        "count": 0,
+        "unchanged": true
+      },
+      "pieces": {
+        "count": 2,
+        "unchanged": true
+      },
+      "preferences": {
+        "count": 8,
+        "unchanged": true
+      },
+      "profile": {
+        "count": 9,
+        "unchanged": true
+      },
+      "recordings": {
+        "count": 0,
+        "unchanged": true
+      },
+      "rewardLedger": {
+        "count": 0,
+        "unchanged": true
+      },
+      "rewardsState": {
+        "count": 5,
+        "unchanged": true
+      },
+      "routines": {
+        "count": 0,
+        "unchanged": true
+      },
+      "ruleEvents": {
+        "count": 0,
+        "unchanged": true
+      },
+      "ruleSettings": {
+        "count": 38,
+        "unchanged": true
+      },
+      "schemaVersion": {
+        "count": null,
+        "unchanged": true
+      },
+      "scoreLinks": {
+        "count": 0,
+        "unchanged": true
+      },
+      "sessions": {
+        "count": 0,
+        "unchanged": true
+      },
+      "setlists": {
+        "count": 0,
+        "unchanged": true
+      },
+      "stampAnnotations": {
+        "count": 0,
+        "unchanged": true
+      },
+      "tags": {
+        "count": 0,
+        "unchanged": true
+      },
+      "textAnnotations": {
+        "count": 0,
+        "unchanged": true
+      },
+      "warmupExercises": {
+        "count": 180,
+        "unchanged": true
+      }
+    },
+    "baselineArtifactUnchanged": true,
+    "changedPassageCount": 1,
+    "changedPassageFields": {
+      "performanceTempo": {
+        "after": 112.5,
+        "beforePresent": false
+      },
+      "title": {
+        "after": "Live verified passage",
+        "before": "Evenness and pulse"
+      },
+      "updatedAt": "Changed by the intentional Save"
+    },
+    "comparison": "Union of every library key, every keyed record and full before/after file inventory; snapshot taken before XCTest reset.",
+    "fileInventoryAfterCount": 3,
+    "fileInventoryBeforeCount": 3,
+    "fileInventoryUnchanged": true,
+    "librarySHA256After": "a6258fe8446d6d20ef9a8da932cf9632aa5563f42237a9eb499fccbfc7345846",
+    "librarySHA256Before": "e23fc5eec53024cb894bab5ee1ddadec3f42356a35a687c29c63d58b29f365c4",
+    "onlyChangedLibraryKeys": [
+      "passages",
+      "revision"
+    ],
+    "otherPassageUnchanged": true,
+    "passageCountAfter": 2,
+    "passageCountBefore": 2,
+    "practiceWrites": 0,
+    "revisionAfter": 8,
+    "revisionBefore": 7,
+    "schemaVersionAfter": 5,
+    "schemaVersionBefore": 5,
+    "sourcePDFSHA256": "bc73619ff16e7e38855d14bf573c17085519ceceb26b577486ecad653c646f70",
+    "sourcePDFUnchanged": true,
+    "wholeLibraryByteEqualityClaimed": false
+  },
+  "physicalDevices": {
+    "actions": 0,
+    "bothIPadsUntouched": true,
+    "explicitNoInstallHoldPreserved": true,
+    "installations": 0
+  },
+  "recordedAtUTC": "2026-10-12T05:10:44.739651+00:00",
+  "result": "passed",
+  "runnerPluginSHA256": "bd8fbeeeca9b4046b66ffff2bc962a8535c6acc255ace8891772afc2b96adb9c",
+  "scope": "Fresh independent bounded live Simulator verification of affected normal navigation, saved passage center, Edit padding/name/decimal-goal persistence and absolute zoom preservation. This is scoped acceptance, not a bug-free or physical-hardware claim.",
+  "screenshots": [
+    {
+      "path": "docs/qa/ios/2.0.0/build15/screenshots/independent-name-goal-before-save-final24.png",
+      "sha256": "5a6b80c72a7022e4f00a1287cdc57bb496bb0dc9a085213048ff43b1c9dbf5ad"
+    },
+    {
+      "path": "docs/qa/ios/2.0.0/build15/screenshots/independent-name-goal-reopened-final24.png",
+      "sha256": "cd9cb067c429d0cc0fb213adcb884be85f9150dccb2f948e0e57d6bec08a8282"
+    },
+    {
+      "path": "docs/qa/ios/2.0.0/build15/screenshots/independent-zoom-armed-final24.png",
+      "sha256": "bba80d0749456f3d8023e8b32346f9035813b08d3b7f201b7146227ae52c7fc6"
+    }
+  ],
+  "sourceVerification": {
+    "filesChecked": 241,
+    "installedAppRehashedAfterIndependentTest": true,
+    "mismatches": [],
+    "reference": "tap-input-final23-provenance.json",
+    "sameAppAndRunnerAsFinal23": true
+  },
+  "uiAndXcodeOwnershipReleased": true
+}

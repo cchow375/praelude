@@ -1,0 +1,73 @@
+{
+  "absoluteScaleDeltaFromPinch": 0,
+  "afterArm": {
+    "absoluteScale": 2.4332361227405377,
+    "minimumScale": 1.0464576074332173,
+    "relativeZoom": 2.3252123215089933,
+    "viewport": [
+      0,
+      86,
+      820,
+      901
+    ]
+  },
+  "afterPinch": {
+    "absoluteScale": 2.4332361227405377,
+    "minimumScale": 1.0766550522648084,
+    "relativeZoom": 2.2599960104418586,
+    "viewport": [
+      0,
+      86,
+      820,
+      927
+    ]
+  },
+  "beforeArm": {
+    "absoluteScale": 2.4332361227405377,
+    "minimumScale": 1.0766550522648084,
+    "relativeZoom": 2.2599960104418586,
+    "viewport": [
+      0,
+      86,
+      820,
+      927
+    ]
+  },
+  "initial": {
+    "absoluteScale": 1.0766550522648084,
+    "minimumScale": 1.0766550522648084,
+    "relativeZoom": 1,
+    "viewport": [
+      0,
+      86,
+      820,
+      927
+    ]
+  },
+  "postconditions": {
+    "absoluteScaleWithinPointZeroOne": true,
+    "correctPassageArmed": true,
+    "displayedPageOne": true,
+    "finishMarkupAbsent": true,
+    "firstAttemptMissedHittable": true,
+    "pageIndicatorExists": true,
+    "pageIndicatorStillPageOne": true,
+    "pageIndicatorUnchanged": true,
+    "pausePracticeAbsent": true,
+    "readingAnnotateHittable": true,
+    "repProgressAbsent": true,
+    "runningCleanAbsent": true,
+    "startWithoutGradingHittable": true,
+    "stopSetAbsent": true,
+    "wholePieceAbsent": true,
+    "zeroInkOnPageOne": true
+  },
+  "relativeZoomDeltaFromPinch": 0.06521631106713466,
+  "relativeZoomDeltaFromPreArm": 0.06521631106713466,
+  "singleArmTapCount": 1,
+  "singleArmTarget": [
+    410,
+    549.5081508398014
+  ],
+  "waitResult": 1
+}

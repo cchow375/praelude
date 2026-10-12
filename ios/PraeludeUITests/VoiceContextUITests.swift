@@ -9,6 +9,10 @@ final class VoiceContextUITests: XCTestCase {
         image.name = name; image.lifetime = .keepAlways; add(image)
         let hierarchy = XCTAttachment(string: app.debugDescription)
         hierarchy.name = name + "-hierarchy"; hierarchy.lifetime = .keepAlways; add(hierarchy)
+        let pdf = app.otherElements["scorePDF"]
+        if pdf.exists {
+            geometry(name + "-complete-pdf-value", pdf.value as? String ?? "missing-pdf-value")
+        }
     }
 
     @MainActor private func fields(_ app: XCUIApplication, includeOccluded: Bool = false) -> [String: String]? {
@@ -170,13 +174,16 @@ final class VoiceContextUITests: XCTestCase {
     }
 
     @MainActor private func openArmedScore(_ app: XCUIApplication, auditTaps: Bool = false,
-                                         auditReadingDelivery: Bool = false) throws {
+                                         auditReadingDelivery: Bool = false, auditReadingLifecycle: Bool = false,
+                                         auditReadingWindow: Bool = false) throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["--uitesting", "--reset", "--seed", "--seed-sections",
                                "--audit-gesture-preservation", "--audit-open-gesture-score", "--audit-simulated-voice"]
         if auditTaps { app.launchArguments.append("--audit-taps") }
         if auditReadingDelivery { app.launchArguments.append("--audit-reading-delivery") }
+        if auditReadingLifecycle { app.launchArguments.append("--audit-reading-lifecycle") }
+        if auditReadingWindow { app.launchArguments.append("--audit-reading-window") }
         app.launch()
         require("simulated-voice-direct-score-open", app: app) {
             app.buttons["annotateScore"].isHittable && app.otherElements["scorePDF"].textViews.firstMatch.exists
@@ -217,8 +224,11 @@ final class VoiceContextUITests: XCTestCase {
         XCTAssertEqual(readiness, .completed, "Complete visible, hittable paper must settle before the one arm tap.\n\(app.debugDescription)")
         XCTAssertTrue(viewport.contains(center) && window.contains(center) && savedBox.contains(center),
                       "The recorded center must lie in the viewport, app and explicit saved fixture box.")
+        // Final18/19/22 logs show the 50 ms XCTest tap's virtual digitizer disappearing
+        // with a live contact, delivering cancellation instead of touch-up. Use one
+        // 120 ms contact at the same point; all delivery and arming checks still apply.
         app.coordinate(withNormalizedOffset: .zero).withOffset(
-            CGVector(dx: center.x - window.minX, dy: center.y - window.minY)).tap()
+            CGVector(dx: center.x - window.minX, dy: center.y - window.minY)).press(forDuration: 0.12)
         capture("actual-saved-box-arm-immediately-after-single-center-tap", app: app)
         require("actual-saved-box-armed", app: app) {
             app.otherElements["practiceArmPanel"].staticTexts["Evenness and pulse"].exists &&
@@ -276,6 +286,119 @@ final class VoiceContextUITests: XCTestCase {
             }
             assertLedgerReadout(state)
             geometry("untraced-saved-box-launch-\(launch)-complete-state", String(describing: state))
+        }
+    }
+
+    /// Passive branch capture for the concrete fifth-launch failure. No event swizzle,
+    /// heartbeat, file writer, extra gesture observer, retry, or direct selection is enabled.
+    @MainActor func testPassiveSavedBoxSingleCenterTapAcrossTwentyFreshProcessLaunches() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        for launch in 1...20 {
+            app.terminate()
+            let stopped = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.state == .notRunning }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [stopped], timeout: 8), .completed)
+            geometry("passive-saved-box-launch-\(launch)-start", "previousProcessTerminated=true")
+            try openArmedScore(app, auditReadingDelivery: true)
+            XCTAssertFalse(app.launchArguments.contains("--audit-taps"))
+            XCTAssertTrue(app.launchArguments.contains("--audit-reading-delivery"))
+            let state = try requireState("passive-saved-box-launch-\(launch)-armed-without-practice", app: app) {
+                $0["attempts"] == "0" && $0["rawAttemptRows"] == "0" && $0["undoneRows"] == "0" &&
+                $0["historySets"] == "0" && $0["sessions"] == "0" && $0["page"] == "1" &&
+                $0["scoreOwner"] == "0" && $0["ownerPresent"] == "0" && $0["listening"] == "0" &&
+                $0["muted"] == "0" && $0["click"] == "0" && Double($0["armedBPM"] ?? "") == 60 &&
+                app.otherElements["practiceArmPanel"].staticTexts["Evenness and pulse"].exists &&
+                app.buttons["coldGrade_missed"].isHittable && !app.buttons["verdict_clean"].exists
+            }
+            assertLedgerReadout(state)
+        }
+    }
+
+    /// Native recognizer classes plus one window forwarding hook. This is diagnostic evidence,
+    /// separate from untraced acceptance, and stops at the first failed single-center delivery.
+    @MainActor func testReadingWindowSavedBoxSingleCenterTapAcrossTwentyFreshProcessLaunches() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        func touchFields(_ text: String) -> [String: String] {
+            Dictionary(uniqueKeysWithValues: text.split(separator: " ").compactMap { field in
+                let parts = field.split(separator: "=", maxSplits: 1)
+                guard parts.count == 2 else { return nil }
+                return (String(parts[0]), String(parts[1]))
+            })
+        }
+        for launch in 1...20 {
+            app.terminate()
+            let stopped = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.state == .notRunning }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [stopped], timeout: 8), .completed)
+            geometry("window-saved-box-launch-\(launch)-start", "previousProcessTerminated=true")
+            try openArmedScore(app, auditReadingDelivery: true, auditReadingWindow: true)
+            XCTAssertFalse(app.launchArguments.contains("--audit-taps"))
+            XCTAssertFalse(app.launchArguments.contains("--audit-reading-lifecycle"))
+            XCTAssertTrue(app.launchArguments.contains("--audit-reading-delivery"))
+            XCTAssertTrue(app.launchArguments.contains("--audit-reading-window"))
+            XCTAssertTrue(app.launchArguments.contains("--reset"))
+            let state = try requireState("window-saved-box-launch-\(launch)-armed-without-practice", app: app) {
+                $0["attempts"] == "0" && $0["rawAttemptRows"] == "0" && $0["undoneRows"] == "0" &&
+                $0["historySets"] == "0" && $0["sessions"] == "0" && $0["page"] == "1" &&
+                $0["scoreOwner"] == "0" && $0["ownerPresent"] == "0" && $0["listening"] == "0" &&
+                $0["muted"] == "0" && $0["click"] == "0" && Double($0["armedBPM"] ?? "") == 60 &&
+                app.otherElements["practiceArmPanel"].staticTexts["Evenness and pulse"].exists &&
+                app.buttons["coldGrade_missed"].isHittable && !app.buttons["verdict_clean"].exists
+            }
+            assertLedgerReadout(state)
+            let value = try XCTUnwrap(app.otherElements["scorePDF"].value as? String)
+            geometry("window-saved-box-launch-\(launch)-complete-pdf-value", value)
+            let events = value.components(separatedBy: "|").filter {
+                $0.hasPrefix("reading.window ")
+            }.map(touchFields)
+            XCTAssertEqual(events.filter { $0["beforePhase"] == "0" && $0["afterPhase"] == "0" }.count, 1,
+                           "Exactly one contact must begin at the window.")
+            XCTAssertEqual(events.filter { $0["beforePhase"] == "3" && $0["afterPhase"] == "3" }.count, 1,
+                           "The same single press must deliver exactly one ended event.")
+            XCTAssertFalse(events.contains { $0["beforePhase"] == "4" || $0["afterPhase"] == "4" },
+                           "Cancelled delivery must fail, even if the passage became armed.")
+            let windowStart = try XCTUnwrap(value.range(of: ";readingWindow=["))
+            let window = String(value[windowStart.upperBound...])
+            XCTAssertTrue(window.contains(";retained=1;"), "Only one actual touch may have been retained.")
+            let touchesStart = try XCTUnwrap(window.range(of: "touches=["))
+            let touchesEnd = try XCTUnwrap(window.range(of: "];appStates=[", range: touchesStart.upperBound..<window.endIndex))
+            let contacts = window[touchesStart.upperBound..<touchesEnd.lowerBound].split(separator: "|").map {
+                touchFields(String($0))
+            }
+            XCTAssertEqual(contacts.count, 1)
+            let contact = try XCTUnwrap(contacts.first)
+            XCTAssertEqual(contact["type"], "0", "The delivered contact must be direct touch.")
+            XCTAssertEqual(contact["beforePhase"], "3")
+            XCTAssertEqual(contact["afterPhase"], "3")
+            XCTAssertEqual(contact["currentPhase"], "3", "The retained touch must still report ended, never cancelled.")
+        }
+    }
+
+    /// Forwarding lifecycle wrappers are diagnostic only; normal acceptance uses native UIKit.
+    @MainActor func testReadingLifecycleSavedBoxSingleCenterTapAcrossTwentyFreshProcessLaunches() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        for launch in 1...20 {
+            app.terminate()
+            let stopped = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.state == .notRunning }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [stopped], timeout: 8), .completed)
+            geometry("lifecycle-saved-box-launch-\(launch)-start", "previousProcessTerminated=true")
+            try openArmedScore(app, auditReadingDelivery: true, auditReadingLifecycle: true)
+            XCTAssertFalse(app.launchArguments.contains("--audit-taps"))
+            XCTAssertTrue(app.launchArguments.contains("--audit-reading-delivery"))
+            XCTAssertTrue(app.launchArguments.contains("--audit-reading-lifecycle"))
+            let state = try requireState("lifecycle-saved-box-launch-\(launch)-armed-without-practice", app: app) {
+                $0["attempts"] == "0" && $0["rawAttemptRows"] == "0" && $0["undoneRows"] == "0" &&
+                $0["historySets"] == "0" && $0["sessions"] == "0" && $0["page"] == "1" &&
+                $0["scoreOwner"] == "0" && $0["ownerPresent"] == "0" && $0["listening"] == "0" &&
+                $0["muted"] == "0" && $0["click"] == "0" && Double($0["armedBPM"] ?? "") == 60 &&
+                app.otherElements["practiceArmPanel"].staticTexts["Evenness and pulse"].exists &&
+                app.buttons["coldGrade_missed"].isHittable && !app.buttons["verdict_clean"].exists
+            }
+            assertLedgerReadout(state)
         }
     }
 

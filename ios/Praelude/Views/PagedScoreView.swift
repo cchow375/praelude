@@ -74,6 +74,10 @@ final class ZoomableScorePDFView: PDFView {
             let leftIsMargin = page(for: CGPoint(x: bounds.width * 0.03, y: bounds.midY), nearest: false) == nil
             let rightIsMargin = page(for: CGPoint(x: bounds.width * 0.97, y: bounds.midY), nearest: false) == nil
             let quickEdit = (pageOverlayViewProvider as? PagedScoreView.Coordinator)?.quickEditDiagnostic ?? ""
+            let readingSnapshot = InteractionAudit.isEnabled
+                ? ";readingSnapshot=[\((pageOverlayViewProvider as? PagedScoreView.Coordinator)?.readingGestureDiagnostic ?? "missing-coordinator")]" : ""
+            let windowDiagnostic = InteractionAudit.readingWindowDiagnostic
+            let readingWindow = windowDiagnostic.isEmpty ? "" : ";readingWindow=[\(windowDiagnostic)]"
             var displayedPage = 0
             if let document, let currentPage {
                 let index = document.index(for: currentPage)
@@ -81,7 +85,7 @@ final class ZoomableScorePDFView: PDFView {
             }
             let passiveReading = InteractionAudit.isPassiveReadingDelivery
                 ? ";passiveReading=[\(InteractionAudit.passiveReadingEvents.joined(separator: "|"))]" : ""
-            return "displayedPage=\(displayedPage);renderedPageWidth=\(renderedPageWidth);leftIsMargin=\(leftIsMargin),rightIsMargin=\(rightIsMargin);scale=\(scaleFactor),min=\(minScaleFactor),max=\(maxScaleFactor),auto=\(autoScales),markup=\(isInMarkupMode),hit=\(hitTest(CGPoint(x:bounds.midX,y:bounds.midY),with:nil).map { String(describing:type(of:$0)) } ?? "none");\(details);quickEdit=[\(quickEdit)];\(inkCounts(self).joined(separator: ";"))\(passiveReading)"
+            return "displayedPage=\(displayedPage);renderedPageWidth=\(renderedPageWidth);leftIsMargin=\(leftIsMargin),rightIsMargin=\(rightIsMargin);scale=\(scaleFactor),min=\(minScaleFactor),max=\(maxScaleFactor),auto=\(autoScales),markup=\(isInMarkupMode),hit=\(hitTest(CGPoint(x:bounds.midX,y:bounds.midY),with:nil).map { String(describing:type(of:$0)) } ?? "none");\(details);quickEdit=[\(quickEdit)];\(inkCounts(self).joined(separator: ";"))\(passiveReading)\(readingSnapshot)\(readingWindow)"
         }
         set { super.accessibilityValue = newValue }
     }
@@ -93,6 +97,7 @@ final class ZoomableScorePDFView: PDFView {
     }
 
     override func layoutSubviews() {
+        let scaleBeforeLayout = scaleFactor
         super.layoutSubviews()
         guard document != nil, bounds.width > 0, bounds.height > 0 else { return }
         let shortLandscape = prefersShortLandscapeWidthFit && bounds.height < 300 && bounds.width > bounds.height * 1.5
@@ -100,6 +105,13 @@ final class ZoomableScorePDFView: PDFView {
         let enteringShortLandscape = shortLandscape && !wasShortLandscape
         let leavingShortLandscape = !shortLandscape && wasShortLandscape
         let previousZoom = fittedScale > 0 ? max(1, scaleFactor / fittedScale) : 1
+        // Showing a first-attempt row or resizing score controls changes available height,
+        // not the pianist's chosen magnification. Preserve that physical score size while
+        // still fitting an unzoomed page and retaining the separate rotation/width-fit policy.
+        let preserveManualScale = !needsScaleRange && fittedSize.width > 0 &&
+            abs(fittedSize.width - bounds.width) < 0.5 &&
+            abs(fittedSize.height - bounds.height) > 0.5 && previousZoom > 1.01 &&
+            widthFit == appliedWidthFit && !enteringShortLandscape && !leavingShortLandscape
         func stillAtAutomaticWidth() -> Bool {
             guard let automaticShortLandscapeScale else { return false }
             return abs(scaleFactor - automaticShortLandscapeScale) <= max(0.001, automaticShortLandscapeScale * 0.002)
@@ -142,7 +154,10 @@ final class ZoomableScorePDFView: PDFView {
             scaleFactor = min(maxScaleFactor, widthScale)
             if shortLandscape { automaticShortLandscapeScale = scaleFactor }
             needsInitialWidthFit = false
-        } else { scaleFactor = min(maxScaleFactor, fit * zoom) }
+        } else {
+            let requestedScale = preserveManualScale ? scaleBeforeLayout : fit * zoom
+            scaleFactor = min(maxScaleFactor, max(fit, requestedScale))
+        }
     }
 }
 
@@ -218,7 +233,15 @@ struct PagedScoreView: UIViewRepresentable {
     func makeUIView(context: Context) -> ZoomableScorePDFView {
         let view = ZoomableScorePDFView()
         view.accessibilityIdentifier = "scorePDF"
-        let pageTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pageTapped(_:)))
+        let pageTap: UITapGestureRecognizer
+        #if DEBUG
+        if InteractionAudit.isReadingLifecycleEnabled {
+            let diagnostic = ReadingLifecycleTapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pageTapped(_:)))
+            diagnostic.auditRole = "pageTap"; pageTap = diagnostic
+        } else { pageTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pageTapped(_:))) }
+        #else
+        pageTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pageTapped(_:)))
+        #endif
         pageTap.cancelsTouchesInView = false
         pageTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         pageTap.delegate = context.coordinator
@@ -232,21 +255,50 @@ struct PagedScoreView: UIViewRepresentable {
         undoTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         undoTap.delegate = context.coordinator
         view.addGestureRecognizer(undoTap); context.coordinator.undoTap = undoTap
-        let renameTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.renameTapped(_:)))
+        let renameTap: UITapGestureRecognizer
+        let dictateTap: UITapGestureRecognizer
+        #if DEBUG
+        if InteractionAudit.isReadingLifecycleEnabled {
+            let rename = ReadingLifecycleTapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.renameTapped(_:)))
+            rename.auditRole = "rename"; renameTap = rename
+            let dictate = ReadingLifecycleTapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.dictateTapped(_:)))
+            dictate.auditRole = "dictate"; dictateTap = dictate
+        } else {
+            renameTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.renameTapped(_:)))
+            dictateTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.dictateTapped(_:)))
+        }
+        #else
+        renameTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.renameTapped(_:)))
+        dictateTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.dictateTapped(_:)))
+        #endif
         renameTap.numberOfTapsRequired = 2; renameTap.delegate = context.coordinator
         renameTap.allowedTouchTypes = undoTap.allowedTouchTypes
-        let dictateTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.dictateTapped(_:)))
         dictateTap.numberOfTapsRequired = 3; dictateTap.delegate = context.coordinator
         dictateTap.allowedTouchTypes = undoTap.allowedTouchTypes
         renameTap.require(toFail: dictateTap)
         pageTap.require(toFail: renameTap); pageTap.require(toFail: dictateTap)
         view.addGestureRecognizer(renameTap); view.addGestureRecognizer(dictateTap)
         context.coordinator.renameTap = renameTap; context.coordinator.dictateTap = dictateTap
-        let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.longPressed(_:)))
+        let longPress: UILongPressGestureRecognizer
+        #if DEBUG
+        if InteractionAudit.isReadingLifecycleEnabled {
+            let diagnostic = ReadingLifecycleLongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.longPressed(_:)))
+            diagnostic.auditRole = "longPress"; longPress = diagnostic
+        } else { longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.longPressed(_:))) }
+        #else
+        longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.longPressed(_:)))
+        #endif
         longPress.cancelsTouchesInView = false
         longPress.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         longPress.delegate = context.coordinator
         view.addGestureRecognizer(longPress)
+        #if DEBUG
+        context.coordinator.readingLongPress = longPress
+        InteractionAudit.registerReadingWindowGesture(pageTap, role: "pageTap")
+        InteractionAudit.registerReadingWindowGesture(renameTap, role: "rename")
+        InteractionAudit.registerReadingWindowGesture(dictateTap, role: "dictate")
+        InteractionAudit.registerReadingWindowGesture(longPress, role: "longPress")
+        #endif
         // Minor regression (verifier "reader lens", 2026-09-29): with no relationship between the
         // two, a touch held long enough to recognize as a long press *also* recognized as a tap on
         // release (UITapGestureRecognizer has no built-in maximum hold duration) — leaving
@@ -328,9 +380,17 @@ struct PagedScoreView: UIViewRepresentable {
         var dictateTap: UITapGestureRecognizer?
         #if DEBUG
         weak var readingPageTap: UITapGestureRecognizer?
+        weak var readingLongPress: UILongPressGestureRecognizer?
         private var quickEditTrace: [String] = []
         private var tracedRecognizers: Set<ObjectIdentifier> = []
         var quickEditDiagnostic: String { quickEditTrace.joined(separator: "|") }
+        var readingGestureDiagnostic: String {
+            func state(_ gesture: UIGestureRecognizer?) -> String {
+                guard let gesture else { return "absent" }
+                return "state=\(gesture.state.rawValue),enabled=\(gesture.isEnabled),attached=\(gesture.view === pdfView),delegate=\(gesture.delegate === self)"
+            }
+            return "pageTap{\(state(readingPageTap))},rename{\(state(renameTap))},dictate{\(state(dictateTap))},longPress{\(state(readingLongPress))},pending=\(pendingViewUpdate != nil),scheduled=\(viewUpdateScheduled),applying=\(isApplyingViewUpdate),dismantled=\(viewIsDismantled),sourceReady=\(loadedURL == parent.url),requestedPage=\(parent.page),reading=\(parent.markup.mode == .reading),regions=\(parent.regions.count),overlays=\(overlays.count)"
+        }
         private func traceQuickEdit(_ event: String) {
             guard ProcessInfo.processInfo.arguments.contains("--uitesting"),
                   (ProcessInfo.processInfo.arguments.contains("--audit-taps") ||
@@ -1139,7 +1199,7 @@ struct PagedScoreView: UIViewRepresentable {
             let allowed = !overlay.containsNote(at: local)
             #if DEBUG
             if gestureRecognizer === readingPageTap, InteractionAudit.isEnabled {
-                traceQuickEdit("reading.receive overlay=true allowed=\(allowed) point=\(point) local=\(local) touch=\(touch.type.rawValue) reading=\(parent.markup.mode == .reading)")
+                traceQuickEdit("reading.receive overlay=true allowed=\(allowed) point=\(point) local=\(local) touch=\(touch.type.rawValue) phase=\(touch.phase.rawValue) taps=\(touch.tapCount) time=\(touch.timestamp) leaf=\(touch.view.map { String(describing: type(of: $0)) } ?? "nil") descendant=\(touch.view?.isDescendant(of: view) == true) sameWindow=\(touch.window === view.window) reading=\(parent.markup.mode == .reading)")
             }
             #endif
             return allowed
@@ -1163,6 +1223,11 @@ struct PagedScoreView: UIViewRepresentable {
             return allowed
         }
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            #if DEBUG
+            if (gestureRecognizer === readingPageTap || otherGestureRecognizer === readingPageTap), InteractionAudit.isEnabled {
+                traceQuickEdit("reading.simultaneous first=\(String(describing: type(of: gestureRecognizer))):\(gestureRecognizer.state.rawValue) other=\(String(describing: type(of: otherGestureRecognizer))):\(otherGestureRecognizer.state.rawValue) undo=\(gestureRecognizer === undoTap || otherGestureRecognizer === undoTap)")
+            }
+            #endif
             if gestureRecognizer === undoTap || otherGestureRecognizer === undoTap {
                 return false
             }

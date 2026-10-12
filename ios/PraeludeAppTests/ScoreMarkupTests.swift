@@ -230,6 +230,83 @@ final class ScoreMarkupTests: XCTestCase {
         XCTAssertEqual(page.bounds(for: .cropBox), pageBoundsBefore)
     }
 
+    @MainActor func testReadingHeightOnlyLayoutPreservesManualMagnificationAndFollowsFitWhenUnzoomed() async throws {
+        let state = ScoreMarkupState()
+        let savedInk = ink(at: 80).dataRepresentation()
+        var writes = 0
+        let parent = PagedScoreView(url: URL(fileURLWithPath: "/reading-height-fixture.pdf"), page: .constant(1),
+                                   twoPages: false, markup: state, drawingData: { _ in savedInk },
+                                   saveDrawing: { _, _, _ in writes += 1; return true }, onPageChanged: { _ in })
+        let coordinator = parent.makeCoordinator()
+        let view = ZoomableScorePDFView(frame: CGRect(x: 0, y: 0, width: 820, height: 927))
+        view.displayBox = .cropBox; view.displayMode = .singlePage; view.autoScales = true
+        view.isInMarkupMode = true; view.pageOverlayViewProvider = coordinator; coordinator.pdfView = view
+        let window = UIWindow(frame: view.bounds)
+        let controller = UIViewController(); controller.view.addSubview(view)
+        window.rootViewController = controller; window.isHidden = false
+        defer { window.isHidden = true; view.pageOverlayViewProvider = nil; coordinator.autosave?.cancel() }
+        let page = try makePage(); let document = PDFDocument(); document.insert(page, at: 0)
+        view.document = document; view.go(to: page)
+        view.layoutDocumentView(); view.setNeedsLayout(); view.layoutIfNeeded()
+        var mounted: ScorePageOverlay?
+        for _ in 0..<100 {
+            if let overlay = coordinator.overlays[1], overlay.window != nil, overlay.bounds.width > 0 {
+                mounted = overlay; break
+            }
+            try await Task.sleep(for: .milliseconds(20)); view.layoutIfNeeded()
+        }
+        let overlay = try XCTUnwrap(mounted, "The native PDF must mount its real saved-ink overlay.")
+        view.refreshScaleRange(); view.layoutIfNeeded(); overlay.layoutIfNeeded()
+        XCTAssertGreaterThan(view.minScaleFactor, 0)
+        XCTAssertEqual(view.scaleFactor, view.minScaleFactor, accuracy: 0.001)
+        let initialFit = view.minScaleFactor
+        let cropBounds = page.bounds(for: .cropBox)
+        let mediaBounds = page.bounds(for: .mediaBox)
+        let sourceFrame = overlay.sourceCanvasFrame
+        let drawingBefore = overlay.canvas.sourceDrawing.dataRepresentation()
+        XCTAssertFalse(overlay.canvas.sourceDrawing.strokes.isEmpty)
+        assertSameInk(overlay.canvas.sourceDrawing, try PKDrawing(data: savedInk))
+        func assertSourceUnchanged() {
+            XCTAssertTrue(view.currentPage === page)
+            XCTAssertEqual(page.bounds(for: .cropBox), cropBounds)
+            XCTAssertEqual(page.bounds(for: .mediaBox), mediaBounds)
+            XCTAssertEqual(overlay.sourceCanvasFrame, sourceFrame)
+            XCTAssertEqual(overlay.canvas.sourceDrawing.dataRepresentation(), drawingBefore,
+                           "Changing HUD height must preserve exact source ink values and stroke identities.")
+            XCTAssertEqual(state.mode, .reading)
+            XCTAssertTrue(state.pendingInk.isEmpty)
+            XCTAssertEqual(writes, 0, "A viewport change must not write saved ink.")
+        }
+        func resize(height: CGFloat) {
+            window.frame = CGRect(x: 0, y: 0, width: 820, height: height)
+            view.frame = window.bounds
+            view.setNeedsLayout(); view.layoutIfNeeded(); view.layoutDocumentView(); view.layoutIfNeeded()
+            overlay.layoutIfNeeded()
+            XCTAssertEqual(view.bounds.width, 820)
+            XCTAssertEqual(view.bounds.height, height)
+            assertSourceUnchanged()
+        }
+        view.scaleFactor = initialFit * 2.3
+        view.layoutDocumentView(); view.layoutIfNeeded()
+        let manualScale = view.scaleFactor
+        XCTAssertEqual(manualScale / initialFit, 2.3, accuracy: 0.001)
+        resize(height: 901)
+        XCTAssertLessThan(view.minScaleFactor, initialFit, "The smaller height must actually change the page-fit scale.")
+        XCTAssertEqual(view.scaleFactor, manualScale, accuracy: 0.001, "The cold-grade HUD height change must preserve absolute manual magnification.")
+        resize(height: 1_000)
+        XCTAssertGreaterThan(view.minScaleFactor, initialFit)
+        XCTAssertEqual(view.scaleFactor, manualScale, accuracy: 0.001, "Growing the same-width viewport must preserve the chosen magnification too.")
+        resize(height: 927)
+        XCTAssertEqual(view.scaleFactor, manualScale, accuracy: 0.001)
+        view.scaleFactor = view.minScaleFactor
+        resize(height: 820)
+        XCTAssertLessThan(view.minScaleFactor, initialFit)
+        XCTAssertEqual(view.minScaleFactor, view.scaleFactorForSizeToFit, accuracy: 0.001)
+        XCTAssertEqual(view.scaleFactor, view.minScaleFactor, accuracy: 0.001, "An unzoomed page must follow the new fit instead of keeping the old absolute scale.")
+        resize(height: 927)
+        XCTAssertEqual(view.scaleFactor, view.minScaleFactor, accuracy: 0.001)
+    }
+
     /// Blocker regression (design): the score's passage boxes must never carry a second accent hue
     /// (previously `.systemIndigo`/`.systemTeal`) — practiced/emphasized/selected states read by
     /// alpha weight only, matching the one-accent monochrome palette (§3a).

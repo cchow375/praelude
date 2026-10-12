@@ -160,7 +160,7 @@ struct PracticeArmView: View {
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                 if passage != nil {
                     Button(action: onRenamePassage) {
-                        Image(systemName: "pencil").font(.caption).frame(width: 44, height: 44)
+                        Image(systemName: "pencil").font(.caption).frame(width: 44, height: 44).contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityLabel("Edit passage name and goal tempo")
                         .accessibilityIdentifier("armEditPassage")
                 }

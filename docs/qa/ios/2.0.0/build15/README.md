@@ -1,4 +1,27 @@
-# Build15 — bounded functional verification
+# Build15 — prepared for controlled device validation
+
+**The affected simulator flows, independent live verification, signed Release audit and archive readback pass. Installation remains HELD: both physical iPads are untouched.** Native2.0.0/build15/schema5 is prepared for the next authorized device-validation step; this is not physical acceptance or a bug-free claim. Mac11.1.0/schema21 is unchanged. Source checkpoint: `ios-v2.0.0-build15-device-validation`; the original `ios-v2.0.0-build15-candidate` preserves failed final18 and is not moved.
+
+| Affected flow / gate | Actual result |
+| --- | --- |
+| One saved-passage contact per fresh process | PASS30 launches:20 with exactly one began/end and no cancellation(424.045s), then10 with all diagnostic hooks off(200.221s). Each arms Evenness/cold controls without practice/history/click/voice-owner changes. One120ms same-center contact, no retries. |
+| Armed Edit outer padding → name/112.5 goal → Save → process relaunch | PASS94.063s in final19, plus independent visible-UI final24. The44×44pt hit area accepts padding outside the24pt glyph. Independent re-read opens exact name/goal; only intended passage title/goal/updatedAt and revision7→8 change, all other records/PDF exact. |
+| Real pinch → real pan → one passage tap → panel resize | PASS final20 UI64.577s and independent final24 UI70.062s, all16 strict predicates. Absolute scale2.4332361227405377 is exactly unchanged across viewport927→901pt; the fit minimum changes correctly. Two affected mounted native layout cases pass0.123s/0.022s. |
+| Normal navigation / Focus / Cancel / Close | Independent final24 PASS through Today→owned Sidebar→Pieces→card→score, one saved-box contact, Focus enter/exit, actual Close/process relaunch/reopen, and first-click editor Cancel/picker Close. |
+| Signed generic Release15 | Root29 checks and independent40 checks PASS: strict signature, profile/team/entitlements/trust/private-key membership, arm64 app/dSYM match, fonts/resources and source/binary binding. All65 diagnostic/test markers absent. Profile valid through2026-10-17 16:14:24UTC. Exact-device inclusion is not queried or claimed. |
+| Archive readback | PASS: ignored `releases/ios-build15-verified-20261012` app/dSYM ZIPs extract to exact full file inventories of the audited inputs. No app data is bundled. |
+
+The fifth-launch failure is explained, not hidden: matching final18 launch5, final19 launch14 and final22 launch3 system logs show XCTest's virtual digitizer disappearing while its contact is still down; BackBoard cancels it. Final22 observes began→cancelled173.318ms before original window forwarding, with no ended event. The test request asked for a50ms up, but completion notification did not prove delivery. The corrected single120ms test contact passes the delivery checks; bounded final23 OS logs show30 empty-contact teardowns and0 live-contact cancellations. No production passage action is fired from cancelled input. Exact Apple-internal race origin and unmatched historical failures remain unproven.
+
+The production fixes are the armed Edit label's rectangular44pt hit area and preservation of absolute manual magnification on height-only HUD changes. At-fit layout still follows fit; width/rotation, explicit refits and automatic short-landscape transitions retain their existing behavior. Original failed zoom shrank2.433236→2.364990 at constant relative zoom; the strict absolute assertion was retained and now passes.
+
+Latest simulator app: `f18c220c56eed9d2d30bc3b68e2c3e315e5fa79f7a17c20c75daa83c196fe645`; UI plugin: `bd8fbeeeca9b4046b66ffff2bc962a8535c6acc255ace8891772afc2b96adb9c`. Generic signed Release executable: `b3c21602064f27282cf40e0d04f79a2445d6dae2424f179cb6fe4a9c2742f4f8`. All241 tested source hashes match. Runtime: iPad Air11-inch(M3), iOS26.5 simulator. Wall times are automation duration, not touch latency or frame-rate measurements.
+
+Actual inspected screenshots: [saved name/112.5 after independent relaunch](screenshots/independent-name-goal-reopened-final24.png), [independent zoom after arming](screenshots/independent-zoom-armed-final24.png).
+
+Evidence: [30-launch delivery](tap-delivery-final23.json), [result](tap-input-final23-summary.json), [source/binaries](tap-input-final23-provenance.json), [causal cancellation capture](tap-cancellation-cause-final22.json), [independent live report](independent-live-final24.json), [independent zoom summary](independent-zoom-final24-summary.json), [signature](release-signature-final23.json), [independent Release audit](release-independent-final24.json), [archive/package](release-package-final23.json), [retained complete history](functional-flows.md).
+
+## Historical bounded final18 verification
 
 **Result: NOT READY. Both physical iPads remain untouched and last verified at build12.** The user requested a bounded report after the current tap, note, Back and rotation checks, with no further scope expansion or diagnostic loops. Mac11.1.0/schema21 is unchanged.
 
@@ -17,15 +40,13 @@ The completed final18 run executes **316 tests:313 passed,2 failed,1 skipped**. 
 
 Frozen simulator executable: `0cfc86896420bbd925aaa48e10786bd5bf411f43d83f74bfcb13de348164501b`. Built and installed UI plugin: `61c0da187a5a4a7e5920eb9a98887685e7c562c5df8abc3afc0a8dfe13b9fc74`. Runtime: iPad Air11-inch(M3), iOS26.5 simulator. Test wall times include automation/attachments and are not touch latency measurements. Checkpoint tag `ios-v2.0.0-build15-candidate` identifies this held, failed verification state; it is not a shipped release.
 
-## What remains open
+## What remains untested / unaccepted
 
-- B155: intermittent initial saved-passage tap failure. Successful repetitions do not close the concrete fifth-launch failure.
-- Exact zoom preservation after the practice-panel resize; the final18 combined assertion is failed, not waived.
-- Armed-passage pencil Edit has a9.5×9.5pt accessibility target in the failure capture. A proposed shape/test addition was never compiled or run and was reverted when the user narrowed scope. It remains unrepaired and untested.
-- Fresh independent manual verification of this final binary and a signed build15 Release package audit were not performed. Earlier manual/package evidence has a different source/binary scope.
-- Physical speech over piano, camera gestures/landmarks/lighting/orientation/false actions, Pencil, click audibility, personal-device OS behavior and sustained practice remain untested. No latest-source physical update or preservation claim is made.
+- Physical speech over piano, camera gestures/landmarks/low light/false actions, Pencil, audible metronome, actual-device OS behavior and sustained practice. No current-device inclusion, backup, install, file preservation or launch/readback gate was attempted.
+- Manual landscape rotation was not established by the independent CUA attempt: only simulator casing changed. The separately recorded final18 actual rotation/Sidebar/Focus/saved-ink UI pass179.912s and current affected native landscape pass retain their exact scopes; the manual attempt is not counted as another pass or an app defect.
+- Unmatched historical no-ops and alias-focus failures retain their recorded uncertainty. The three explicitly matched virtual-digitizer cancellations do not retroactively explain every old failure. No blanket physical or zero-defect acceptance is supported.
 
-No final19 run, additional diagnostic sweep, generic Release build or physical-device tooling follows this bounded report. The final source is returned to the exact final18 test provenance. Any future implementation/verification must preserve these failures; delivery remains explicitly prohibited until the user lifts the hold.
+The earlier note, Voice Check Back, rotation, Undo/new-stroke and double/triple-tap scoped passes remain in final18's frozen-source record below; they were not broadly repeated after the user narrowed scope. Speech inputs in those tests were synthetic, not microphone recognition acceptance.
 
 ## Evidence
 
@@ -40,4 +61,4 @@ Raw log/result/attachments remain outside Git at `/tmp/praelude-build15-function
 
 ## Next steps
 
-Report the passes, the remaining tap failure and untested boundaries. Keep both iPads untouched. Further repair or diagnostic work is outside this bounded verification checkpoint.
+Maintain the explicit no-install hold on both iPads. No further diagnostic sweep is required for this completed affected-flow checkpoint. When the user later authorizes device validation, use the guarded same-bundle protocol with exact target/profile checks, a fresh idle/paused backup, complete file comparison and separate launch/readback and physical acceptance. Never substitute this generic package/simulator pass for those gates.
