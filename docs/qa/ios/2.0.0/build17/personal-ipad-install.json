@@ -1,27 +1,28 @@
 {
-  "verifiedUTC": "2026-10-12T21:47:04.219771+00:00",
+  "verifiedUTC": "2026-10-12T21:57:07.912374+00:00",
   "sourceCommit": "bcc594e7ef69bf5f8ebfcd88e76e873573abc035",
   "sourceCheckpoint": "ios-v2.0.0-build17-candidate",
   "userAuthorization": "Personal-device installation request followed by continuing camera repair request; friend iPad remains held.",
   "installedVersion": "2.0.0",
   "installedBuildReadback": "17",
-  "deliveryState": "installed, manual-open and postlaunch verification pending",
+  "deliveryState": "installed, user-opened and running-process/postlaunch backup verified",
   "automaticLaunch": "denied after successful installation and full preservation check",
-  "userOpened": false,
-  "runningProcessObserved": false,
+  "userOpened": true,
+  "runningProcessObserved": true,
   "backupLocations": [
     "releases/ios-device-backups/20261012T214256Z-a64e981f",
-    "releases/ios-device-backups/20261012T214432Z-3dc89f4e"
+    "releases/ios-device-backups/20261012T214432Z-3dc89f4e",
+    "releases/ios-device-backups/20261012T215701Z-5971bc22"
   ],
   "preservation": {
     "allInventoriesIndependentlyRehashed": true,
     "prePostFullInventoryExact": true,
-    "postLaunchInventoryExactToPostInstall": null,
+    "postLaunchInventoryExactToPostInstall": false,
     "fileCount": 13,
     "totalBytes": 19972391,
     "entireLibraryJSONExactPrePost": true,
     "schema": 5,
-    "revision": 3509,
+    "revision": 3513,
     "activeSetStatus": "paused",
     "recordCounts": {
       "badges": 1,
@@ -53,7 +54,7 @@
     },
     "attemptCount": 487
   },
-  "schemaMigration": "schema5 unchanged; new-reader postlaunch verification pending",
+  "schemaMigration": "none; schema5 retained after opening",
   "actualInstalledHelperArtifact": {
     "archivePath": "releases/ios-build17-camera-helper-installed-20261012",
     "manifestSHA256": "cd82b16324665b8874c2bc4a192c279c7356c38db293b6eca7a6a9c067f4a302",
@@ -75,5 +76,35 @@
   "physicalAcceptance": "pending real AR tracking/natural nod/shake/grin, preview orientation/alignment, page/rep response and sustained practice",
   "otherDevice": "friend remains held atBuild12; no install or targeted operation",
   "mac": "v11.1.0/schema21 unchanged; no Mac import",
-  "noUninstallResetRestoreOrTerminationWorkaround": true
+  "noUninstallResetRestoreOrTerminationWorkaround": true,
+  "postLaunchComparison": {
+    "changedFiles": [
+      "library.json",
+      "Sync/sync-state.json",
+      "Sync/sync-queue.json"
+    ],
+    "libraryChanges": {
+      "revision": {
+        "before": 3509,
+        "after": 3513
+      },
+      "onePiece": {
+        "lastPage": {
+          "before": 3,
+          "after": 7
+        },
+        "lastPageUpdatedAt": "advanced"
+      }
+    },
+    "allOtherLibraryFieldsExact": true,
+    "allOtherFilesExact": true,
+    "syncChanges": {
+      "stateChangedKeys": [
+        "outboundSnapshots"
+      ],
+      "queueCountBefore": 5947,
+      "queueCountAfter": 5955
+    },
+    "cause": "Page bookmark and sync bookkeeping changes observed after manual launch; no gesture acceptance inferred."
+  }
 }
