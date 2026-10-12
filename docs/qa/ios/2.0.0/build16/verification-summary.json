@@ -1,0 +1,74 @@
+{
+  "productionScope": "Source unchanged since final2 except DEBUG fixture; raw failures retained.",
+  "core": {
+    "executed": 476,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 3.27,
+    "targetedGestures": 32
+  },
+  "final2": {
+    "nativeExecuted": 315,
+    "nativeSkipped": 1,
+    "nativeFailures": 0,
+    "nativeSeconds": 16.187,
+    "commandFirstMappingsSaveRelaunch": "passed",
+    "mappingSeconds": 335.073,
+    "syntheticPreview": "failed before first toggle: unsupported empty capture graph runtime error",
+    "previewSeconds": 48.776
+  },
+  "final3": {
+    "nativeCameraExecuted": 8,
+    "nativeCameraFailures": 0,
+    "syntheticPreview": "failed49.100s: unsupported empty graph deferred activation AVFoundation-11800/underlying-12782"
+  },
+  "final4": {
+    "nativeCameraExecuted": 8,
+    "nativeCameraFailures": 0,
+    "nativeCameraSeconds": 0.061,
+    "syntheticPreview": "failed240.661s: one preview-off native-switch tap did not change state; app AX remains responsive; no touchtrace so cause unproven",
+    "completedScope": "Three cancel cycles, fourth ready camera cycle with three preview hide/show pairs and mapping off/on, then fifth-camera first preview pair and next off tap attempted.",
+    "boundary": "pure synthetic capture/startup/measurements/preview controls; no real AV preview graph or physicalcamera acceptance"
+  },
+  "firstAttemptNeighbor": {
+    "result": "passed65.536s",
+    "scope": "intermediate final1 binary; cameraoff"
+  },
+  "independentLive": {
+    "ipadNormalNavigation": true,
+    "exclusiveAssignmentAndReopen": true,
+    "syntheticCameraCycles": 6,
+    "previewHideShowPairs": 6,
+    "mappingOffOn": true,
+    "settingsDoneScoreOverlayReturnAndOff": true,
+    "controlNoOpsObserved": 0,
+    "practiceLibraryByteExact": true,
+    "librarySHA256": "207e90a1cd563bf4e368c4acd2c5142baec13ed0f9c3d5822730288eb1bfe442",
+    "schema": 5,
+    "revision": 7,
+    "pieces": 2,
+    "history": 0,
+    "sessions": 0,
+    "activeSet": null,
+    "attempts": 0,
+    "iphonePortraitCommandsAndDoneFit": true,
+    "iphoneOneAssignmentPersisted": true,
+    "iphonePresentationDelay": "long delay after one menu click; eventually presents without repeat; cause unproven",
+    "manualLowerForm": "CUA scroll/drag did not move form; cause unproven and manual lower controls untested; automated iPad save/relaunch covers these",
+    "staleCoordinateMiss": "one manual click landed on old preview-content position after calibration changed layout; next observation used current switch coordinate; no control retry or product cause assigned",
+    "boundary": "synthetic capture/startup/measurements/previewcontrols; real video graph/mirroring/rotation/recognition/crash acceptance pending"
+  },
+  "release": "Release4 passed50independentchecks, finallogicalFIFOreview and fullarchiveinventoryreadback",
+  "physicalDeviceInstall": "pending",
+  "physicalAcceptance": "pending",
+  "final5": {
+    "nativeExecuted": 316,
+    "nativeSkipped": 1,
+    "nativeFailures": 0,
+    "nativeSeconds": 41.214,
+    "totalRunnerElapsedSeconds": 217.103,
+    "newRegression": "MainActor preview acknowledgement orders next capture without synchronous cross-queue wait",
+    "productionCapture": "background capture + MainActor preview asynchronous logical FIFO matching Apple AVCam",
+    "uiSource": "controls and core unchanged from final2/manual checks; capture-only FIFO revision verified native/source/package; real capture needs physicaldevice"
+  }
+}

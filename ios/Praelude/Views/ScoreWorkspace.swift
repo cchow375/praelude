@@ -551,7 +551,7 @@ struct ScoreWorkspace: View {
         .onChange(of: page) { _, _ in camera.resetMotion() }
         .onChange(of: camera.isEnabled) { _, _ in updateCameraContext() }
         .onChange(of: focusMode) { _, value in runtime.setRepInputSuspended(value, ownerID: voiceOwnerID); updateVoiceContext(); updateCameraContext() }
-        .onChange(of: active?.id) { _, _ in selectedHands = active?.configuration.hands ?? "Both hands"; updateVoiceContext(); updateCameraContext() }
+        .onChange(of: active?.id) { _, _ in selectedHands = active?.configuration.hands ?? "Both hands"; camera.resetMotion(); updateVoiceContext(); updateCameraContext() }
         .onChange(of: speech.isListening) { _, _ in updateVoiceContext(); updateCameraContext() }
         .onChange(of: speech.ownerID) { _, _ in restoreScoreVoiceIfNeeded(); restoreEditorVoiceIfNeeded() }
         .onChange(of: arm.awaitingColdGrade) { _, _ in updateVoiceContext(); updateCameraContext() }
@@ -584,7 +584,7 @@ struct ScoreWorkspace: View {
         }
         .onChange(of: active?.currentBPM) { _, _ in refreshAudio() }
         .onChange(of: active?.status) { _, newStatus in
-            refreshAudio(); runtime.updateScreenAwake(); updateVoiceContext()
+            refreshAudio(); runtime.updateScreenAwake(); updateVoiceContext(); updateCameraContext()
             if newStatus == .completed { offerBreakPointTap = false; markup.breakPointArmed = false }
             if newStatus == .completed, let active { arm.computeAfterSet(active, store: store) }
             // Covers every path back to "no active set for this piece" in one place — Finish,
@@ -1557,7 +1557,10 @@ struct ScoreWorkspace: View {
         if camera.isEnabled { camera.onAction = handleCameraAction }
         else { camera.onAction = nil }
         camera.actionsAllowed = acceptsCameraActions
-        camera.resetMotion()
+        camera.verdictActionsAllowed = !focusMode && active?.status == .running && !arm.awaitingColdGrade
+        camera.verdictUnavailableReason = focusMode ? "leave score focus to record reps"
+            : arm.awaitingColdGrade ? "choose the first-attempt grade on screen"
+            : "start a practice set to record reps"
     }
     private var scoreInputIsUnobstructed: Bool {
         scenePhase == .active && editingTextBox == nil && renamingPassage == nil &&
@@ -1575,7 +1578,7 @@ struct ScoreWorkspace: View {
         case .nextPage: turnPage(1)
         case .previousPage: turnPage(-1)
         case .clean, .sloppy, .again:
-            guard camera.settings.allowVerdicts, !focusMode, active?.status == .running else { return }
+            guard camera.settings.allowVerdicts, !focusMode, !arm.awaitingColdGrade, active?.status == .running else { return }
             record(action == .clean ? .clean : action == .sloppy ? .sloppy : .again)
         }
     }

@@ -1,5 +1,9 @@
 # Praelude — How To Use
 
+## October12 camera repair candidate
+
+**Matches: installed personal native2.0.0/build15/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** Build15 camera preview and recognition are reported unreliable. Build16 repairs and command-first controls are prepared for guarded personal delivery, with physical acceptance pending. Installed instructions below remain Build15 until delivery; candidate actions and exact limits are in `docs/qa/ios/2.0.0/build16/candidate-guide.md`.
+
 ## October 12 — installed Build15 on the personal iPad
 
 **Matches: personal native2.0.0/build15/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** The personal update preserves every saved file exactly. Automatic opening was declined; Christian then opened Praelude and read-only verification observes it running. If an untrusted-developer message appears, follow Settings → General → VPN & Device Management → Developer App for your own developer. Complete post-launch readback preserves all13 files/19,420,130bytes exactly at schema5/revision3423; the friend iPad remains held.

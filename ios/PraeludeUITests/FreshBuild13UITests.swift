@@ -107,9 +107,9 @@ final class FreshBuild13UITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 8), .completed, app.debugDescription)
     }
 
-    @MainActor private func chooseCameraAction(_ title: String, app: XCUIApplication) {
+    @MainActor private func chooseCameraExpression(_ title: String, app: XCUIApplication) {
         // The score's disabled page arrows remain in AX behind the sheet. Select only the
-        // action belonging to the open native Picker menu, never a global title match.
+        // expression belonging to the open native Picker menu, never a global title match.
         let menu = app.collectionViews.containing(.button, identifier: title).firstMatch
         XCTAssertTrue(menu.waitForExistence(timeout: 5), app.debugDescription)
         tap(menu.buttons[title], app: app)
@@ -176,38 +176,215 @@ final class FreshBuild13UITests: XCTestCase {
         shot("fresh13-new-stroke-location-reopened", app: app)
     }
 
-    @MainActor func testCameraStartsOffWithMinimizedPreviewAndPersistsExplicitMapping() {
+    @MainActor private func cameraSettingsList(_ app: XCUIApplication) -> XCUIElement {
+        XCTAssertTrue(app.navigationBars["Camera gestures"].exists, app.debugDescription)
+        let list = app.collectionViews.firstMatch
+        XCTAssertTrue(list.waitForExistence(timeout: 5), app.debugDescription)
+        return list
+    }
+
+    @MainActor private func cameraViewport(_ app: XCUIApplication) -> CGRect {
+        let list = cameraSettingsList(app)
+        var visible = list.frame.intersection(app.frame)
+        // The form sheet includes its navigation bar in the collection frame. Its scroll
+        // bar reports the actual clipped content viewport (final1: y324...878).
+        let bar = list.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Vertical scroll bar")).firstMatch
+        if bar.exists {
+            let frame = bar.frame
+            visible = CGRect(x: visible.minX, y: max(visible.minY, frame.minY), width: visible.width,
+                             height: max(0, min(visible.maxY, frame.maxY) - max(visible.minY, frame.minY)))
+        }
+        return visible.insetBy(dx: 5, dy: 5)
+    }
+
+    @MainActor private func cameraControlVisible(_ element: XCUIElement, app: XCUIApplication) -> Bool {
+        // List rows are virtualized; accessing frame before exists is itself an XCTest
+        // failure. Every geometry read below follows a successful existence check.
+        guard element.exists, element.isHittable else { return false }
+        return cameraViewport(app).insetBy(dx: -0.5, dy: -0.5).contains(element.frame)
+    }
+
+    @MainActor private func scrollCamera(_ app: XCUIApplication, upwards: Bool) {
+        let viewport = cameraViewport(app)
+        XCTAssertGreaterThan(viewport.height, 100, app.debugDescription)
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let from = origin.withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * (upwards ? 0.8 : 0.3)))
+        let to = origin.withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * (upwards ? 0.3 : 0.8)))
+        from.press(forDuration: 0.08, thenDragTo: to)
+    }
+
+    @MainActor private func revealCameraControl(_ element: XCUIElement, app: XCUIApplication) {
+        if cameraControlVisible(element, app: app) { return }
+        // Return to a known top anchor before searching downward. This handles missing
+        // virtualized rows without guessing their position from a nonexistent AX frame.
+        let top = cameraSettingsList(app).buttons["toggleFaceCamera"]
+        for _ in 0..<7 {
+            if cameraControlVisible(top, app: app) { break }
+            scrollCamera(app, upwards: false)
+        }
+        XCTAssertTrue(cameraControlVisible(top, app: app), app.debugDescription)
+        for _ in 0..<7 {
+            if cameraControlVisible(element, app: app) { return }
+            scrollCamera(app, upwards: true)
+        }
+        XCTAssertTrue(cameraControlVisible(element, app: app), app.debugDescription)
+    }
+
+    @MainActor private func setCameraSwitch(_ identifier: String, enabled: Bool, receipt: String, app: XCUIApplication) {
+        let row = cameraSettingsList(app).switches[identifier]
+        revealCameraControl(row, app: app)
+        let desired = enabled ? "1" : "0"
+        if row.value as? String != desired {
+            // A SwiftUI Toggle's AX row includes its label. Tap the actual nested UIKit
+            // switch, whose final1 frame is 63x28pt, once after it settles.
+            let control = row.switches.firstMatch
+            let visible = cameraViewport(app)
+            var previous = CGRect.zero
+            var changed = Date.now
+            let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard control.exists, control.isHittable else { return false }
+                let frame = control.frame
+                guard visible.contains(frame) else { return false }
+                if frame != previous { previous = frame; changed = .now; return false }
+                return Date.now.timeIntervalSince(changed) >= 0.25
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed, app.debugDescription)
+            let target = XCTAttachment(string: "row=\(row.frame) nativeSwitch=\(control.frame) desired=\(desired)")
+            target.name = receipt; target.lifetime = .keepAlways; add(target)
+            control.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5)).tap()
+        }
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", desired), object: row)
+        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, app.debugDescription)
+    }
+
+    @MainActor private func waitCameraPreview(_ visible: Bool, app: XCUIApplication) {
+        let preview = cameraSettingsList(app).otherElements["faceCameraPreview"]
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == %@", NSNumber(value: visible)), object: preview)
+        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed, app.debugDescription)
+    }
+
+    @MainActor private func assertCameraExpression(_ expression: String, command: String, app: XCUIApplication) {
+        let row = cameraSettingsList(app).buttons["faceCommand_" + command]
+        revealCameraControl(row, app: app)
+        let mapped = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", expression, expression), object: row)
+        XCTAssertEqual(XCTWaiter.wait(for: [mapped], timeout: 5), .completed, app.debugDescription)
+    }
+
+    @MainActor private func assignCameraExpression(_ expression: String, command: String, app: XCUIApplication) {
+        let row = cameraSettingsList(app).buttons["faceCommand_" + command]
+        revealCameraControl(row, app: app)
+        tap(row, app: app)
+        chooseCameraExpression(expression, app: app)
+        assertCameraExpression(expression, command: command, app: app)
+    }
+
+    @MainActor func testCameraCommandFirstMappingsAndRecognitionSettingsPersistWithoutStartingSet() {
         let app = XCUIApplication(); openScore(app)
         XCTAssertFalse(app.otherElements["scoreCameraControls"].exists)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
         openCameraSettings(app)
-        XCTAssertTrue(app.navigationBars["Camera gestures"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertEqual(app.buttons["toggleFaceCamera"].label, "Enable camera")
         XCTAssertEqual(app.staticTexts["faceCameraStatus"].label, "Camera is off")
-        XCTAssertEqual(app.switches["showFacePreview"].value as? String, "0")
-        XCTAssertEqual(app.switches["showFaceMapping"].value as? String, "1")
-        XCTAssertFalse(app.buttons["calibrateFaceCamera"].isEnabled)
-        let nod = app.buttons["faceNodAction"]
-        for _ in 0..<4 where !nod.isHittable { app.swipeUp() }
-        let titles = ["Off", "Next page", "Previous page", "Clean", "Sloppy", "Again"]
-        let original = titles.first { nod.label.contains($0) || (nod.value as? String ?? "").contains($0) } ?? "Clean"
-        let chosen = original == "Previous page" ? "Clean" : "Previous page"
-        tap(nod, app: app)
-        chooseCameraAction(chosen, app: app)
-        let mapped = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", chosen, chosen), object: nod)
-        XCTAssertEqual(XCTWaiter.wait(for: [mapped], timeout: 5), .completed, app.debugDescription)
-        shot("fresh13-camera-off-explicit-mapping", app: app)
+        // Commands remain fixed. Assigning an occupied expression moves it explicitly;
+        // an expression can never leave two hidden command mappings behind.
+        assignCameraExpression("Nod", command: "clean", app: app)
+        assignCameraExpression("Nod", command: "previousPage", app: app)
+        assertCameraExpression("Unassigned", command: "clean", app: app)
+        let feedback = cameraSettingsList(app).staticTexts["faceMappingFeedback"]
+        revealCameraControl(feedback, app: app)
+        XCTAssertTrue(feedback.label.contains("Clean is now unassigned"), app.debugDescription)
+        assignCameraExpression("Grin", command: "nextPage", app: app)
+        assignCameraExpression("Shake head", command: "sloppy", app: app)
+        assignCameraExpression("Open mouth", command: "clean", app: app)
+        assignCameraExpression("Close both eyes", command: "again", app: app)
+        let verdicts = cameraSettingsList(app).switches["allowFaceVerdicts"]
+        setCameraSwitch("allowFaceVerdicts", enabled: true, receipt: "camera-verdict-opt-in-native-target", app: app)
+        let calibrate = cameraSettingsList(app).buttons["calibrateFaceCamera"]
+        revealCameraControl(calibrate, app: app)
+        XCTAssertFalse(calibrate.isEnabled)
+
+        let sensitivity = cameraSettingsList(app).buttons["faceGestureSensitivity"]
+        revealCameraControl(sensitivity, app: app)
+        tap(sensitivity, app: app); chooseCameraExpression("Easy", app: app)
+        let hold = cameraSettingsList(app).steppers["faceGestureHold"]
+        let cooldown = cameraSettingsList(app).steppers["faceGestureCooldown"]
+        revealCameraControl(hold, app: app)
+        tap(hold.buttons["faceGestureHold-Increment"], app: app)
+        let holdValue = hold.label + " " + (hold.value as? String ?? "")
+        revealCameraControl(cooldown, app: app)
+        tap(cooldown.buttons["faceGestureCooldown-Increment"], app: app)
+        let cooldownValue = cooldown.label + " " + (cooldown.value as? String ?? "")
+        XCTAssertTrue(holdValue.contains("0.5"), app.debugDescription)
+        XCTAssertTrue(cooldownValue.contains("1.5"), app.debugDescription)
+        shot("camera-command-first-mappings-and-recognition-settings", app: app)
         tap(app.navigationBars["Camera gestures"].buttons["Done"], app: app)
         XCTAssertFalse(app.otherElements["scoreCameraControls"].exists)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
         tap(app.buttons["closeScore"], app: app)
         app.terminate(); openScore(app, reset: false)
         openCameraSettings(app)
         XCTAssertEqual(app.buttons["toggleFaceCamera"].label, "Enable camera")
-        XCTAssertEqual(app.switches["showFacePreview"].value as? String, "0")
-        let savedNod = app.buttons["faceNodAction"]
-        for _ in 0..<4 where !savedNod.isHittable { app.swipeUp() }
-        XCTAssertTrue(savedNod.label.contains(chosen) || (savedNod.value as? String ?? "").contains(chosen), app.debugDescription)
-        shot("fresh13-camera-off-mapping-reopened", app: app)
-        tap(savedNod, app: app); chooseCameraAction(original, app: app)
+        for (command, expression) in [("nextPage", "Grin"), ("previousPage", "Nod"), ("clean", "Open mouth"), ("sloppy", "Shake head"), ("again", "Close both eyes")] {
+            let row = cameraSettingsList(app).buttons["faceCommand_" + command]
+            revealCameraControl(row, app: app)
+            assertCameraExpression(expression, command: command, app: app)
+        }
+        revealCameraControl(verdicts, app: app)
+        XCTAssertEqual(verdicts.value as? String, "1")
+        revealCameraControl(sensitivity, app: app)
+        XCTAssertTrue(sensitivity.label.contains("Easy") || (sensitivity.value as? String ?? "").contains("Easy"), app.debugDescription)
+        revealCameraControl(hold, app: app)
+        XCTAssertEqual(hold.label + " " + (hold.value as? String ?? ""), holdValue)
+        revealCameraControl(cooldown, app: app)
+        XCTAssertEqual(cooldown.label + " " + (cooldown.value as? String ?? ""), cooldownValue)
+        shot("camera-command-mappings-and-recognition-settings-reopened", app: app)
+        tap(app.navigationBars["Camera gestures"].buttons["Done"], app: app)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
+    }
+
+    @MainActor func testSimulatedCameraRepeatedStartStopAndPreviewRemainsResponsive() {
+        // DEBUG fixture supplies permission and steady synthetic frames. This checks actual
+        // controls and lifecycle integration, not physical camera recognition or performance.
+        let app = XCUIApplication()
+        openScore(app, auditArguments: ["--audit-simulated-face"])
+        openCameraSettings(app)
+        let toggle = app.buttons["toggleFaceCamera"]
+        for cycle in 0..<6 {
+            tap(toggle, app: app)
+            if cycle < 3 {
+                // Cancel preparation immediately; late permission/capture completion must
+                // not reopen the camera or leave the settings sheet frozen.
+                if toggle.isEnabled && toggle.label == "Turn camera off" { tap(toggle, app: app) }
+            } else {
+                let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "Test mode"), object: app.staticTexts["faceCameraStatus"])
+                XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 8), .completed, app.debugDescription)
+                waitCameraPreview(true, app: app)
+                for previewCycle in 0..<3 {
+                    setCameraSwitch("showFacePreview", enabled: false, receipt: "camera-\(cycle)-preview-\(previewCycle)-off", app: app)
+                    waitCameraPreview(false, app: app)
+                    setCameraSwitch("showFacePreview", enabled: true, receipt: "camera-\(cycle)-preview-\(previewCycle)-on", app: app)
+                    waitCameraPreview(true, app: app)
+                }
+                setCameraSwitch("showFaceMapping", enabled: false, receipt: "camera-\(cycle)-mapping-off", app: app)
+                setCameraSwitch("showFaceMapping", enabled: true, receipt: "camera-\(cycle)-mapping-on", app: app)
+                revealCameraControl(toggle, app: app)
+                tap(toggle, app: app)
+            }
+            let stopped = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                toggle.exists && toggle.isEnabled && toggle.label == "Enable camera"
+                    && app.staticTexts["faceCameraStatus"].label == "Camera is off"
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [stopped], timeout: 8), .completed, "Cycle \(cycle + 1)\n\(app.debugDescription)")
+            waitCameraPreview(false, app: app)
+        }
+        shot("camera-six-synthetic-start-stop-cycles", app: app)
+        tap(app.navigationBars["Camera gestures"].buttons["Done"], app: app)
+        XCTAssertFalse(app.otherElements["scoreCameraControls"].exists)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
+        openCameraSettings(app)
+        XCTAssertEqual(toggle.label, "Enable camera")
+        XCTAssertEqual(app.staticTexts["faceCameraStatus"].label, "Camera is off")
+        tap(app.navigationBars["Camera gestures"].buttons["Done"], app: app)
     }
 
     @MainActor func testDirectNameAndDecimalGoalSaveAndReopenWithoutStartingSet() {
