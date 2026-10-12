@@ -29,7 +29,9 @@ struct PassageLibraryNamesView: View {
                                         .accessibilityHint("Double tap the name, or use Edit, to change its name and goal tempo")
                                     Button { renaming = passage } label: {
                                         Image(systemName: "pencil").frame(width: 44, height: 44)
-                                    }.accessibilityLabel("Edit name and goal for \(passage.title)")
+                                            .contentShape(Rectangle())
+                                    }.buttonStyle(.plain)
+                                        .accessibilityLabel("Edit name and goal for \(passage.title)")
                                 }.accessibilityIdentifier("organizePassage_\(passage.id)")
                             }
                         }

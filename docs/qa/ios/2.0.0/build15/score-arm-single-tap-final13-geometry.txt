@@ -1,0 +1,11 @@
+page[minX,minY,width,height,maxX,maxY]=99.532520325203222,85.999999999999943,620.93495934959356,875,720.46747967479678,961
+score=0,86,820,875,820,961
+app=0,0,820,1180,820,1180
+savedBox=130.57926829268291,466.62499999999994,558.84146341463418,113.75,689.42073170731715,580.375
+pageHittable=true
+strictScoreContains=false
+tolerantScoreContains=true
+strictAppContains=true
+tolerantAppContains=true
+center=(410,523.5)
+readiness=1

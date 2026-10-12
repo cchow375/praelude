@@ -584,9 +584,9 @@ enum ScorePassageBoxStyle {
         if markup.mode == .selecting || markup.quickBoxArmed || markup.breakPointArmed { return self }
         if placementToolArmed { return self }
         if note(at: point) != nil, event?.allTouches?.contains(where: { $0.type == .pencil }) != true { return self }
-        // Selected passage taps belong to our ancestor rename/dictate recognizers, rather
-        // than PDFKit's text selection recognizers. Keep Pencil and unresolved hits on ink.
-        if !pencil, shouldClaimSelectedPassage(at: point, touchType: event?.allTouches?.first?.type) { return self }
+        // Saved passage taps belong to our ancestor page/rename/dictate recognizers, rather
+        // than the canvas or PDFKit's text selection recognizers. Keep Pencil and unresolved hits on ink.
+        if !pencil, shouldClaimSavedPassage(at: point, touchType: event?.allTouches?.first?.type) { return self }
         if let touches = event?.allTouches, touches.filter({ $0.type == .direct }).count >= 2 { return self }
         guard !inkReadOnly, !contentReadOnly else { return nil }
         let touches = event?.allTouches
@@ -681,11 +681,11 @@ enum ScorePassageBoxStyle {
     func passageRegion(at point: CGPoint) -> UUID? {
         visibleRegions.reversed().first { displayRect(for: $0)?.contains(point) ?? false }?.id
     }
-    func shouldClaimSelectedPassage(at point: CGPoint, touchType: UITouch.TouchType?) -> Bool {
+    func shouldClaimSavedPassage(at point: CGPoint, touchType: UITouch.TouchType?) -> Bool {
         guard touchType == .direct, bounds.contains(point), markup.mode == .reading,
               !inkReadOnly, !contentReadOnly, !markup.quickBoxArmed, !markup.breakPointArmed,
-              note(at: point) == nil, let region = passageRegion(at: point) else { return false }
-        return emphasizedIDs.contains(region)
+              note(at: point) == nil else { return false }
+        return passageRegion(at: point) != nil
     }
     @objc private func tap(_ recognizer: UITapGestureRecognizer) { handleTap(at: recognizer.location(in: self)) }
     /// Point-based so tests can drive it directly without a live touch sequence (`UIGestureRecognizer.

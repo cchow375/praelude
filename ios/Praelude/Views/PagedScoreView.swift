@@ -74,7 +74,14 @@ final class ZoomableScorePDFView: PDFView {
             let leftIsMargin = page(for: CGPoint(x: bounds.width * 0.03, y: bounds.midY), nearest: false) == nil
             let rightIsMargin = page(for: CGPoint(x: bounds.width * 0.97, y: bounds.midY), nearest: false) == nil
             let quickEdit = (pageOverlayViewProvider as? PagedScoreView.Coordinator)?.quickEditDiagnostic ?? ""
-            return "renderedPageWidth=\(renderedPageWidth);leftIsMargin=\(leftIsMargin),rightIsMargin=\(rightIsMargin);scale=\(scaleFactor),min=\(minScaleFactor),max=\(maxScaleFactor),auto=\(autoScales),markup=\(isInMarkupMode),hit=\(hitTest(CGPoint(x:bounds.midX,y:bounds.midY),with:nil).map { String(describing:type(of:$0)) } ?? "none");\(details);quickEdit=[\(quickEdit)];\(inkCounts(self).joined(separator: ";"))"
+            var displayedPage = 0
+            if let document, let currentPage {
+                let index = document.index(for: currentPage)
+                if index >= 0 && index < document.pageCount { displayedPage = index + 1 }
+            }
+            let passiveReading = InteractionAudit.isPassiveReadingDelivery
+                ? ";passiveReading=[\(InteractionAudit.passiveReadingEvents.joined(separator: "|"))]" : ""
+            return "displayedPage=\(displayedPage);renderedPageWidth=\(renderedPageWidth);leftIsMargin=\(leftIsMargin),rightIsMargin=\(rightIsMargin);scale=\(scaleFactor),min=\(minScaleFactor),max=\(maxScaleFactor),auto=\(autoScales),markup=\(isInMarkupMode),hit=\(hitTest(CGPoint(x:bounds.midX,y:bounds.midY),with:nil).map { String(describing:type(of:$0)) } ?? "none");\(details);quickEdit=[\(quickEdit)];\(inkCounts(self).joined(separator: ";"))\(passiveReading)"
         }
         set { super.accessibilityValue = newValue }
     }
@@ -216,6 +223,9 @@ struct PagedScoreView: UIViewRepresentable {
         pageTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         pageTap.delegate = context.coordinator
         view.addGestureRecognizer(pageTap)
+        #if DEBUG
+        context.coordinator.readingPageTap = pageTap
+        #endif
         let undoTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.twoFingerTapped(_:)))
         undoTap.numberOfTouchesRequired = 2
         undoTap.cancelsTouchesInView = false
@@ -317,16 +327,22 @@ struct PagedScoreView: UIViewRepresentable {
         var renameTap: UITapGestureRecognizer?
         var dictateTap: UITapGestureRecognizer?
         #if DEBUG
+        weak var readingPageTap: UITapGestureRecognizer?
         private var quickEditTrace: [String] = []
         private var tracedRecognizers: Set<ObjectIdentifier> = []
         var quickEditDiagnostic: String { quickEditTrace.joined(separator: "|") }
         private func traceQuickEdit(_ event: String) {
-            guard ProcessInfo.processInfo.arguments.contains("--uitesting") else { return }
+            guard ProcessInfo.processInfo.arguments.contains("--uitesting"),
+                  (ProcessInfo.processInfo.arguments.contains("--audit-taps") ||
+                   ProcessInfo.processInfo.arguments.contains("--audit-reading-delivery")) else { return }
+            InteractionAudit.record("pdf " + event)
+            if InteractionAudit.isPassiveReadingDelivery { return }
             quickEditTrace.append(event)
             if quickEditTrace.count > 24 { quickEditTrace.removeFirst(quickEditTrace.count - 24) }
         }
         private func observeGestureActions(in view: UIView) {
-            guard ProcessInfo.processInfo.arguments.contains("--uitesting") else { return }
+            guard ProcessInfo.processInfo.arguments.contains("--uitesting"),
+                  ProcessInfo.processInfo.arguments.contains("--audit-taps") else { return }
             for recognizer in view.gestureRecognizers ?? [] {
                 if tracedRecognizers.insert(ObjectIdentifier(recognizer)).inserted {
                     recognizer.addTarget(self, action: #selector(observedGestureAction(_:)))
@@ -340,7 +356,8 @@ struct PagedScoreView: UIViewRepresentable {
             let note = quickEditTarget(at: point, in: view).note != nil
             let owner = recognizer.view.map { String(describing: type(of: $0)) } ?? "none"
             var role = "system"
-            if let overlay = recognizer.view as? ScorePageOverlay {
+            if recognizer === readingPageTap { role = "readingPageTap" }
+            else if let overlay = recognizer.view as? ScorePageOverlay {
                 if recognizer === overlay.selectionTap { role = "selectionTap" }
                 else if recognizer === overlay.noteEditTap { role = "noteEditTap" }
                 else if recognizer === overlay.noteDictateTap { role = "noteDictateTap" }
@@ -960,17 +977,34 @@ struct PagedScoreView: UIViewRepresentable {
             }
         }
         @objc func pageTapped(_ recognizer: UITapGestureRecognizer) {
+            #if DEBUG
+            if InteractionAudit.isEnabled {
+                traceQuickEdit("reading.action state=\(recognizer.state.rawValue) pdfView=\(recognizer.view is PDFView) reading=\(parent.markup.mode == .reading) focus=\(parent.focusPageTurns)")
+            }
+            #endif
             guard recognizer.state == .ended, let view = recognizer.view as? PDFView else { return }
             let point = recognizer.location(in: view)
             let x = Double(point.x / max(1, view.bounds.width))
             let y = Double(point.y / max(1, view.bounds.height))
+            #if DEBUG
+            if InteractionAudit.isEnabled { traceQuickEdit("reading.point point=\(point) fraction=(\(x),\(y)) overlays=\(overlays.count) regions=\(parent.regions.count)") }
+            #endif
             if parent.allowsFocusToggle, ScoreReadingInteraction.togglesFocus(x: x, y: y) {
+                #if DEBUG
+                if InteractionAudit.isEnabled { traceQuickEdit("reading.focusToggle") }
+                #endif
                 parent.onToggleFocus(); return
             }
             if parent.focusPageTurns {
+                #if DEBUG
+                if InteractionAudit.isEnabled { traceQuickEdit("reading.focusPageTurn") }
+                #endif
                 parent.onTurnPage(ScoreReadingInteraction.pageDirection(x: x)); return
             }
             guard let tappedPage = view.page(for: point, nearest: false), let document = view.document else {
+                #if DEBUG
+                if InteractionAudit.isEnabled { traceQuickEdit("reading.noPage document=\(view.document != nil)") }
+                #endif
                 // The paper-white gutter belongs to page navigation too. Drawing/selection
                 // gestures never enter this reading-only recognizer.
                 parent.onTurnPage(ScoreReadingInteraction.pageDirection(x: x)); return
@@ -984,16 +1018,35 @@ struct PagedScoreView: UIViewRepresentable {
                 ? CGPoint(x: (pageLocal.x - crop.minX) / crop.width, y: 1 - (pageLocal.y - crop.minY) / crop.height) : nil
             if let fraction, !parent.scoreLinks.isEmpty,
                let link = parent.scoreLinks.reversed().first(where: { $0.sourcePage == displayIndex && ($0.sourceRegion?.contains(fraction) ?? false) }) {
+                #if DEBUG
+                if InteractionAudit.isEnabled { traceQuickEdit("reading.link") }
+                #endif
                 parent.onLinkActivated(link)
                 return
             }
-            if let sourcePage = sourcePage(forDisplayIndex: displayIndex), let overlay = overlays[sourcePage] {
+            let sourcePage = sourcePage(forDisplayIndex: displayIndex)
+            let overlay = sourcePage.flatMap { overlays[$0] }
+            #if DEBUG
+            if InteractionAudit.isEnabled {
+                traceQuickEdit("reading.page display=\(displayIndex) source=\(sourcePage ?? 0) overlay=\(overlay != nil) pdfPoint=\(pageLocal)")
+            }
+            #endif
+            if let overlay {
                 let point = overlay.convert(recognizer.location(in: view), from: view)
-                if let regionID = overlay.passageRegion(at: point) {
+                let regionID = overlay.passageRegion(at: point)
+                #if DEBUG
+                if InteractionAudit.isEnabled {
+                    traceQuickEdit("reading.region local=\(point) bounds=\(overlay.bounds) attached=\(overlay.superview != nil) region=\(regionID != nil) displayed=\(overlay.displayedRegions.count) boxes=\(parent.markup.showPassageBoxes)")
+                }
+                #endif
+                if let regionID {
                     parent.onRegionSelected(regionID)
                     return
                 }
             }
+            #if DEBUG
+            if InteractionAudit.isEnabled { traceQuickEdit("reading.fallbackPageTurn") }
+            #endif
             // §7 reading: tap-zone turning is also available outside focus/performance mode, as a
             // fallback once a tap has already missed every link and passage region above it — the
             // left-edge/right-majority split matches the same zones `focusPageTurns` uses, so it
@@ -1058,7 +1111,12 @@ struct PagedScoreView: UIViewRepresentable {
             }
         }
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard let view = pdfView else { return true }
+            guard let view = pdfView else {
+                #if DEBUG
+                if gestureRecognizer === readingPageTap, InteractionAudit.isEnabled { traceQuickEdit("reading.receive pdfView=false allowed=true") }
+                #endif
+                return true
+            }
             if gestureRecognizer === undoTap { return true }
             let point = touch.location(in: view)
             if gestureRecognizer === renameTap || gestureRecognizer === dictateTap {
@@ -1072,8 +1130,19 @@ struct PagedScoreView: UIViewRepresentable {
                 // these ancestor recognizers, avoiding duplicate or competing note actions.
                 return target.note == nil && target.region != nil
             }
-            guard let (overlay, local) = overlay(at: point, in: view) else { return true }
-            return !overlay.containsNote(at: local)
+            guard let (overlay, local) = overlay(at: point, in: view) else {
+                #if DEBUG
+                if gestureRecognizer === readingPageTap, InteractionAudit.isEnabled { traceQuickEdit("reading.receive overlay=false allowed=true point=\(point) touch=\(touch.type.rawValue)") }
+                #endif
+                return true
+            }
+            let allowed = !overlay.containsNote(at: local)
+            #if DEBUG
+            if gestureRecognizer === readingPageTap, InteractionAudit.isEnabled {
+                traceQuickEdit("reading.receive overlay=true allowed=\(allowed) point=\(point) local=\(local) touch=\(touch.type.rawValue) reading=\(parent.markup.mode == .reading)")
+            }
+            #endif
+            return allowed
         }
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             if gestureRecognizer === undoTap { return parent.allowsInk && !parent.focusPageTurns }
@@ -1087,7 +1156,11 @@ struct PagedScoreView: UIViewRepresentable {
             if gestureRecognizer is UISwipeGestureRecognizer {
                 return parent.markup.mode == .reading || (parent.markup.mode == .writing && !parent.markup.fingerDrawing && parent.markup.tool.kind.isInkingTool)
             }
-            return parent.markup.mode == .reading
+            let allowed = parent.markup.mode == .reading
+            #if DEBUG
+            if gestureRecognizer === readingPageTap, InteractionAudit.isEnabled { traceQuickEdit("reading.shouldBegin allowed=\(allowed)") }
+            #endif
+            return allowed
         }
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
             if gestureRecognizer === undoTap || otherGestureRecognizer === undoTap {

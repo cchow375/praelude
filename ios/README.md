@@ -1,5 +1,21 @@
 # Praelude Mobile
 
+## October 11 — build15 verification complete; candidate not ready
+
+**Native2.0.0/build15/schema5 is held. Both physical iPads remain untouched and last verified at build12; Mac11.1.0/schema21 is unchanged.** The user narrowed the task to finishing the current tap/note/Back/rotation verification and reporting passes, failures and untested boundaries, without further scope or diagnostic loops.
+
+Final18 executes316 tests:313 passed,2 failed,1 live-account skip. All308 native cases have0 failures(15.960s). Six of8 actual simulator UI cases pass: ink/Undo/new stroke/save/process-relaunch86.400s; eight selected-box double/Cancel cycles then triple/ordinary editing167.412s; actual rotation/Sidebar/Focus with saved ink179.912s; New Text dictation Cancel80.870s; Voice Check Back112.620s; saved-note dictation Cancel106.990s. Speech inputs are explicitly synthetic.
+
+**The current tap repair fails.** The normal10-launch case succeeds4 times, then one valid saved-box center tap on launch5 leaves Whole piece unchanged(105.004s). The all-saved-region routing change is insufficient; B155 remains open and its loss point is unknown. The separate zoom case fails69.327s at its combined final assertion: real pinch/pan succeed and the correct passage actually arms, but the last absolute-scale comparison does not pass after the viewport changes927→901pt. Exact failed scale/minimum values were not captured; zoom preservation remains unaccepted, without classifying that case as a tap no-op.
+
+Build15 also contains the earlier scoped recovery/Edit/owned-Sidebar, Undo-context, nested-command, Mute, audio-notification, armed-click, End reachability and editor-voice-handoff repairs. Their individual runs and binary scopes remain in the full QA history; they are not a blanket acceptance of this failed candidate. No schema/history snapshot change. The armed-pencil9.5pt target is newly observed and unrepaired; uncompiled shape/diagnostic additions were reverted to final18 source when scope was narrowed.
+
+Fresh manual verification of this final binary, a signed build15 Release audit, physical mic/camera/Pencil/click/OS behavior and sustained practice remain untested. No final19 run, extra diagnostic sweep, Release build or physical-device action follows this checkpoint. No bug-free or fully-functional claim is supported.
+
+Current report: `docs/qa/ios/2.0.0/build15/README.md`; raw scopes/failures: `functional-flows.md`, `functional-final18-summary.json` and `functional-final18-provenance.json` in that directory.
+
+**Next steps:** report these results and preserve the candidate as not ready. Keep both iPads on the explicit hold; further repair/verification is outside this bounded checkpoint.
+
 ## October 11 — functional audit; build14 held from delivery
 
 **Current source: native2.0.0/build14/schema5, held from delivery. Both iPads last verified installed at build12; Macv11.1.0/schema21 unchanged. Last updated:2026-10-11.** The user's challenge exposes an acceptance gap: a build and service tests do not establish a bug-free, fully functional app. Actual simulator drawing→Undo→new branch→pinch→save/reopen and decimal passage goals pass. Today pixels/AX verify2 due URGENT reviews and a future Tough passage without URGENT. Voice recognition/camera detection checks use injected or synthetic inputs; speech over piano, physical face mapping/light/orientations, Pencil, audible click and sustained practice remain unaccepted.

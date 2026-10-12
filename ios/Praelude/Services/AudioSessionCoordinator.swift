@@ -69,7 +69,14 @@ final class AudioSessionCoordinator {
 /// NotificationCenter tokens clean up without requiring a main-actor isolated deinitializer.
 final class AudioNotificationBag: @unchecked Sendable {
     var tokens: [NSObjectProtocol] = []
-    deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
+    private var registrations: [(NotificationCenter, NSObjectProtocol)] = []
+    func retain(_ token: NSObjectProtocol, from center: NotificationCenter) {
+        registrations.append((center, token))
+    }
+    deinit {
+        tokens.forEach(NotificationCenter.default.removeObserver)
+        registrations.forEach { center, token in center.removeObserver(token) }
+    }
 }
 
 /// Copy notification values on the posting thread, then return immediately. An audio engine
@@ -78,11 +85,13 @@ final class AudioNotificationBag: @unchecked Sendable {
 /// The asynchronous main-queue handoff also keeps serial interruption notifications ordered.
 @MainActor
 func observeAudioNotification(_ name: Notification.Name, into bag: AudioNotificationBag,
+                               center: NotificationCenter = .default,
                                action: @escaping @MainActor @Sendable (AudioNotificationContext) -> Void) {
-    bag.tokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { @Sendable notification in
+    let token = center.addObserver(forName: name, object: nil, queue: nil) { @Sendable notification in
         let context = AudioNotificationContext(notification)
         DispatchQueue.main.async { action(context) }
-    })
+    }
+    bag.retain(token, from: center)
 }
 
 /// Copy values before entering main-actor isolation; Notification itself is not Sendable.

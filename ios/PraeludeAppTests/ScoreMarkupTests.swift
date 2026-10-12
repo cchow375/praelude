@@ -332,47 +332,55 @@ final class ScoreMarkupTests: XCTestCase {
         XCTAssertNil(overlay.passageRegion(at: CGPoint(x: 90, y: 80)), "A region entirely outside the active crop must no longer hit-test")
     }
 
-    @MainActor func testSelectedPassageFingerRouteHonorsInkNotesPermissionsAndCrops() {
+    @MainActor func testSavedPassageFingerRouteHonorsInkNotesPermissionsAndCrops() {
         let state = ScoreMarkupState()
         let overlay = ScorePageOverlay(page: 1, markup: state)
         overlay.frame = CGRect(x: 0, y: 0, width: 600, height: 800); overlay.layoutIfNeeded()
         let selected = PassageRegion(page: 1, x: 0.1, y: 0.2, width: 0.3, height: 0.2)
         let other = PassageRegion(page: 1, x: 0.6, y: 0.2, width: 0.3, height: 0.2)
-        overlay.displayedRegions = [selected, other]; overlay.emphasizedIDs = [selected.id]
+        overlay.displayedRegions = [selected, other]
         let point = CGPoint(x: 150, y: 240)
-        XCTAssertTrue(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
-        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: CGPoint(x: 450, y: 240), touchType: .direct))
-        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: CGPoint(x: 20, y: 600), touchType: .direct))
-        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .pencil))
-        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: nil))
+        XCTAssertTrue(overlay.emphasizedIDs.isEmpty)
+        XCTAssertTrue(overlay.shouldClaimSavedPassage(at: point, touchType: .direct), "The first tap on an unselected saved passage must use the overlay route")
+        overlay.emphasizedIDs = [selected.id]
+        XCTAssertTrue(overlay.shouldClaimSavedPassage(at: point, touchType: .direct))
+        XCTAssertTrue(overlay.shouldClaimSavedPassage(at: CGPoint(x: 450, y: 240), touchType: .direct), "Another saved passage must use the same route while one passage is selected")
+        XCTAssertFalse(overlay.shouldClaimSavedPassage(at: CGPoint(x: 20, y: 600), touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSavedPassage(at: CGPoint(x: -1, y: 240), touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSavedPassage(at: point, touchType: .pencil))
+        XCTAssertFalse(overlay.shouldClaimSavedPassage(at: point, touchType: nil))
+        XCTAssertFalse(overlay.gestureRecognizerShouldBegin(overlay.selectionTap), "The installed overlay tap must reject ordinary reading without a note; the ancestor page tap selects the saved passage")
+        XCTAssertFalse(overlay.gestureRecognizerShouldBegin(overlay.selectionDoubleTap))
+        XCTAssertFalse(overlay.gestureRecognizerShouldBegin(overlay.selectionPan))
+        XCTAssertNil(state.selectedRegionID, "Routing must not independently select a draft region")
         let unresolved = overlay.hitTest(point, with: nil)
         XCTAssertTrue(unresolved === overlay.canvas || unresolved?.isDescendant(of: overlay.canvas) == true,
                       "An unresolved first hit must preserve PencilKit input even over the selected passage")
         for mode: ScoreMarkupState.Mode in [.writing, .selecting] {
             state.mode = mode
-            XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+            XCTAssertFalse(overlay.shouldClaimSavedPassage(at: point, touchType: .direct))
         }
         state.mode = .reading
         overlay.inkReadOnly = true
-        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSavedPassage(at: point, touchType: .direct))
         overlay.inkReadOnly = false; overlay.contentReadOnly = true
-        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSavedPassage(at: point, touchType: .direct))
         overlay.contentReadOnly = false; state.quickBoxArmed = true
-        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSavedPassage(at: point, touchType: .direct))
         state.quickBoxArmed = false; state.breakPointArmed = true
-        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSavedPassage(at: point, touchType: .direct))
         state.breakPointArmed = false
         let note = TextBoxAnnotation(pieceID: UUID(), page: 1,
             region: NormalizedRect(x: 0.15, y: 0.25, width: 0.2, height: 0.1), text: "The note owns its tap sequence")
         overlay.displayedTextBoxes = [note]
-        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSavedPassage(at: point, touchType: .direct))
         overlay.displayedTextBoxes = []; state.showPassageBoxes = false
-        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSavedPassage(at: point, touchType: .direct))
         state.showPassageBoxes = true
         overlay.activeCrop = NormalizedRect(x: 0.1, y: 0.2, width: 0.5, height: 0.5)
-        XCTAssertTrue(overlay.shouldClaimSelectedPassage(at: CGPoint(x: 100, y: 100), touchType: .direct))
+        XCTAssertTrue(overlay.shouldClaimSavedPassage(at: CGPoint(x: 100, y: 100), touchType: .direct))
         overlay.activeCrop = NormalizedRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5)
-        XCTAssertFalse(overlay.shouldClaimSelectedPassage(at: point, touchType: .direct))
+        XCTAssertFalse(overlay.shouldClaimSavedPassage(at: point, touchType: .direct))
     }
 
     @MainActor func testStampAndTextPlacementAndQuickBoxClaimTapsButPlacementNeverClaimsDrags() async throws {

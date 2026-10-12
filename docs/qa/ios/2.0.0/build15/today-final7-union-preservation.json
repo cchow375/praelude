@@ -1,0 +1,292 @@
+{
+  "capturedUTC": "2026-10-12T02:02:10.511798+00:00",
+  "scope": "Independent read-only preservation audit of the retained normal-flags final7 Today name/decimal-goal UI test libraries. Disposable simulator fixture only; no source edits, UI actions, Xcode execution, physical-device access or installation.",
+  "test": {
+    "method": "ScoreFocusUITests.testTodaySessionEditPaddingSavesNameAndGoalWithoutStartingPractice",
+    "result": "passed",
+    "durationSeconds": 51.188,
+    "resultSource": "praelude-build15-input-final7.log",
+    "screenshotsIndependentlyInspected": false,
+    "normalFlagsEvidence": {
+      "testSourceSHA256MatchesFinal7BuildProvenance": true,
+      "launchArguments": [
+        "--uitesting",
+        "--reset",
+        "--seed",
+        "--seed-sections",
+        "--audit-gesture-preservation"
+      ],
+      "relaunchArguments": [
+        "--uitesting"
+      ],
+      "interactionTracingFlagPresent": false,
+      "actualTodayProcessIDsFromLog": [
+        91346,
+        91388
+      ],
+      "retainedTraceContainsTodayProcessIDs": false,
+      "retainedTraceProcessIDs": [
+        91221,
+        91309
+      ],
+      "retainedTraceScope": "The preceding diagnostic ink/relaunch test; not Today. Trace file existence does not establish tracing for the Today case."
+    }
+  },
+  "artifact": {
+    "app": {
+      "built": {
+        "sha256": "24bccf3b1cfec2d07fb727b51b2faa3932e55a249520cc1a0a5b130df9f9e8f3",
+        "size": 43483032
+      },
+      "installed": {
+        "sha256": "24bccf3b1cfec2d07fb727b51b2faa3932e55a249520cc1a0a5b130df9f9e8f3",
+        "size": 43483032
+      }
+    },
+    "testBundle": {
+      "built": {
+        "sha256": "4267e85281165042e185506b82d5a01bd6af924dac33cec4f10414baa95c4577",
+        "size": 1865280
+      },
+      "installed": {
+        "sha256": "4267e85281165042e185506b82d5a01bd6af924dac33cec4f10414baa95c4577",
+        "size": 1865280
+      }
+    },
+    "testSource": {
+      "sha256": "2fefe22cd2379f6c1acd7031ef02de086b5fbc245099c6d94764e890e8906d3b",
+      "bytes": 14347
+    },
+    "provenanceReference": "input-final7-provenance.json"
+  },
+  "inputs": [
+    {
+      "basename": "fresh13-audit-before.json",
+      "bytes": 46282,
+      "sha256": "ff09216eb5e5676d6f9ea90a0fa6fa7e06d00d534909b73f647c3c4d2adbf0f2"
+    },
+    {
+      "basename": "library.json",
+      "bytes": 46305,
+      "sha256": "ddae4ac485c5180f9673ca4b29221691bb8ec0eea88e5795aa9d4a97379622c5"
+    }
+  ],
+  "fileScopeVerification": {
+    "confirmedTodayFixtureRatherThanNativeTestOverwrite": true,
+    "baselineHasExactlyOneExpectedTargetTitle": true,
+    "afterHasExactlyOneExpectedEditedTitle": true,
+    "sameTargetIDBeforeAndAfter": true,
+    "otherExpectedPassageEntireRecordExact": true,
+    "matchesTestSourceExpectedGoal": true,
+    "inputHashesUnchangedDuringAudit": true,
+    "basis": "The retained libraries contain the exact two-passage synthetic fixture used by Today, the expected edited target title and new 112.5 goal, its unchanged ID, the unchanged companion passage, and empty practice collections. The matching raw log records actual Save/relaunch/reopen test success. Later native tests ran, but these retained files have not been replaced by a different native-test library."
+  },
+  "comparison": {
+    "algorithm": "Recursive strict-type comparison over the union of every object key and all array positions/scalars; includes newly added optional fields, missing keys, IDs and tombstones. No keys are excluded from allDifferences. Record counts, array ID ordering and all nested record IDs checked independently.",
+    "schemaBefore": 5,
+    "schemaAfter": 5,
+    "revisionBefore": 6,
+    "revisionAfter": 8,
+    "allDifferences": [
+      {
+        "path": "$.passages[0].performanceTempo",
+        "kind": "added"
+      },
+      {
+        "path": "$.passages[0].title",
+        "kind": "changed"
+      },
+      {
+        "path": "$.passages[0].updatedAt",
+        "kind": "changed"
+      },
+      {
+        "path": "$.revision",
+        "kind": "changed"
+      },
+      {
+        "path": "$.rewardsState.rank",
+        "kind": "changed"
+      },
+      {
+        "path": "$.rewardsState.updatedAt",
+        "kind": "changed"
+      }
+    ],
+    "targetEdit": {
+      "baselineTitleMatchesIntendedTarget": true,
+      "afterTitleMatchesExactTestInput": true,
+      "titleChanged": true,
+      "updatedAtChanged": true,
+      "performanceTempo": {
+        "baselineKeyPresent": false,
+        "afterValue": 112.5
+      },
+      "originalTargetKeysRetained": true,
+      "fieldsExceptTitleUpdatedAtAndPerformanceTempoExact": true
+    },
+    "startupNormalization": {
+      "rankBefore": "Unranked",
+      "rankAfter": "Prelude",
+      "updatedAtChanged": true,
+      "allOtherRewardSnapshotFieldsExact": true,
+      "rewardLedgerEmptyAndExact": true,
+      "sourceInterpretation": "Consistent with existing RewardsRuntime.celebrateRankUpIfNeeded normalization of the derived rank snapshot after DEBUG fixture baseline capture. This file comparison establishes the delta, not an instrumented causal trace."
+    },
+    "allTopLevelKeysRetained": true,
+    "allArrayIDsOrderAndCountsUnchanged": true,
+    "nestedArraysChecked": 42,
+    "allNestedRecordIDsExact": true,
+    "nestedRecordIDsChecked": 187,
+    "allDeletedAtValuesAndPresenceExact": true,
+    "presentDeletedAtKeysChecked": 0,
+    "arrayCounts": {
+      "badges": {
+        "before": 0,
+        "after": 0
+      },
+      "bookmarks": {
+        "before": 0,
+        "after": 0
+      },
+      "breakPointTaps": {
+        "before": 0,
+        "after": 0
+      },
+      "coldGrades": {
+        "before": 0,
+        "after": 0
+      },
+      "desktopImports": {
+        "before": 0,
+        "after": 0
+      },
+      "folders": {
+        "before": 0,
+        "after": 0
+      },
+      "goals": {
+        "before": 0,
+        "after": 0
+      },
+      "history": {
+        "before": 0,
+        "after": 0
+      },
+      "inkStrokes": {
+        "before": 0,
+        "after": 0
+      },
+      "instruments": {
+        "before": 1,
+        "after": 1
+      },
+      "milestoneEvents": {
+        "before": 0,
+        "after": 0
+      },
+      "notebookEntries": {
+        "before": 0,
+        "after": 0
+      },
+      "pageEdits": {
+        "before": 0,
+        "after": 0
+      },
+      "passages": {
+        "before": 2,
+        "after": 2
+      },
+      "pieces": {
+        "before": 2,
+        "after": 2
+      },
+      "recordings": {
+        "before": 0,
+        "after": 0
+      },
+      "rewardLedger": {
+        "before": 0,
+        "after": 0
+      },
+      "routines": {
+        "before": 0,
+        "after": 0
+      },
+      "ruleEvents": {
+        "before": 0,
+        "after": 0
+      },
+      "scoreLinks": {
+        "before": 0,
+        "after": 0
+      },
+      "sessions": {
+        "before": 0,
+        "after": 0
+      },
+      "setlists": {
+        "before": 0,
+        "after": 0
+      },
+      "stampAnnotations": {
+        "before": 0,
+        "after": 0
+      },
+      "tags": {
+        "before": 0,
+        "after": 0
+      },
+      "textAnnotations": {
+        "before": 0,
+        "after": 0
+      },
+      "warmupExercises": {
+        "before": 180,
+        "after": 180
+      }
+    },
+    "otherPassageEntireRecordExact": true,
+    "otherTopLevelFieldsExact": [
+      "badges",
+      "bookmarks",
+      "breakPointTaps",
+      "coldGrades",
+      "desktopImports",
+      "folders",
+      "goals",
+      "history",
+      "inkStrokes",
+      "instruments",
+      "milestoneEvents",
+      "notebookEntries",
+      "pageEdits",
+      "pieces",
+      "preferences",
+      "profile",
+      "recordings",
+      "rewardLedger",
+      "routines",
+      "ruleEvents",
+      "ruleSettings",
+      "schemaVersion",
+      "scoreLinks",
+      "sessions",
+      "setlists",
+      "stampAnnotations",
+      "tags",
+      "textAnnotations",
+      "warmupExercises"
+    ],
+    "activeSetKeyPresentBefore": false,
+    "activeSetKeyPresentAfter": false,
+    "practiceRecorded": false,
+    "byteEqualityClaim": false
+  },
+  "limitations": [
+    "Only the two retained library JSON files are compared; this is not an all-owned-file or filesystem-byte preservation claim.",
+    "The fixture has zero history, sessions, cold grades, ink, stamps and notes. Their exact empty collections are preserved; this cannot establish preservation behavior with nonempty practice or annotation ledgers.",
+    "The existing interaction-audit.jsonl belongs to the preceding diagnostic test. No Today event-delivery trace, latency or B155 cause is inferred.",
+    "Simulator synthetic data and normal-flags scoped UI case only. No independent screenshot inspection, physical interaction, audible click, microphone/camera accuracy, sync, sustained reliability or readiness acceptance."
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "capturedUTC": "2026-10-12T00:41:59.342766+00:00",
+  "scope": "9 UI cases compiled after native306 and modal/mute/tempo/Edit/recovery repairs; before additional first-Clean Undo-context repair and fifth VoiceContextUI test. Trace disabled; simulated recognition explicitly enabled only by VoiceContext cases.",
+  "Praelude": {
+    "built": {
+      "sha256": "78ffecee457712e0514caa8854bb9d89f341809cf1d1b087ccf486e9620722bc",
+      "size": 43341960
+    },
+    "installed": {
+      "sha256": "78ffecee457712e0514caa8854bb9d89f341809cf1d1b087ccf486e9620722bc",
+      "size": 43341960
+    }
+  },
+  "runner": {
+    "sha256": "cf3bba188c20da0a059b0b3932559183e6c3c64397b52143420d60ab539c695c",
+    "size": 1713728
+  },
+  "physical_devices_touched": false
+}

@@ -45,6 +45,30 @@ final class FreshBuild13UITests: XCTestCase {
         element.tap()
     }
 
+    @MainActor private func enablePassageGoal(_ app: XCUIApplication) {
+        let row = app.switches["passageGoalEnabled"]
+        if row.value as? String != "1" {
+            // The row's AX frame includes its label and margins. Resolve the actual nested
+            // UISwitch and require its frame to settle after keyboard/sheet movement.
+            let control = row.switches.firstMatch
+            var previous = CGRect.zero
+            var lastChange = Date.now
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard control.exists, control.isHittable, app.frame.contains(control.frame) else { return false }
+                if control.frame != previous { previous = control.frame; lastChange = .now; return false }
+                return Date.now.timeIntervalSince(lastChange) >= 0.4
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 8), .completed, app.debugDescription)
+            let frame = control.frame
+            let target = XCTAttachment(string: "row=\(row.frame) control=\(frame) center=(\(frame.midX),\(frame.midY))")
+            target.name = "passage-goal-native-switch-target"; target.lifetime = .keepAlways; add(target)
+            shot("passage-goal-switch-before-single-tap", app: app)
+            control.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5)).tap()
+        }
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1"), object: row)
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed, app.debugDescription)
+    }
+
     @MainActor private func shot(_ name: String, app: XCUIApplication) {
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = name; screenshot.lifetime = .keepAlways; add(screenshot)
@@ -107,7 +131,16 @@ final class FreshBuild13UITests: XCTestCase {
     }
 
     @MainActor func testIndependentUndoNewStrokeRetainsNewLocationThroughSaveAndRelaunch() throws {
-        let app = XCUIApplication(); openScore(app)
+        try exerciseUndoNewStrokeAndReopen(traceTaps: false)
+    }
+
+    @MainActor func testDiagnosticSidebarAfterInkCheckpointAndRelaunch() throws {
+        try exerciseUndoNewStrokeAndReopen(traceTaps: true)
+    }
+
+    @MainActor private func exerciseUndoNewStrokeAndReopen(traceTaps: Bool) throws {
+        let auditArguments = traceTaps ? ["--audit-taps"] : []
+        let app = XCUIApplication(); openScore(app, auditArguments: auditArguments)
         tap(app.buttons["annotateScore"], app: app)
         let finger = app.switches["fingerDrawing"]
         XCTAssertTrue(finger.waitForExistence(timeout: 5), app.debugDescription)
@@ -134,7 +167,7 @@ final class FreshBuild13UITests: XCTestCase {
         XCTAssertEqual(try drawingBounds(app).minY, branch.minY, accuracy: 1)
         tap(app.buttons["finishScoreMarkup"], app: app)
         tap(app.buttons["closeScore"], app: app)
-        app.terminate(); openScore(app, reset: false)
+        app.terminate(); openScore(app, reset: false, auditArguments: auditArguments)
         waitInk(1, app: app)
         let reopened = try drawingBounds(app)
         XCTAssertEqual(reopened.minY, branch.minY, accuracy: 1)
@@ -184,15 +217,7 @@ final class FreshBuild13UITests: XCTestCase {
         XCTAssertTrue(name.waitForExistence(timeout: 5), app.debugDescription)
         tap(name, app: app)
         name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (name.value as? String ?? "").count) + "Fresh named passage")
-        let enabled = app.switches["passageGoalEnabled"]
-        if enabled.value as? String != "1" {
-            // SwiftUI exposes the entire form row as the Switch AX frame. Target the visible
-            // UISwitch control on its right edge, then require the actual state change.
-            XCTAssertTrue(enabled.exists && enabled.isHittable, app.debugDescription)
-            enabled.coordinate(withNormalizedOffset: .init(dx: 0.95, dy: 0.5)).tap()
-        }
-        let goalEnabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1"), object: enabled)
-        XCTAssertEqual(XCTWaiter.wait(for: [goalEnabled], timeout: 5), .completed, app.debugDescription)
+        enablePassageGoal(app)
         let tempo = app.textFields["passageGoalTempoField"]
         tap(tempo, app: app)
         tempo.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (tempo.value as? String ?? "").count) + "112.5")
@@ -238,12 +263,14 @@ final class FreshBuild13UITests: XCTestCase {
         for _ in 0..<8 where !all.isHittable { app.swipeUp() }
         tap(all, app: app)
         XCTAssertTrue(app.navigationBars["Passage reviews"].waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(app.staticTexts["Tough passages · Upcoming"].exists, app.debugDescription)
-        XCTAssertTrue(app.staticTexts["Evenness and pulse"].exists, app.debugDescription)
-        XCTAssertTrue(app.staticTexts["Your last first attempt: Missed."].exists, app.debugDescription)
-        let priority = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "reviewPriority_")).firstMatch
+        let queue = app.collectionViews["passageReviewQueue"]
+        XCTAssertTrue(queue.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(queue.staticTexts["Tough passages · Upcoming"].exists, app.debugDescription)
+        XCTAssertTrue(queue.staticTexts["Evenness and pulse"].exists, app.debugDescription)
+        XCTAssertTrue(queue.staticTexts["Your last first attempt: Missed."].exists, app.debugDescription)
+        let priority = queue.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "reviewPriority_")).firstMatch
         XCTAssertEqual(priority.label, "Tough passage", "A Missed report due tomorrow must not be marked overdue or URGENT today")
-        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "URGENT ·")).firstMatch.exists)
+        XCTAssertFalse(queue.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "URGENT ·")).firstMatch.exists)
         shot("fresh13-missed-upcoming-tough-review-reopened", app: app)
     }
 
@@ -252,10 +279,7 @@ final class FreshBuild13UITests: XCTestCase {
         let field = app.descendants(matching: .any).matching(identifier: "passageRenameField").firstMatch
         tap(field, app: app)
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (field.value as? String ?? "").count) + name)
-        let enabled = app.switches["passageGoalEnabled"]
-        if enabled.value as? String != "1" { enabled.coordinate(withNormalizedOffset: .init(dx: 0.95, dy: 0.5)).tap() }
-        let on = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1"), object: enabled)
-        XCTAssertEqual(XCTWaiter.wait(for: [on], timeout: 5), .completed, app.debugDescription)
+        enablePassageGoal(app)
         let tempo = app.textFields["passageGoalTempoField"]
         tap(tempo, app: app)
         tempo.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (tempo.value as? String ?? "").count) + bpm)
@@ -289,12 +313,13 @@ final class FreshBuild13UITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [requested], timeout: 8), .completed,
                        "Triple tap must actually request dictation, not just open the double-tap editor.\n\(app.debugDescription)")
         var denied = false
-        for _ in 0..<2 {
+        do {
             let alert = app.alerts.firstMatch.exists ? app.alerts.firstMatch : springboard.alerts.firstMatch
-            guard alert.waitForExistence(timeout: 2) else { break }
-            let decline = alert.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Don’t Allow", "Don't Allow")).firstMatch
-            XCTAssertTrue(decline.exists, alert.debugDescription)
-            decline.tap(); denied = true
+            if alert.waitForExistence(timeout: 2) {
+                let decline = alert.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Don’t Allow", "Don't Allow")).firstMatch
+                XCTAssertTrue(decline.exists, alert.debugDescription)
+                decline.tap(); denied = true
+            }
         }
         if denied { XCTAssertTrue(failure.waitForExistence(timeout: 5), app.debugDescription) }
         else if dictate.exists, dictate.label.contains("Finish") { tap(dictate, app: app) }
@@ -381,6 +406,8 @@ final class FreshBuild13UITests: XCTestCase {
         tap(voice, app: app)
         XCTAssertTrue(app.navigationBars["Hands-free"].waitForExistence(timeout: 8), app.debugDescription)
         XCTAssertTrue(scoreFailure.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(scoreFailure.isHittable && app.frame.contains(scoreFailure.frame), app.debugDescription)
+        XCTAssertTrue(app.buttons["enableHandsFree"].isHittable, app.debugDescription)
         shot("fresh14-voice-permission-recovery-details", app: app)
         tap(app.navigationBars["Hands-free"].buttons["Done"], app: app)
         XCTAssertFalse(scoreFailure.exists, app.debugDescription)
@@ -439,15 +466,17 @@ final class FreshBuild13UITests: XCTestCase {
         for _ in 0..<8 where !all.isHittable { app.swipeUp() }
         tap(all, app: app)
         XCTAssertTrue(app.navigationBars["Passage reviews"].waitForExistence(timeout: 8), app.debugDescription)
-        let overdue = app.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000131"]
-        let due = app.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000132"]
-        let future = app.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000133"]
+        let queue = app.collectionViews["passageReviewQueue"]
+        XCTAssertTrue(queue.waitForExistence(timeout: 5), app.debugDescription)
+        let overdue = queue.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000131"]
+        let due = queue.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000132"]
+        let future = queue.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000133"]
         XCTAssertTrue(overdue.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertEqual(overdue.label, "URGENT · 2 days overdue")
         XCTAssertEqual(due.label, "URGENT · Tough passage due")
         XCTAssertLessThan(overdue.frame.minY, due.frame.minY)
         shot("fresh13-urgent-overdue-and-due-tough", app: app)
-        let list = app.collectionViews.firstMatch
+        let list = queue
         XCTAssertTrue(list.exists, app.debugDescription)
         for _ in 0..<8 {
             let visible = list.frame.intersection(app.frame).insetBy(dx: 0, dy: 8)
@@ -457,8 +486,19 @@ final class FreshBuild13UITests: XCTestCase {
         }
         XCTAssertTrue(future.exists && future.isHittable, app.debugDescription)
         XCTAssertEqual(future.label, "Tough passage")
-        XCTAssertTrue(app.staticTexts["Tough passages · Upcoming"].exists)
+        XCTAssertTrue(queue.staticTexts["Tough passages · Upcoming"].exists)
         shot("fresh13-future-tough-is-not-urgent", app: app)
+        let edit = queue.buttons["Edit name and goal for Future tough synthetic review"]
+        XCTAssertTrue(edit.exists && edit.isHittable, app.debugDescription)
+        XCTAssertGreaterThanOrEqual(edit.frame.width, 43.99, app.debugDescription)
+        XCTAssertGreaterThanOrEqual(edit.frame.height, 43.99, app.debugDescription)
+        edit.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.85)).tap()
+        XCTAssertTrue(app.navigationBars["Rename passage"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "passageRenameField").firstMatch.value as? String,
+                       "Future tough synthetic review")
+        tap(app.navigationBars["Rename passage"].buttons["Cancel"], app: app)
+        XCTAssertTrue(app.navigationBars["Passage reviews"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertEqual(future.label, "Tough passage")
         tap(app.navigationBars["Passage reviews"].buttons["Done"], app: app)
         XCTAssertFalse(app.buttons["pausePractice"].exists)
         XCTAssertFalse(app.buttons["stopSet"].exists)

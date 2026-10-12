@@ -4,6 +4,46 @@ import XCTest
 @testable import Praelude
 
 final class VoiceCaptureSafetyTests: XCTestCase {
+    @MainActor func testMetronomeRegistrationsNeverBlockBackgroundAudioPosting() async throws {
+        let suite = "Praelude-MetronomeNotifications-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        // A private center exercises the actual service registrations without resetting the
+        // app-wide metronome, interrupting other fixtures, or touching audio hardware.
+        let center = NotificationCenter()
+        let metronome = MetronomeService(defaults: defaults, notificationCenter: center)
+        defer { metronome.stop() }
+        let posted = DispatchSemaphore(value: 0)
+        let handedOff = expectation(description: "Metronome notifications reach the main actor")
+        DispatchQueue.global(qos: .userInitiated).async {
+            center.post(name: .AVAudioEngineConfigurationChange, object: nil)
+            center.post(name: AVAudioSession.routeChangeNotification, object: nil, userInfo: [
+                AVAudioSessionRouteChangeReasonKey: AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue
+            ])
+            center.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [
+                AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue
+            ])
+            center.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [
+                AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+                AVAudioSessionInterruptionOptionKey: UInt(0)
+            ])
+            center.post(name: AVAudioSession.mediaServicesWereResetNotification, object: nil)
+            posted.signal()
+            // Enqueued after the service's serial handoffs, so this is also a delivery barrier.
+            DispatchQueue.main.async { handedOff.fulfill() }
+        }
+        // Model engine.start/stop occupying the UI actor while its worker posts notifications.
+        // A synchronous queue:.main registration fails within this bounded wait instead of hanging.
+        XCTAssertEqual(posted.wait(timeout: .now() + .milliseconds(250)), .success,
+                       "Actual metronome registrations must let an audio posting thread return")
+        await fulfillment(of: [handedOff], timeout: 2)
+        metronome.start()
+        XCTAssertFalse(metronome.isPlaying)
+        XCTAssertEqual(metronome.errorMessage,
+                       "Audio was reset by iOS. Reopen Praelude before restarting the metronome.",
+                       "The real media-reset observer must still execute after the asynchronous handoff")
+    }
+
     @MainActor func testAudioNotificationPosterReturnsWhileMainActorIsBusy() async {
         let name = Notification.Name("PraeludeAudioHandoff-\(UUID())")
         let bag = AudioNotificationBag()
@@ -260,6 +300,120 @@ final class VoiceCaptureSafetyTests: XCTestCase {
         XCTAssertEqual(commands, [.nextPage])
         service.receive(transcript: "clean", isFinal: true, error: nil, id: service.activeRecognitionID)
         XCTAssertEqual(commands, [.nextPage, .clean])
+    }
+
+    @MainActor func testFirstCleanEnablesUndoWithoutDroppingRepeatedFinalVerdictsOrStagedAudio() async {
+        var commands: [VoiceCommand] = []
+        let capture = VoiceCaptureProbe()
+        let service = SpeechCommandService(speechPermission: { .authorized }, microphonePermission: { true },
+                                           confirmation: { _ in }, logMisrecognition: { _ in },
+                                           captureOverride: { try capture.start() })
+        let owner = UUID(), setID = UUID()
+        let baseActions: Set<VoiceCommandAction> = [.clean, .nextPage]
+        service.start(ownerID: owner) { command in
+            commands.append(command)
+            if commands.count == 1 {
+                let generation = service.activeRecognitionID
+                let captures = capture.count
+                service.setCommandContext(setID, supportedActions: baseActions.union([.undo]), ifOwnedBy: owner)
+                XCTAssertEqual(service.activeRecognitionID, generation)
+                XCTAssertEqual(capture.count, captures, "Enabling Undo must not renew capture during a final result")
+                XCTAssertTrue(service.isCapturingNextUtterance, "The staged next utterance must survive enabling Undo")
+            }
+        }
+        defer { service.stop() }
+        await eventually { service.isListening }
+        service.setCommandContext(setID, supportedActions: baseActions, ifOwnedBy: owner)
+        let first = service.activeRecognitionID
+        let segments = [
+            VoiceRecognizedSegment(text: "clean", timestamp: 0, duration: 0.2),
+            VoiceRecognizedSegment(text: "clean", timestamp: 1, duration: 0.2),
+            VoiceRecognizedSegment(text: "clean", timestamp: 2, duration: 0.2)
+        ]
+        service.receive(transcript: "clean clean clean", segments: segments, isFinal: false, error: nil, id: first)
+        service.finishUtterance()
+        XCTAssertTrue(service.isCapturingNextUtterance)
+        let captures = capture.count
+        service.receive(transcript: "clean clean clean", segments: segments, isFinal: true, error: nil, id: first)
+        XCTAssertEqual(commands, [.clean, .clean, .clean])
+        XCTAssertEqual(capture.count, captures + 1, "Only the normal final-result handoff renews recognition")
+        XCTAssertNotEqual(service.activeRecognitionID, first)
+        XCTAssertTrue(service.supportedActions.contains(.undo))
+
+        let second = service.activeRecognitionID
+        service.receive(transcript: "undo", isFinal: false, error: nil, id: second)
+        service.finishUtterance()
+        let capturesBeforeRemoval = capture.count
+        service.setCommandContext(setID, supportedActions: baseActions, ifOwnedBy: owner)
+        XCTAssertEqual(service.activeRecognitionID, second)
+        XCTAssertEqual(capture.count, capturesBeforeRemoval)
+        XCTAssertTrue(service.isCapturingNextUtterance, "Removing Undo must also retain staged audio")
+        service.receive(transcript: "undo", isFinal: true, error: nil, id: second)
+        XCTAssertEqual(commands, [.clean, .clean, .clean], "An Undo removed before final delivery must be rejected")
+        XCTAssertEqual(service.ownerID, owner)
+    }
+
+    @MainActor func testUndoAvailabilityExceptionStillRejectsOtherOwnersAndRenewsChangedContexts() async {
+        let service = SpeechCommandService(speechPermission: { .authorized }, microphonePermission: { true },
+                                           confirmation: { _ in }, logMisrecognition: { _ in }, captureOverride: {})
+        let owner = UUID(), firstSet = UUID(), secondSet = UUID()
+        service.start(ownerID: owner) { _ in XCTFail("No final result should be delivered") }
+        defer { service.stop() }
+        await eventually { service.isListening }
+        service.setCommandContext(firstSet, supportedActions: [.clean], ifOwnedBy: owner)
+        let original = service.activeRecognitionID
+        service.finishUtterance()
+        service.setCommandContext(firstSet, supportedActions: [.clean, .undo], ifOwnedBy: UUID())
+        XCTAssertEqual(service.activeRecognitionID, original)
+        XCTAssertEqual(service.supportedActions, [.clean])
+        XCTAssertTrue(service.isCapturingNextUtterance)
+
+        service.setCommandContext(secondSet, supportedActions: [.clean, .undo], ifOwnedBy: owner)
+        XCTAssertNotEqual(service.activeRecognitionID, original, "Changing sets renews even when only Undo availability differs")
+        XCTAssertFalse(service.isCapturingNextUtterance)
+        let changedSet = service.activeRecognitionID
+        service.finishUtterance()
+        service.setCommandContext(secondSet, supportedActions: [], ifOwnedBy: owner)
+        XCTAssertNotEqual(service.activeRecognitionID, changedSet, "Modal suspension must still retire the old generation")
+        XCTAssertFalse(service.isCapturingNextUtterance)
+    }
+
+    @MainActor func testUnmuteDiscardsMutedPartialFinalAndStagedAudioButKeepsOwner() async {
+        var commands: [VoiceCommand] = []
+        let capture = VoiceCaptureProbe()
+        let service = SpeechCommandService(speechPermission: { .authorized }, microphonePermission: { true },
+                                           confirmation: { _ in }, logMisrecognition: { _ in },
+                                           captureOverride: { try capture.start() }, recoveryDelay: { _ in 0 })
+        let owner = UUID()
+        service.start(ownerID: owner) { commands.append($0) }
+        defer { service.stop() }
+        await eventually { service.isListening }
+        service.setCommandContext(owner, supportedActions: [.clean, .nextPage], ifOwnedBy: owner)
+        let beforeMute = service.activeRecognitionID
+        service.receive(transcript: "next", isFinal: false, error: nil, id: beforeMute)
+        service.setMuted(true)
+        let muted = service.activeRecognitionID
+        XCTAssertNotEqual(muted, beforeMute)
+        service.receive(transcript: "clean", isFinal: false, error: nil, id: muted)
+        service.finishUtterance()
+        XCTAssertTrue(service.isCapturingNextUtterance)
+
+        service.setMuted(false)
+        let unmuted = service.activeRecognitionID
+        XCTAssertNotEqual(unmuted, muted)
+        XCTAssertFalse(service.isCapturingNextUtterance, "The next request must discard staged muted audio")
+        XCTAssertTrue(service.isEnabled)
+        XCTAssertTrue(service.isListening)
+        XCTAssertEqual(service.ownerID, owner)
+        XCTAssertEqual(service.supportedActions, [.clean, .nextPage])
+        service.receive(transcript: "next", isFinal: true, error: nil, id: beforeMute)
+        service.receive(transcript: "clean", isFinal: true, error: nil, id: muted)
+        XCTAssertTrue(commands.isEmpty, "A final from either retired mute state cannot turn pages or record reps")
+
+        service.receive(transcript: "clean", isFinal: true, error: nil, id: unmuted)
+        XCTAssertEqual(commands, [.clean], "A fresh utterance after unmute uses the retained command callback")
+        XCTAssertNotEqual(service.activeRecognitionID, unmuted)
+        XCTAssertTrue(service.isListening)
     }
 
     @MainActor func testFourFailedRetriesRemainRecoverableAndExplicitOffCancelsQueuedRestart() async {

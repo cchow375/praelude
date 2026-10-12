@@ -1,5 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if DEBUG
+import Speech
+#endif
 
 @main
 struct PraeludeApp: App {
@@ -40,7 +43,18 @@ struct PraeludeApp: App {
         #if DEBUG
         UITestFixture.configureMetronomeForAudit(click)
         #endif
+        #if DEBUG
+        let voice: SpeechCommandService
+        if ProcessInfo.processInfo.arguments.contains("--uitesting"),
+           ProcessInfo.processInfo.arguments.contains("--audit-simulated-voice") {
+            // Explicit disposable routing audit: no permission requests, input capture,
+            // confirmation sounds or persistent misrecognition entries.
+            voice = SpeechCommandService(speechPermission: { .authorized }, microphonePermission: { true },
+                                         confirmation: { _ in }, logMisrecognition: { _ in }, captureOverride: {})
+        } else { voice = SpeechCommandService() }
+        #else
         let voice = SpeechCommandService()
+        #endif
         let take = RecordingService()
         _store = State(initialValue: value)
         _metronome = State(initialValue: click)
@@ -208,7 +222,7 @@ struct AppRootView: View {
     /// read) for a setlist item's own `startPage`, previously stored but never acted on.
     @State private var pendingInitialPage: (pieceID: UUID, page: Int)?
     @State private var pendingBackupAction: String?
-    @State private var sidebarVisibility = NavigationSplitViewVisibility.automatic
+    @State private var sidebarVisibility = NavigationSplitViewVisibility.detailOnly
     @State private var backup: NativeBackupDocument?
     @State private var exporting = false
     @State private var importing = false
@@ -217,13 +231,42 @@ struct AppRootView: View {
     @State private var error: String?
     @State private var pendingInviteCode: String?
     private func sidebarDestination(_ item: Destination) -> some View {
-        Button { navigateFromScore { destination = item; selectedPiece = nil } } label: {
+        Button {
+            #if DEBUG
+            InteractionAudit.record("root.sidebar.action destination=\(item.rawValue)")
+            #endif
+            navigateFromScore {
+                destination = item; selectedPiece = nil
+                #if DEBUG
+                recordRootAudit("root.sidebar.assigned")
+                #endif
+            }
+        } label: {
             Label(item.rawValue, systemImage: item.symbol).frame(minHeight: 44)
         }
         .listRowBackground(destination == item && selectedPiece == nil ? PraeludeColor.inkFillQuiet : Color.clear)
     }
+    private func sidebarVisibilityButton(showing: Bool) -> some View {
+        Button {
+            sidebarVisibility = showing ? .all : .detailOnly
+        } label: {
+            Image(systemName: "sidebar.left")
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(showing ? "Show Sidebar" : "Hide Sidebar")
+        .accessibilityIdentifier(showing ? "showAppSidebar" : "hideAppSidebar")
+    }
 
     var body: some View {
+        #if DEBUG
+        auditedNavigation
+        #else
+        lifecycleNavigation
+        #endif
+    }
+    private var navigationContent: some View {
         Group {
             if usesSidebar {
                 NavigationSplitView(columnVisibility: $sidebarVisibility) {
@@ -261,19 +304,31 @@ struct AppRootView: View {
                     .background(PraeludeColor.paper)
                     .navigationTitle("Praelude")
                     .navigationSplitViewColumnWidth(min: 230, ideal: 270, max: 340)
+                    .toolbar(removing: sizeClass == .regular ? .sidebarToggle : nil)
+                    .toolbar {
+                        if sizeClass == .regular {
+                            ToolbarItem(placement: .topBarLeading) { sidebarVisibilityButton(showing: false) }
+                        }
+                    }
                 } detail: {
                     NavigationStack {
                         if let selectedPiece { ScoreWorkspace(pieceID: selectedPiece, onClose: {
                             #if DEBUG
                             if ProcessInfo.processInfo.arguments.contains("--uitesting") { NSLog("PraeludeUITest: Close score action") }
                             #endif
-                            navigateFromScore { self.selectedPiece = nil; sidebarVisibility = .automatic }
+                            navigateFromScore { self.selectedPiece = nil; sidebarVisibility = .detailOnly }
                         }, sharedMarkup: scoreMarkup,
                         autoSelectPassageID: pendingAutoSelectPassage?.pieceID == selectedPiece ? pendingAutoSelectPassage?.passageID : nil,
                         onAutoSelectConsumed: { pendingAutoSelectPassage = nil },
                         initialPage: pendingInitialPage?.pieceID == selectedPiece ? pendingInitialPage?.page : nil,
                         onInitialPageConsumed: { pendingInitialPage = nil }) }
                         else { content(destination).toolbar { ToolbarItem(placement: .topBarTrailing) { settingsButton } } }
+                    }
+                    .toolbar(removing: sizeClass == .regular ? .sidebarToggle : nil)
+                    .toolbar {
+                        if sizeClass == .regular, sidebarVisibility != .all {
+                            ToolbarItem(placement: .topBarLeading) { sidebarVisibilityButton(showing: true) }
+                        }
                     }
                 }.navigationSplitViewStyle(.balanced)
             } else {
@@ -300,6 +355,9 @@ struct AppRootView: View {
                 }
             }
         }
+    }
+    private var presentedNavigation: some View {
+        navigationContent
         .onChange(of: usesSidebar) { _, sidebar in
             if !sidebar, !Destination.compactTabs.contains(destination) { destination = .more }
         }
@@ -326,6 +384,9 @@ struct AppRootView: View {
                 }.presentationDetents([.large])
             }
         }
+    }
+    private var backupNavigation: some View {
+        presentedNavigation
         .fileExporter(isPresented: $exporting, document: backup, contentType: .json, defaultFilename: "Praelude Backup") { result in
             if case .failure(let failure) = result { error = failure.localizedDescription }
         }
@@ -351,6 +412,9 @@ struct AppRootView: View {
             }
             Button("Cancel", role: .cancel) { pendingBackup = nil }
         } message: { Text("The backup replaces pieces, practice history, passages and goals on this device. Export your current library first if you want to keep both.") }
+    }
+    private var confirmedNavigation: some View {
+        backupNavigation
         .confirmationDialog("Leave this passage unfinished?", isPresented: $confirmLeaveScore, titleVisibility: .visible) {
             Button("Discard passage edits", role: .destructive) {
                 let action = pendingScoreNavigation; pendingScoreNavigation = nil
@@ -359,6 +423,9 @@ struct AppRootView: View {
             Button("Keep selecting", role: .cancel) { pendingScoreNavigation = nil }
         } message: { Text("Tap Done on the score to save your boxes before leaving.") }
         .alert("Couldn’t complete that", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
+    }
+    private var lifecycleNavigation: some View {
+        confirmedNavigation
         .onChange(of: usesSidebar) { _, showSidebar in
             if showSidebar, let route = phoneScore {
                 selectedPiece = route.id; phoneScore = nil; sidebarVisibility = .detailOnly
@@ -388,11 +455,34 @@ struct AppRootView: View {
                     .font(.callout).padding().frame(maxWidth: .infinity).praeludeSurfacePanel().praeludeHairline(.bottom).foregroundStyle(.red)
             }
         }
-        #if DEBUG
-        .onAppear(perform: openGestureAuditIfRequested)
-        #endif
     }
     #if DEBUG
+    private var auditedNavigation: some View {
+        lifecycleNavigation
+        .onAppear {
+            InteractionAudit.installIfRequested()
+            recordRootAudit("root.appear")
+            openGestureAuditIfRequested()
+        }
+        .onDisappear { recordRootAudit("root.disappear") }
+        .onChange(of: destination) { _, _ in recordRootAudit("root.destination.changed") }
+        .onChange(of: selectedPiece) { _, _ in recordRootAudit("root.selectedPiece.changed") }
+        .onChange(of: phoneScore?.id) { _, _ in recordRootAudit("root.phoneScore.changed") }
+        .onChange(of: sidebarVisibility) { _, _ in recordRootAudit("root.sidebarVisibility.changed") }
+        .onChange(of: sheet != nil) { _, _ in recordRootAudit("root.sheet.changed") }
+        .onChange(of: scenePhase) { _, _ in recordRootAudit("root.scene.changed") }
+        .onChange(of: auditPresentationMask) { _, _ in recordRootAudit("root.presentation.changed") }
+    }
+    private var auditPresentationMask: Int {
+        [activeCelebration != nil, showOnboarding, importing, exporting, error != nil,
+         confirmRestore, confirmLeaveScore, sheet != nil, phoneScore != nil]
+            .enumerated().reduce(0) { value, entry in
+                value | (entry.element ? 1 << entry.offset : 0)
+            }
+    }
+    private func recordRootAudit(_ event: String) {
+        InteractionAudit.record("\(event) destination=\(destination.rawValue) selectedScore=\(selectedPiece != nil) phoneScore=\(phoneScore != nil) rootSheet=\(sheet != nil) sidebar=\(usesSidebar) visibility=\(String(describing: sidebarVisibility)) scene=\(String(describing: scenePhase)) celebration=\(activeCelebration != nil) onboarding=\(showOnboarding) importing=\(importing) exporting=\(exporting) error=\(error != nil) confirmRestore=\(confirmRestore) confirmLeave=\(confirmLeaveScore)")
+    }
     private func openGestureAuditIfRequested() {
         let arguments = ProcessInfo.processInfo.arguments
         guard !didOpenGestureAudit, arguments.contains("--uitesting"),
@@ -500,14 +590,22 @@ struct AppRootView: View {
     private func openPiece(_ id: UUID, startPage: Int? = nil) {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--uitesting") { NSLog("PraeludeUITest: Open piece action") }
+        InteractionAudit.record("root.openPiece.action sameSelected=\(selectedPiece == id) samePhone=\(phoneScore?.id == id) startPage=\(startPage ?? 0)")
         #endif
         if let startPage { pendingInitialPage = (id, startPage) }
-        if selectedPiece == id || phoneScore?.id == id { sidebarVisibility = .detailOnly; return }
+        if selectedPiece == id || phoneScore?.id == id {
+            sidebarVisibility = .detailOnly
+            #if DEBUG
+            recordRootAudit("root.openPiece.alreadySelected")
+            #endif
+            return
+        }
         navigateFromScore {
             if usesSidebar { selectedPiece = id; sidebarVisibility = .detailOnly }
             else { phoneScore = ScoreRoute(id: id) }
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--uitesting") { NSLog("PraeludeUITest: Open piece assigned, sidebar=%d", usesSidebar) }
+            recordRootAudit("root.openPiece.assigned")
             #endif
         }
     }
@@ -519,14 +617,29 @@ struct AppRootView: View {
         openPiece(pieceID)
     }
     private func navigateFromScore(_ action: @escaping () -> Void) {
+        #if DEBUG
+        InteractionAudit.record("root.navigate.action mode=\(scoreMarkup.mode)")
+        #endif
         guard scoreMarkup.flushInk() else {
+            #if DEBUG
+            InteractionAudit.record("root.navigate.flushRejected")
+            #endif
             error = "Your ink has not been saved. Return to the score and resolve the saving message before leaving."
             return
         }
+        #if DEBUG
+        InteractionAudit.record("root.navigate.flushSucceeded")
+        #endif
         if scoreMarkup.mode == .selecting {
             pendingScoreNavigation = action; confirmLeaveScore = true
+            #if DEBUG
+            recordRootAudit("root.navigate.confirmSelection")
+            #endif
         } else {
             scoreMarkup = ScoreMarkupState(); action()
+            #if DEBUG
+            recordRootAudit("root.navigate.assigned")
+            #endif
         }
     }
     private func prepareExport() {

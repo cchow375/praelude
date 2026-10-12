@@ -104,6 +104,7 @@ final class MetronomeService {
     @ObservationIgnored private let engine = AVAudioEngine()
     @ObservationIgnored private let player = AVAudioPlayerNode()
     @ObservationIgnored private let notifications = AudioNotificationBag()
+    @ObservationIgnored private let notificationCenter: NotificationCenter
     @ObservationIgnored private var displayTask: Task<Void, Never>?
     @ObservationIgnored private var sampleRate = 48_000.0
     @ObservationIgnored private var barFrames: AVAudioFramePosition = 1
@@ -123,8 +124,9 @@ final class MetronomeService {
     /// explicit meter/dropout restarts omit it. Changing the preference affects only the next Start.
     @ObservationIgnored private var scheduledCountInBars = 0
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, notificationCenter: NotificationCenter = .default) {
         self.defaults = defaults
+        self.notificationCenter = notificationCenter
         if let data = defaults.data(forKey: settingsKey),
            let saved = try? JSONDecoder().decode(MetronomeSettings.self, from: data), saved.isValid { settings = saved }
         engine.attach(player)
@@ -424,10 +426,7 @@ final class MetronomeService {
     }
 
     private func observe(_ name: Notification.Name, action: @escaping @MainActor @Sendable (AudioNotificationContext) -> Void) {
-        notifications.tokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { notification in
-            let context = AudioNotificationContext(notification)
-            MainActor.assumeIsolated { action(context) }
-        })
+        observeAudioNotification(name, into: notifications, center: notificationCenter, action: action)
     }
 
     private enum MetronomeError: LocalizedError {

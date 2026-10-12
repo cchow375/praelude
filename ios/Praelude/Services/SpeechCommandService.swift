@@ -284,9 +284,19 @@ final class SpeechCommandService {
 
     /// §9's one-tap mute. Never used to satisfy `stop()`'s job — see `isMuted`'s doc comment.
     func setMuted(_ value: Bool) {
+        guard value != isMuted else { return }
         isMuted = value
         if value { cancelPendingCommand() }
         guard wantsListening else { return }
+        if isListening, !isDictating {
+            // A delayed final must never deliver words spoken before mute or while muted.
+            // Reuse the live engine/tap, but discard any staged audio from the old mute state.
+            let discarded = stagedRequest
+            stagedRequest = nil
+            defer { discarded?.endAudio() }
+            do { try beginUtterance(continuingCapture: true) }
+            catch { recover("Voice mute changed: \(error.localizedDescription)") }
+        }
         if isListening { status = value ? "Muted — listening paused" : "Listening on this device" }
         else if isRecovering { status = value ? "Muted · reconnecting microphone…" : "Reconnecting microphone…" }
     }
@@ -313,10 +323,14 @@ final class SpeechCommandService {
         guard ownerID == owner else { return }
         let actions = supportedActions ?? Set(VoiceCommandAction.allCases)
         let changed = contextToken != token || self.supportedActions != actions
+        // The first saved rep enables Undo within the same set. That availability update must
+        // not discard later separated verdicts in its final result or the next command's audio.
+        // Delivery still checks the current action set, including when the last Undo is removed.
+        let undoAvailabilityOnly = contextToken == token && self.supportedActions.symmetricDifference(actions) == [.undo]
         if changed { cancelPendingCommand() }
         contextToken = token
         self.supportedActions = actions
-        if changed, isListening, !isDictating, !isRecovering {
+        if changed, !undoAvailabilityOnly, isListening, !isDictating, !isRecovering {
             // Old callbacks carry the prior generation. Discard them rather than applying speech
             // begun for a different set, grade prompt, or modal after the UI context has changed.
             do { try beginUtterance() }

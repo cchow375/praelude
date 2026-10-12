@@ -1,0 +1,103 @@
+{
+  "capturedUTC": "2026-10-12T01:46:16.015352+00:00",
+  "scope": "Full build-for-testing final7; new lower-perturbation DEBUG diagnostics and structural syntheticvoice nav layout; fresh simulator app/runner install. Diagnostic full ink/relaunch flow plus normal Today edit and native tests; resultsummary separate. Later Sidebar stress source is outside binaryscope.",
+  "Praelude": {
+    "built": {
+      "sha256": "24bccf3b1cfec2d07fb727b51b2faa3932e55a249520cc1a0a5b130df9f9e8f3",
+      "size": 43483032
+    },
+    "installed": {
+      "sha256": "24bccf3b1cfec2d07fb727b51b2faa3932e55a249520cc1a0a5b130df9f9e8f3",
+      "size": 43483032
+    }
+  },
+  "runner": {
+    "built": {
+      "sha256": "4267e85281165042e185506b82d5a01bd6af924dac33cec4f10414baa95c4577",
+      "size": 1865280
+    },
+    "installed": {
+      "sha256": "4267e85281165042e185506b82d5a01bd6af924dac33cec4f10414baa95c4577",
+      "size": 1865280
+    }
+  },
+  "source_files": {
+    "ios/Praelude.xcodeproj/project.pbxproj": {
+      "sha256": "17b59e5b9152cad4b52a6021de16b765806dc1d25ebf4a8b0e420ac71acaba2b",
+      "size": 87441
+    },
+    "ios/Praelude/InteractionAudit.swift": {
+      "sha256": "72dad11c6fbb10b5558b6eadcb30732d3acd009ea1909f85e63f303d4710177c",
+      "size": 13914
+    },
+    "ios/Praelude/PraeludeApp.swift": {
+      "sha256": "72e21cf2dd8a5befcc475e8d2228c78b863702698526f0be04571c766d6f6aad",
+      "size": 42713
+    },
+    "ios/Praelude/Services/AudioSessionCoordinator.swift": {
+      "sha256": "d408f89ea201128d7c2142522dda031f7ef87ed162cb5fdebf542043d74d9b10",
+      "size": 7456
+    },
+    "ios/Praelude/Services/MetronomeService.swift": {
+      "sha256": "75bf0b1eaf5be95805e3b7366b9a280863345e99161bbc9be55491b5ab859c52",
+      "size": 21207
+    },
+    "ios/Praelude/Services/SpeechCommandService.swift": {
+      "sha256": "f7532cbb86043c314c74b34d96e8cc1f18a92978ab4bc531eb4c32ba240e0f43",
+      "size": 36052
+    },
+    "ios/Praelude/Views/PagedScoreView.swift": {
+      "sha256": "66067cf42a31f9b82d548efeeee45a912b8cbd07d5b25c6cd9de48a61336b5c7",
+      "size": 77602
+    },
+    "ios/Praelude/Views/PassageLibraryNamesView.swift": {
+      "sha256": "946c0ff3de332b29c8610a9b06eb9fe866af46770918e2fabe4b13461499b46b",
+      "size": 2876
+    },
+    "ios/Praelude/Views/PassageReviewQueueView.swift": {
+      "sha256": "2d9d06c10ebd2a3c699507d7f2c6518c05405b62f2f833ae508c2f9949bac30e",
+      "size": 4815
+    },
+    "ios/Praelude/Views/ScoreWorkspace.swift": {
+      "sha256": "89cd788b506a0827fa47e79fbe415e9f4f6a7e23e86bf2a42718d9cc4d3dc1d1",
+      "size": 103415
+    },
+    "ios/Praelude/Views/TodayView.swift": {
+      "sha256": "c4c2b92f97f50e399b48207084973e5e384fff1b85722b3b1198c3d5f4f9fb36",
+      "size": 23748
+    },
+    "ios/PraeludeAppTests/VoiceCaptureSafetyTests.swift": {
+      "sha256": "7f23ab9a07a88e2967e57f06e170090c590eea3cdb8f9d73a5ab11f1315f517d",
+      "size": 28302
+    },
+    "ios/PraeludeUITests/FreshBuild13UITests.swift": {
+      "sha256": "3547ade9155ddce420cc204ab6e46eda86c5028ca4d009bb0fabe8d26f33727c",
+      "size": 34894
+    },
+    "ios/PraeludeUITests/ScoreFocusUITests.swift": {
+      "sha256": "2fefe22cd2379f6c1acd7031ef02de086b5fbc245099c6d94764e890e8906d3b",
+      "size": 14347
+    },
+    "ios/PraeludeUITests/SelectedPassageTapUITests.swift": {
+      "sha256": "7cbe8aba0390cba4808270f3ecab96481cc257b5ae0fe5502e1fe56a7a8cbe47",
+      "size": 9284
+    },
+    "ios/PraeludeUITests/VoiceContextUITests.swift": {
+      "sha256": "f42d60aaab370c83a3aad2433400554948affe02448d173d7b68fa3311175087",
+      "size": 40778
+    },
+    "ios/PraeludeUITests/VoiceCustomizationUITests.swift": {
+      "sha256": "a75c126b5ab06223d948b01315a4b658bc5041494f01b0e592f76b5414fe3a36",
+      "size": 7570
+    },
+    "ios/scripts/generate-project.py": {
+      "sha256": "7040ef2c8bc7b6678060dc1075f854c3d044bc219e10f43be0cd1a9cc0c3505c",
+      "size": 20585
+    },
+    "ios/PraeludeUITests/TapDeliveryUITests.swift": {
+      "sha256": "601c96b6558e2b12a4e7668233a41bc78548f0eab73b1b69a8a3cf8ce46f78d9",
+      "size": 11537
+    }
+  },
+  "physical_devices_touched": false
+}

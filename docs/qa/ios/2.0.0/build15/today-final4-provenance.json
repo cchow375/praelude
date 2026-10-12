@@ -1,0 +1,105 @@
+{
+  "capturedUTC": "2026-10-12T01:24:24.448853+00:00",
+  "scope": "Final4 actual Today session-card44pt padding edit/name/decimalgoal/save/relaunch case. Trace enabled: compiled source flags and retained audit.enabled/touch records for actual app PIDs88921 and88972 confirm this, despite absent NSLog in xcodebuild log. No simulated voice. Separate normal recheck remains required.",
+  "Praelude": {
+    "built": {
+      "sha256": "2e6cbc1000cfd515c1bf5d21c1e3df90d3ab0c7187e78c9cb9d526d7245b515a",
+      "size": 43434632
+    },
+    "installed": {
+      "sha256": "2e6cbc1000cfd515c1bf5d21c1e3df90d3ab0c7187e78c9cb9d526d7245b515a",
+      "size": 43434632
+    }
+  },
+  "runner": {
+    "sha256": "234c48d8beadde61f255c430942e85a69231f3a1af2fd5b95e689ea282f15a46",
+    "size": 1856544
+  },
+  "source_files": {
+    "ios/Praelude.xcodeproj/project.pbxproj": {
+      "sha256": "17b59e5b9152cad4b52a6021de16b765806dc1d25ebf4a8b0e420ac71acaba2b",
+      "size": 87441
+    },
+    "ios/Praelude/InteractionAudit.swift": {
+      "sha256": "128b158acd76a36bdd7abc2ca0e7ec9fb50e55c69e08d5b596dfd9ba4c03e6c6",
+      "size": 12486
+    },
+    "ios/Praelude/PraeludeApp.swift": {
+      "sha256": "72e21cf2dd8a5befcc475e8d2228c78b863702698526f0be04571c766d6f6aad",
+      "size": 42713
+    },
+    "ios/Praelude/Services/AudioSessionCoordinator.swift": {
+      "sha256": "d408f89ea201128d7c2142522dda031f7ef87ed162cb5fdebf542043d74d9b10",
+      "size": 7456
+    },
+    "ios/Praelude/Services/MetronomeService.swift": {
+      "sha256": "75bf0b1eaf5be95805e3b7366b9a280863345e99161bbc9be55491b5ab859c52",
+      "size": 21207
+    },
+    "ios/Praelude/Services/SpeechCommandService.swift": {
+      "sha256": "f7532cbb86043c314c74b34d96e8cc1f18a92978ab4bc531eb4c32ba240e0f43",
+      "size": 36052
+    },
+    "ios/Praelude/Views/PagedScoreView.swift": {
+      "sha256": "66067cf42a31f9b82d548efeeee45a912b8cbd07d5b25c6cd9de48a61336b5c7",
+      "size": 77602
+    },
+    "ios/Praelude/Views/PassageLibraryNamesView.swift": {
+      "sha256": "946c0ff3de332b29c8610a9b06eb9fe866af46770918e2fabe4b13461499b46b",
+      "size": 2876
+    },
+    "ios/Praelude/Views/PassageReviewQueueView.swift": {
+      "sha256": "2d9d06c10ebd2a3c699507d7f2c6518c05405b62f2f833ae508c2f9949bac30e",
+      "size": 4815
+    },
+    "ios/Praelude/Views/ScoreWorkspace.swift": {
+      "sha256": "ca403baee8ceb535d1dcf4e21bccc7dfc71942a88f8affddcd303add5fe1aa92",
+      "size": 102821
+    },
+    "ios/Praelude/Views/TodayView.swift": {
+      "sha256": "c4c2b92f97f50e399b48207084973e5e384fff1b85722b3b1198c3d5f4f9fb36",
+      "size": 23748
+    },
+    "ios/PraeludeAppTests/VoiceCaptureSafetyTests.swift": {
+      "sha256": "7f23ab9a07a88e2967e57f06e170090c590eea3cdb8f9d73a5ab11f1315f517d",
+      "size": 28302
+    },
+    "ios/PraeludeUITests/FreshBuild13UITests.swift": {
+      "sha256": "3547ade9155ddce420cc204ab6e46eda86c5028ca4d009bb0fabe8d26f33727c",
+      "size": 34894
+    },
+    "ios/PraeludeUITests/ScoreFocusUITests.swift": {
+      "sha256": "c3aa0c1642f64690f0533d1aa323453742fa8615781b7c31002c427bb49fc40e",
+      "size": 14379
+    },
+    "ios/PraeludeUITests/SelectedPassageTapUITests.swift": {
+      "sha256": "7cbe8aba0390cba4808270f3ecab96481cc257b5ae0fe5502e1fe56a7a8cbe47",
+      "size": 9284
+    },
+    "ios/PraeludeUITests/TapDeliveryUITests.swift": {
+      "sha256": "601c96b6558e2b12a4e7668233a41bc78548f0eab73b1b69a8a3cf8ce46f78d9",
+      "size": 11537
+    },
+    "ios/PraeludeUITests/VoiceContextUITests.swift": {
+      "sha256": "8644205d56053e18bb526031fb70bef4ba6bf0d791839641952bfb2388bf1231",
+      "size": 36802
+    },
+    "ios/PraeludeUITests/VoiceCustomizationUITests.swift": {
+      "sha256": "a75c126b5ab06223d948b01315a4b658bc5041494f01b0e592f76b5414fe3a36",
+      "size": 7570
+    },
+    "ios/scripts/generate-project.py": {
+      "sha256": "7040ef2c8bc7b6678060dc1075f854c3d044bc219e10f43be0cd1a9cc0c3505c",
+      "size": 20585
+    }
+  },
+  "physical_devices_touched": false,
+  "runtime_trace_evidence": {
+    "trace_file": "/tmp/praelude-build15-context-final6-trace.jsonl",
+    "pids": [
+      88921,
+      88972
+    ],
+    "normal_untraced_recheck_pending": true
+  }
+}

@@ -122,7 +122,12 @@ struct TodayView: View {
                                              onEdit: { renamingPassage = passage })
                         }
                     }
-                    Button("All passage reviews", systemImage: "rectangle.stack") { showReviews = true }
+                    Button("All passage reviews", systemImage: "rectangle.stack") {
+                        #if DEBUG
+                        InteractionAudit.record("Today reviews action before=\(showReviews)")
+                        #endif
+                        showReviews = true
+                    }
                         .accessibilityIdentifier("allPassageReviews")
                 } header: { Text("Reviews to revisit") } footer: {
                     Text("URGENT marks an overdue review or a due passage you last marked Missed or Shaky on its first attempt. Dates and your reports set the priority; you choose what to practice.")
@@ -238,7 +243,15 @@ struct TodayView: View {
             }
         }
         .sheet(isPresented: $showGoals) { PracticeGoalsView() }
-        .sheet(isPresented: $showReviews) { PassageReviewQueueView(onStart: onStartPassage) }
+        .sheet(isPresented: $showReviews) {
+            PassageReviewQueueView(onStart: onStartPassage)
+                #if DEBUG
+                .onAppear { InteractionAudit.record("Today reviews sheet appeared") }
+                #endif
+        }
+        #if DEBUG
+        .onChange(of: showReviews) { _, value in InteractionAudit.record("Today reviews changed=\(value)") }
+        #endif
         .sheet(item: $renamingPassage) { passage in PassageRenameView(passage: passage) }
         .sheet(isPresented: $organizingPassages) { PassageLibraryNamesView() }
         .onAppear { if sessionItems.isEmpty { refreshPlan() } }
@@ -372,8 +385,11 @@ private struct SessionItemRow: View {
             }
             Spacer(minLength: 6)
             if let onRename {
-                Button("Edit name and goal tempo", systemImage: "pencil", action: onRename)
-                    .labelStyle(.iconOnly).buttonStyle(.plain).frame(minWidth: 44, minHeight: 44)
+                Button(action: onRename) {
+                    Image(systemName: "pencil").frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                    .accessibilityLabel("Edit name and goal tempo")
                     .accessibilityIdentifier("editSessionPassage_\(item.id)")
             }
             Button("Start", action: onStart)

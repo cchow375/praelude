@@ -1,0 +1,35 @@
+{
+  "capturedUTC": "2026-10-12T01:37:42.751515+00:00",
+  "app": {
+    "built": {
+      "sha256": "2e6cbc1000cfd515c1bf5d21c1e3df90d3ab0c7187e78c9cb9d526d7245b515a",
+      "size": 43434632
+    },
+    "installed": {
+      "sha256": "2e6cbc1000cfd515c1bf5d21c1e3df90d3ab0c7187e78c9cb9d526d7245b515a",
+      "size": 43434632
+    }
+  },
+  "runner": {
+    "sha256": "234c48d8beadde61f255c430942e85a69231f3a1af2fd5b95e689ea282f15a46",
+    "size": 1856544
+  },
+  "compiled_source_snapshot": "today-final4-provenance.json",
+  "final5_runtime_mismatch": {
+    "requested": 5,
+    "executed": 3,
+    "passed": 0,
+    "failed": 3,
+    "new_methods_omitted": [
+      "testDiagnosticSidebarAfterInkCheckpointAndRelaunch",
+      "testOrdinaryVoiceCheckBackRestoresScoreListeningAndPreservesPractice"
+    ],
+    "observed_removed_helper_string": "One foreground settings list required.",
+    "old_source_line": 70,
+    "built_and_installed_plugin_sha256": "234c48d8beadde61f255c430942e85a69231f3a1af2fd5b95e689ea282f15a46",
+    "acceptance": "Excluded as current-source verification. Installed bytes alone do not establish loaded test code."
+  },
+  "recovery": "Uninstalled only disposable simulator UI test runner; shutdown/boot only the simulator, preserving app/library. Enumeration then lists new methods; final6 diagnostic actually executes. Physical devices untouched.",
+  "final6_source_scope": "Same compiled app/runner as final4; later checkout changes to ScoreFocus flags, DEBUG recognizer diagnostics and End confirmation test are not compiled here.",
+  "physical_devices_touched": false
+}

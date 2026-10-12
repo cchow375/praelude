@@ -1,0 +1,110 @@
+{
+  "interpretation": "Successful opt-in trace; does not explain or repair intermittent final13 normal tap failures.",
+  "events": [
+    {
+      "event": "pdf reading.receive overlay=true allowed=true point=(410.0, 437.5) local=(297.5, 421.0) touch=0 reading=true",
+      "pid": 99955,
+      "sequence": 22,
+      "time": 1791774186.478822,
+      "uptime": 628541.2464767083
+    },
+    {
+      "event": "pdf reading.shouldBegin allowed=true",
+      "pid": 99955,
+      "sequence": 27,
+      "time": 1791774186.5678558,
+      "uptime": 628541.335509125
+    },
+    {
+      "event": "pdf reading.action state=3 pdfView=true reading=true focus=false",
+      "pid": 99955,
+      "sequence": 28,
+      "time": 1791774186.568589,
+      "uptime": 628541.3362413751
+    },
+    {
+      "event": "pdf reading.point point=(410.0, 437.5) fraction=(0.5,0.5) overlays=1 regions=2",
+      "pid": 99955,
+      "sequence": 29,
+      "time": 1791774186.5686932,
+      "uptime": 628541.3363459584
+    },
+    {
+      "event": "pdf reading.page display=1 source=1 overlay=true pdfPoint=(297.5, 421.0)",
+      "pid": 99955,
+      "sequence": 30,
+      "time": 1791774186.568768,
+      "uptime": 628541.3364205834
+    },
+    {
+      "event": "pdf reading.region local=(297.5, 421.0) bounds=(0.0, 0.0, 595.0, 842.0) attached=true region=true displayed=2 boxes=true",
+      "pid": 99955,
+      "sequence": 31,
+      "time": 1791774186.56883,
+      "uptime": 628541.3364830418
+    },
+    {
+      "event": "score.reading.lookup resolved=true passages=2 reading=true active=false",
+      "pid": 99955,
+      "sequence": 32,
+      "time": 1791774186.568929,
+      "uptime": 628541.3365817084
+    },
+    {
+      "event": "score.reading.flush accepted=true pendingPages=0",
+      "pid": 99955,
+      "sequence": 33,
+      "time": 1791774186.56919,
+      "uptime": 628541.3368429167
+    },
+    {
+      "event": "score.reading.assigned selected=true armed=true page=1",
+      "pid": 99955,
+      "sequence": 34,
+      "time": 1791774186.5698671,
+      "uptime": 628541.33751925
+    },
+    {
+      "event": "pdf nativeAction ZoomableScorePDFView.UITapGestureRecognizer role=readingPageTap taps=1 state=3 note=false point=(410.0, 437.5)",
+      "pid": 99955,
+      "sequence": 35,
+      "time": 1791774186.569946,
+      "uptime": 628541.3375984584
+    },
+    {
+      "event": "pdf nativeAction PKSelectionGestureView.UITapGestureRecognizer role=system taps=1 state=3 note=false point=(410.0, 437.5)",
+      "pid": 99955,
+      "sequence": 36,
+      "time": 1791774186.570201,
+      "uptime": 628541.3378534167
+    },
+    {
+      "event": "gesture.touch phase=3 recognizer=UITapAndAHalfRecognizer state=0 enabled=true cancels=true delaysBegan=false delaysEnded=true",
+      "pid": 99955,
+      "sequence": 37,
+      "time": 1791774186.570548,
+      "uptime": 628541.3382003334
+    },
+    {
+      "event": "gesture.touch phase=3 recognizer=UITapGestureRecognizer state=0 enabled=true cancels=true delaysBegan=false delaysEnded=true",
+      "pid": 99955,
+      "sequence": 38,
+      "time": 1791774186.5706081,
+      "uptime": 628541.3382601667
+    },
+    {
+      "event": "gesture.touch phase=3 recognizer=UITapGestureRecognizer state=0 enabled=true cancels=true delaysBegan=false delaysEnded=true",
+      "pid": 99955,
+      "sequence": 39,
+      "time": 1791774186.570667,
+      "uptime": 628541.33832
+    },
+    {
+      "event": "gesture.touch phase=3 recognizer=_UISystemGestureGateGestureRecognizer state=0 enabled=true cancels=true delaysBegan=false delaysEnded=false",
+      "pid": 99955,
+      "sequence": 40,
+      "time": 1791774186.570726,
+      "uptime": 628541.3383781667
+    }
+  ]
+}

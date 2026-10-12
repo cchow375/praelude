@@ -31,6 +31,7 @@ struct PassageReviewQueueView: View {
                     }
                 }
             }
+            .accessibilityIdentifier("passageReviewQueue")
             .navigationTitle("Passage reviews").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .sheet(item: $editing) { passage in PassageRenameView(passage: passage) }
@@ -71,8 +72,9 @@ struct PassageReviewRow: View {
                         Text("Goal \(PracticeReferenceFormatting.bpm(tempo)) BPM").font(.caption).foregroundStyle(.secondary)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                Button("Edit", systemImage: "pencil", action: onEdit)
-                    .labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44)
+                Button(action: onEdit) {
+                    Image(systemName: "pencil").frame(width: 44, height: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain)
                     .accessibilityLabel("Edit name and goal for \(passage.title)")
                 Button("Review", action: onStart).font(.subheadline.weight(.semibold))
                     .frame(minHeight: 44)

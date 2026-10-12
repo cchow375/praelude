@@ -14,9 +14,30 @@ final class VoiceCustomizationUITests: XCTestCase {
     @MainActor private func replace(_ field: XCUIElement, with text: String, in app: XCUIApplication) {
         let below = field.exists && field.frame.midY > app.frame.midY
         reveal(field, in: app, upward: below)
-        field.tap()
-        let old = field.value as? String ?? ""
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + text)
+        var previous = CGRect.zero
+        var changed = Date.now
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard field.exists, field.isHittable, app.frame.contains(field.frame) else { return false }
+            if field.frame != previous { previous = field.frame; changed = .now; return false }
+            return Date.now.timeIntervalSince(changed) >= 0.4
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 8), .completed, app.debugDescription)
+        let frame = field.frame
+        let target = XCTAttachment(string: "identifier=\(field.identifier) frame=\(frame) point=(\(frame.midX),\(frame.midY)) hittable=\(field.isHittable) hasFocus=\(field.hasFocus)\n\(app.debugDescription)")
+        target.name = "alias-field-before-one-center-tap"; target.lifetime = .keepAlways; add(target)
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.midX - app.frame.minX, dy: frame.midY - app.frame.minY)).tap()
+        let focused = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            field.exists && field.debugDescription.contains("Keyboard Focused")
+        }, object: nil)
+        let result = XCTWaiter.wait(for: [focused], timeout: 3)
+        let after = XCTAttachment(string: app.debugDescription)
+        after.name = "alias-field-after-one-center-tap"; after.lifetime = .keepAlways; add(after)
+        XCTAssertEqual(result, .completed, "The single tap must focus the requested field before typing.\n\(app.debugDescription)")
+        let value = field.value as? String ?? ""
+        let old = value == field.placeholderValue ? "" : value
+        let input = String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + text
+        if !input.isEmpty { field.typeText(input) }
     }
 
     @MainActor private func back(from title: String, in app: XCUIApplication) {

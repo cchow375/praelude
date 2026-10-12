@@ -1,0 +1,19 @@
+{
+  "Praelude": {
+    "built": {
+      "sha256": "2ad9efff3bb381de2e18c89afd1a2999f65912cf7f0ef257863bcf47cae98593",
+      "size": 42885992
+    },
+    "installed": {
+      "sha256": "2ad9efff3bb381de2e18c89afd1a2999f65912cf7f0ef257863bcf47cae98593",
+      "size": 42885992
+    }
+  },
+  "Praelude.debug.dylib": {},
+  "runner": {
+    "sha256": "24defd596d7d2cc3bba754f8a3d6c64d475f4e51eb7cc0867e8e5a244b2e32fe",
+    "size": 1563792
+  },
+  "scope": "Untraced intermediate run compiled before metronome/mute/voice navigation and explicit44 target repairs. Matching built/installed monolithic Debug app executable; no Praelude.debug.dylib exists. Not latest-source acceptance.",
+  "capturedUTC": "2026-10-12T00:23:41.469538+00:00"
+}

@@ -119,8 +119,12 @@ final class ScoreFocusUITests: XCTestCase {
         let organize = app.buttons["organizePassagesToday"]
         for _ in 0..<6 where !organize.isHittable { app.swipeUp() }
         XCTAssertTrue(organize.waitForExistence(timeout: 5), app.debugDescription); organize.tap()
-        let rename = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Rename ")).firstMatch
-        XCTAssertTrue(rename.waitForExistence(timeout: 5), app.debugDescription); rename.tap()
+        let rename = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Edit name and goal for ")).firstMatch
+        XCTAssertTrue(rename.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertGreaterThanOrEqual(rename.frame.width, 43.99, app.debugDescription)
+        XCTAssertGreaterThanOrEqual(rename.frame.height, 43.99, app.debugDescription)
+        // Touch the 44-point target below the pencil glyph, not only the painted symbol.
+        rename.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.85)).tap()
         let field = app.textViews["passageRenameField"].exists ? app.textViews["passageRenameField"] : app.textFields["passageRenameField"]
         XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap()
         let old = field.value as? String ?? ""
@@ -132,5 +136,81 @@ final class ScoreFocusUITests: XCTestCase {
         attachment.name = "today-passage-renamed-without-practice"; attachment.lifetime = .keepAlways; add(attachment)
         app.buttons["Done"].tap()
         XCTAssertFalse(app.buttons["resumePractice"].exists)
+    }
+
+    @MainActor func testTodaySessionEditPaddingSavesNameAndGoalWithoutStartingPractice() {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        // The existing opt-in fixture also retains fresh13-audit-before.json for a host-side
+        // exact comparison of history, sessions and cold grades after this actual UI flow.
+        app.launchArguments = ["--uitesting", "--reset", "--seed", "--seed-sections", "--audit-gesture-preservation"]
+        app.launch()
+        let hide = app.buttons["Hide Sidebar"]
+        if hide.waitForExistence(timeout: 1), hide.isHittable { hide.tap() }
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 8), app.debugDescription)
+
+        func assertNoPractice() {
+            XCTAssertFalse(app.buttons["verdict_clean"].exists, app.debugDescription)
+            XCTAssertFalse(app.buttons["coldGrade_clean"].exists, app.debugDescription)
+            XCTAssertFalse(app.buttons["resumePractice"].exists, app.debugDescription)
+            XCTAssertFalse(app.buttons["stopSet"].exists, app.debugDescription)
+            XCTAssertTrue(app.staticTexts["Your recorded work will appear here after practice."].exists, app.debugDescription)
+            XCTAssertTrue(app.staticTexts["0, Repetitions"].exists, app.debugDescription)
+            XCTAssertTrue(app.staticTexts["0, Completed sets"].exists, app.debugDescription)
+        }
+        assertNoPractice()
+        let row = app.cells.containing(.staticText, identifier: "Evenness and pulse · Practice study").firstMatch
+        let edit = row.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "editSessionPassage_")).firstMatch
+        for _ in 0..<6 where !edit.isHittable { app.swipeUp() }
+        settle(edit, app: app)
+        XCTAssertGreaterThanOrEqual(edit.frame.width, 43.99, app.debugDescription)
+        XCTAssertGreaterThanOrEqual(edit.frame.height, 43.99, app.debugDescription)
+        let editIdentifier = edit.identifier
+        trace("today-session-edit-padding-before", app: app)
+        // A single touch 15 points below the centered glyph must hit the button's padding.
+        edit.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.85)).tap()
+        XCTAssertTrue(app.navigationBars["Rename passage"].waitForExistence(timeout: 8), app.debugDescription)
+        let name = app.descendants(matching: .any).matching(identifier: "passageRenameField").firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(name.value as? String, "Evenness and pulse", "The session card must edit its own passage.")
+        name.tap()
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "Evenness and pulse".count) + "Today padded edit")
+
+        let goal = app.switches["passageGoalEnabled"]
+        if goal.value as? String != "1" {
+            let nativeSwitch = goal.switches.firstMatch
+            settle(nativeSwitch, app: app)
+            nativeSwitch.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5)).tap()
+        }
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1"), object: goal)
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed, app.debugDescription)
+        let tempo = app.textFields["passageGoalTempoField"]
+        settle(tempo, app: app); tempo.tap()
+        tempo.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (tempo.value as? String ?? "").count) + "112.5")
+        let save = app.buttons["savePassageName"]
+        settle(save, app: app); save.tap()
+        XCTAssertTrue(app.staticTexts["Today padded edit · Practice study"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Goal 112.5 BPM"].exists, app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Phrase connection · Practice study"].exists, "The other session passage must keep its name.")
+        assertNoPractice()
+        trace("today-session-edit-padding-saved", app: app)
+
+        app.terminate()
+        app.launchArguments = ["--uitesting"]
+        app.launch()
+        let hideAfterRelaunch = app.buttons["Hide Sidebar"]
+        if hideAfterRelaunch.waitForExistence(timeout: 1), hideAfterRelaunch.isHittable { hideAfterRelaunch.tap() }
+        let reopenedEdit = app.buttons[editIdentifier]
+        for _ in 0..<6 where !reopenedEdit.isHittable { app.swipeUp() }
+        settle(reopenedEdit, app: app); reopenedEdit.tap()
+        XCTAssertTrue(app.navigationBars["Rename passage"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "passageRenameField").firstMatch.value as? String, "Today padded edit")
+        XCTAssertEqual(app.switches["passageGoalEnabled"].value as? String, "1")
+        XCTAssertEqual(app.textFields["passageGoalTempoField"].value as? String, "112.5")
+        trace("today-session-edit-padding-reopened", app: app)
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5), app.debugDescription)
+        assertNoPractice()
     }
 }

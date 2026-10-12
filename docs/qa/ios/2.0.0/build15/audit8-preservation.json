@@ -1,0 +1,125 @@
+{
+  "status": "scoped simulator pass; earlier B155 no-op cause remains unproven",
+  "scope": {
+    "fixture": "disposable synthetic UI-test library; separate normal app and native-test temporary libraries excluded",
+    "comparison": "decoded JSON values by record identity",
+    "directScoreStartingPoint": true,
+    "libraryNavigationExercised": false,
+    "physicalAcceptance": false
+  },
+  "schemaVersion": {
+    "before": 5,
+    "after": 5
+  },
+  "revision": {
+    "before": 6,
+    "after": 7,
+    "delta": 1
+  },
+  "records": {
+    "before": 185,
+    "after": 185,
+    "retained": 185,
+    "unchangedDecodedValues": 185,
+    "modified": 0,
+    "added": 0,
+    "removed": 0
+  },
+  "nonemptyCollections": {
+    "instruments": {
+      "before": 1,
+      "after": 1
+    },
+    "passages": {
+      "before": 2,
+      "after": 2
+    },
+    "pieces": {
+      "before": 2,
+      "after": 2
+    },
+    "warmupExercises": {
+      "before": 180,
+      "after": 180
+    }
+  },
+  "emptyCollectionsUnchanged": 22,
+  "allowedStartupDifferences": {
+    "fieldsChanged": [
+      "revision",
+      "rewardsState"
+    ],
+    "rewardStateFieldsChanged": [
+      "rank",
+      "updatedAt"
+    ],
+    "rankBefore": "Unranked",
+    "rankAfter": "Prelude",
+    "rewardStateTimestampAdvanced": true,
+    "rewardLedgerEntriesBefore": 0,
+    "rewardLedgerEntriesAfter": 0,
+    "xpDelta": 0,
+    "coinsDelta": 0,
+    "newBadges": 0,
+    "newMilestones": 0
+  },
+  "protectedValues": {
+    "passageTitleAndGoalMutations": 0,
+    "passageRegionsAndSchedulesUnchanged": true,
+    "practiceHistoryGradeSessionMutations": 0,
+    "piecesInstrumentsWarmupsUnchanged": true,
+    "profilePreferencesRuleSettingsUnchanged": true,
+    "allOtherTopLevelValuesUnchanged": true,
+    "nonemptyAnnotationHistoryRetentionExercised": false,
+    "caveat": "ink, stamps, notes, grades, sessions and practice history are empty in this fixture"
+  },
+  "traceScope": {
+    "cumulativeEvents": 1599,
+    "cumulativeProcesses": 8,
+    "eventsForThisTest": 560,
+    "processesForThisTest": 1,
+    "earlierEventsExcluded": 1039
+  },
+  "actualUI": {
+    "casesPassed": 1,
+    "failures": 0,
+    "durationSeconds": 185.061,
+    "boxDoubleTapCancelCycles": 8,
+    "recognizedBoxDoubleTapActions": 8,
+    "boxRenameRegionFlushesSucceeded": 8,
+    "requiredBoxEditorPostconditionsPassed": 8,
+    "requiredBoxCancelRestoredPostconditionsPassed": 8,
+    "recognizedTripleTapActions": 1,
+    "dictationPresentationRequests": 1,
+    "tripleRequestAndUsableEditorPostconditionsPassed": true,
+    "ordinaryDockDoubleTapAfterTripleCancel": 1,
+    "ordinaryEditorHasNoInheritedDictation": true,
+    "ordinaryRenamePresentations": 9,
+    "dictationRenamePresentations": 1,
+    "renameSheetAppearances": 10,
+    "renameOpenStateChanges": 10,
+    "renameClosedStateChanges": 10,
+    "renameSheetDisappearances": 10,
+    "actualTouchBegins": 32,
+    "actualTouchEnds": 32,
+    "actualTouchCancels": 0,
+    "savedPassageOrGoalEdits": 0,
+    "limits": "settled-target repeated simulator gesture checks; no new save/relaunch, library navigation, speech accuracy, physical Pencil or sustained-reliability acceptance"
+  },
+  "sourceProvenance": {
+    "appSourceHashCount": 5,
+    "historicBinaryHashCount": 2,
+    "capturedTestSourceTiming": "post-run --audit-taps flag removal; this hash is not the executed test source",
+    "capturedTestSourceSHA256": "7cbe8aba0390cba4808270f3ecab96481cc257b5ae0fe5502e1fe56a7a8cbe47",
+    "compiledTestSourceSHA256": "a5dd96941209e1571f60b04af6b32da0da333fb580e05870c192fb052e7ccad9",
+    "compiledTestHashEvidence": "parent pre-run frozen source record; not independently derived from binary",
+    "appSourceTiming": "root reports unchanged since audit8; captured before subsequent normal rebuild"
+  },
+  "evidenceSHA256": {
+    "fresh13-audit-before.json": "cd89ea76d66b406e7d0d821b88ca7fb2135f544d49d3a5d2bb45d49de8846871",
+    "library.json": "a7765d1831dad966de0093e91283053d50c23fb8e0f7c5a85344437205d09566",
+    "interaction-audit.jsonl": "7947ecca16548f5b6de8b212f59350a489b4615d39e066bdff9ccf5f280fe7a0",
+    "source.json": "4e240649ff78c9fb3188ac6acb789d652feb5851243b4e2e9bbbbabfccf8a66f"
+  },
+  "unexpectedDifferences": []
+}

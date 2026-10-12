@@ -99,6 +99,22 @@ struct ScoreWorkspace: View {
     /// "(C) Audit.md".
     @AppStorage("ios.voiceCheckedOnce") private var voiceCheckedOnce = false
     @State private var showFirstVoiceCheck = false
+    @State private var voiceControlsVisible = false
+    @State private var resumeScoreVoiceAfterSettings = false
+    @State private var resumeScoreVoiceMuted = false
+    private struct EditorVoiceHandoff {
+        enum Target { case passage(UUID), textAnnotation(UUID), passagePicker }
+        let pieceID: UUID
+        let ownerID: UUID
+        let target: Target
+        let muted: Bool
+    }
+    @State private var editorVoiceHandoff: EditorVoiceHandoff?
+    #if DEBUG
+    @State private var voiceAuditDialogPending = false
+    @State private var voiceAuditDialogBatch = 0
+    @State private var voiceAuditDialogDeliveryEnding = false
+    #endif
     @State private var voiceOwnerID = UUID()
     @State private var camera = FaceGestureService()
     @State private var arm = PracticeArmController()
@@ -303,12 +319,22 @@ struct ScoreWorkspace: View {
     }
     private var scoreOptions: some View {
         Menu {
+                            if active != nil {
+                                Section("Current practice") {
+                                    Button("End practice", systemImage: "stop.circle", role: .destructive) { ending = true }
+                                }
+                            }
                             Section("Reading") {
                                 Button { setFocus(true) } label: { Label("Focus on score", systemImage: "arrow.up.left.and.arrow.down.right") }
                                     .accessibilityIdentifier("enterScoreFocus")
                                 Button { enterPerformanceMode() } label: { Label("Performance mode · hold score to exit", systemImage: "rectangle.compress.vertical") }
                                     .accessibilityIdentifier("performanceMode")
-                                Button("Camera gestures", systemImage: "faceid") { sheet = .camera }.accessibilityIdentifier("openCameraGestures")
+                                Button("Camera gestures", systemImage: "faceid") {
+                                    #if DEBUG
+                                    InteractionAudit.record("score camera action before=\(String(describing: sheet))")
+                                    #endif
+                                    sheet = .camera
+                                }.accessibilityIdentifier("openCameraGestures")
                                 if sizeClass == .regular {
                                     Toggle("Two pages", isOn: $twoPages).praeludeToggleHaptic(twoPages)
                                     if twoPages { Toggle("Half-page turns", isOn: $halfPageTurns).praeludeToggleHaptic(halfPageTurns) }
@@ -319,7 +345,7 @@ struct ScoreWorkspace: View {
                                 if !jumpBackStack.isEmpty { Button("Jump back to page \(jumpBackStack.last ?? page)", systemImage: "arrow.uturn.backward") { jumpBack() } }
                             }
                             Section("Practice & passages") {
-                                Button("Passages", systemImage: "bookmark") { sheet = .passages }
+                                Button("Passages", systemImage: "bookmark", action: presentPassagePicker)
                                 Button("Draw a passage", systemImage: "rectangle.dashed") { beginSelection(nil) }
                                 Button("Movements & pieces", systemImage: "list.bullet.rectangle") { if markup.flushInk() { sheet = .sections } }
                                 if scopedSection != nil { Button("Show whole score", systemImage: "doc") { scopedSectionID = nil } }
@@ -331,7 +357,6 @@ struct ScoreWorkspace: View {
                                 }
                                 Button("Practice balance & full-tempo target", systemImage: "chart.bar") { sheet = .practiceBalance }
                                 Button("Practice results on score", systemImage: "square.grid.3x3.fill") { sheet = .heatmap }.disabled(scoreURL == nil)
-                                if active != nil { Button("End practice", systemImage: "stop.circle", role: .destructive) { ending = true } }
                             }
                             Section("Score tools") {
                                 Button("Measure map", systemImage: "number.square") { sheet = .measureMap }
@@ -392,6 +417,9 @@ struct ScoreWorkspace: View {
             case .passages: PassagePickerView(pieceID: pieceID, currentPage: sourcePage(forDisplayPage: page) ?? 0,
                                               selectedPassageID: selectedPassage?.id, sourcePageRange: scopedPages, onSelect: selectPassage,
                                               onDraw: { passage in drawAfterDismiss = passage ?? newPassage() })
+                #if DEBUG
+                .onAppear { InteractionAudit.record("score Passages sheet appeared") }
+                #endif
             case .passageDetails:
                 if let selectedPassage {
                     NavigationStack {
@@ -404,6 +432,9 @@ struct ScoreWorkspace: View {
             case .pages: if let scoreURL { ScorePagePicker(url: scoreURL, pageEdits: effectivePageEdits, currentPage: page, sourcePageRange: scopedPages, onSelect: { if markup.flushInk() { page = $0; savePage($0) } }) }
             case .voice: voiceSheet
             case .camera: FaceGestureControlsView(camera: camera)
+                #if DEBUG
+                .onAppear { InteractionAudit.record("score camera sheet appeared") }
+                #endif
             case .practiceBalance:
                 NavigationStack {
                     PiecePracticeInsightsView(pieceID: pieceID)
@@ -478,9 +509,13 @@ struct ScoreWorkspace: View {
         }
         .sheet(item: $renamingPassage, onDismiss: { dictatePassageName = false }) { passage in
             PassageRenameView(passage: passage, startDictation: dictatePassageName)
+                #if DEBUG
+                .onAppear { InteractionAudit.record("score rename sheet appeared dictate=\(dictatePassageName)") }
+                .onDisappear { InteractionAudit.record("score rename sheet disappeared") }
+                #endif
         }
         .confirmationDialog("End this practice session?", isPresented: $ending, titleVisibility: .visible) {
-            Button("End practice", role: .destructive) { perform { try endSessionAndShare(); metronome.stop(); speech.stop() } }
+            Button("End practice", role: .destructive) { perform { try endSessionAndShare(); metronome.stop(); editorVoiceHandoff = nil; speech.stop() } }
             Button("Cancel", role: .cancel) {}
         } message: { Text("Your repetitions and time stay saved. Unfinished work remains in your history.") }
         .alert("Couldn’t complete that", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
@@ -488,8 +523,10 @@ struct ScoreWorkspace: View {
     private var lifecycleScore: some View {
         presentedScore
         .onAppear(perform: scoreAppeared)
-        .onDisappear { flushBookmark(); exportTask?.cancel(); _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); camera.stop(); camera.onAction = nil; runtime.scoreDisappeared(ownerID: voiceOwnerID) }
+        .onDisappear { resumeScoreVoiceAfterSettings = false; editorVoiceHandoff = nil; flushBookmark(); exportTask?.cancel(); _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); camera.stop(); camera.onAction = nil; runtime.scoreDisappeared(ownerID: voiceOwnerID) }
         .onChange(of: pieceID) { _, _ in
+            resumeScoreVoiceAfterSettings = false
+            editorVoiceHandoff = nil
             flushBookmark(); setFocus(false); camera.stop(); camera.onAction = nil
             exportTask?.cancel()
             markup.onConfirmSelection = saveSelection
@@ -503,17 +540,37 @@ struct ScoreWorkspace: View {
             openScoreSection(at: source); onInitialPageConsumed()
         }
         .onChange(of: showPassageBoxes) { _, value in markup.showPassageBoxes = value }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { flushBookmark(); _ = markup.flushInk(); if phase == .background { camera.stop() } }; updateCameraContext() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                flushBookmark(); _ = markup.flushInk()
+                if phase == .background { resumeScoreVoiceAfterSettings = false; editorVoiceHandoff = nil; camera.stop() }
+            }
+            if phase == .active { restoreScoreVoiceIfNeeded(); restoreEditorVoiceIfNeeded() }
+            updateCameraContext()
+        }
         .onChange(of: page) { _, _ in camera.resetMotion() }
         .onChange(of: camera.isEnabled) { _, _ in updateCameraContext() }
         .onChange(of: focusMode) { _, value in runtime.setRepInputSuspended(value, ownerID: voiceOwnerID); updateVoiceContext(); updateCameraContext() }
         .onChange(of: active?.id) { _, _ in selectedHands = active?.configuration.hands ?? "Both hands"; updateVoiceContext(); updateCameraContext() }
         .onChange(of: speech.isListening) { _, _ in updateVoiceContext(); updateCameraContext() }
+        .onChange(of: speech.ownerID) { _, _ in restoreScoreVoiceIfNeeded(); restoreEditorVoiceIfNeeded() }
         .onChange(of: arm.awaitingColdGrade) { _, _ in updateVoiceContext(); updateCameraContext() }
         .onChange(of: markup.mode) { _, _ in updateVoiceContext(); updateCameraContext() }
-        .onChange(of: sheet) { _, _ in updateVoiceContext(); updateCameraContext() }
-        .onChange(of: editingTextBox) { _, _ in updateVoiceContext(); updateCameraContext() }
-        .onChange(of: renamingPassage) { _, _ in updateVoiceContext(); updateCameraContext() }
+        .onChange(of: sheet) { _, value in
+            #if DEBUG
+            InteractionAudit.record("score sheet changed=\(String(describing: value))")
+            #endif
+            if value != .voice { resumeScoreVoiceAfterSettings = false }
+            updateVoiceContext(); updateCameraContext()
+            if value == nil { restoreEditorVoiceIfNeeded() }
+        }
+        .onChange(of: editingTextBox) { _, _ in updateVoiceContext(); updateCameraContext(); restoreEditorVoiceIfNeeded() }
+        .onChange(of: renamingPassage) { _, value in
+            #if DEBUG
+            InteractionAudit.record("score rename state=\(value != nil)")
+            #endif
+            updateVoiceContext(); updateCameraContext(); restoreEditorVoiceIfNeeded()
+        }
     }
     private var practiceObservedScore: some View {
         lifecycleScore
@@ -541,19 +598,31 @@ struct ScoreWorkspace: View {
     }
     var body: some View {
         practiceObservedScore
+        .onChange(of: acceptsScoreCommands) { _, _ in updateVoiceContext(); restoreEditorVoiceIfNeeded() }
+        .onChange(of: acceptsCameraActions) { _, _ in updateCameraContext() }
+        .onChange(of: hasUndoableAttempt) { _, _ in updateVoiceContext() }
         .background {
             Group {
                 Button("Previous page") { turnPage(-1) }.keyboardShortcut(.leftArrow, modifiers: [])
                 Button("Next page") { turnPage(1) }.keyboardShortcut(.rightArrow, modifiers: [])
             }
-            .disabled((sheet != nil && sheet != .voice) || editingTextBox != nil || renamingPassage != nil || markup.mode == .selecting)
+            .disabled(!acceptsScoreCommands)
             .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
             Button("Toggle metronome") {
-                if let set = store.activeSet, !set.isComplete { metronome.setTempo(set.currentBPM) }
+                prepareMetronomeForCurrentContext()
                 metronome.toggle()
             }.keyboardShortcut(.space, modifiers: [])
+                .disabled(!acceptsScoreCommands)
                 .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
         }
+        #if DEBUG
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if sheet != .voice { voiceAuditControls }
+        }
+        .onChange(of: ending) { _, value in
+            if value { deliverVoiceAuditDialogCommandsIfArmed() }
+        }
+        #endif
     }
     private func scoreAppeared() {
             if let initialPage { scopedSectionID = piece?.scoreSections.first { $0.startPage == initialPage }?.id }
@@ -591,7 +660,13 @@ struct ScoreWorkspace: View {
             .accessibilityIdentifier("scorePDF")
     }
     private func onRegionSelected(_ id: UUID) {
-        guard let tapped = savedPassages.first(where: { $0.regions.contains { $0.id == id } }) else { return }
+        let tapped = savedPassages.first(where: { $0.regions.contains { $0.id == id } })
+        #if DEBUG
+        if InteractionAudit.isEnabled {
+            InteractionAudit.record("score.reading.lookup resolved=\(tapped != nil) passages=\(savedPassages.count) reading=\(markup.mode == .reading) active=\(active != nil)")
+        }
+        #endif
+        guard let tapped else { return }
         selectPassage(tapped)
     }
     @ViewBuilder private func visibleControls(in size: CGSize) -> some View {
@@ -621,14 +696,32 @@ struct ScoreWorkspace: View {
         }
     }
     private func editPassageName(regionID: UUID, dictate: Bool) {
-        guard let passage = savedPassages.first(where: { $0.regions.contains { $0.id == regionID } }), markup.flushInk() else { return }
+        guard let passage = savedPassages.first(where: { $0.regions.contains { $0.id == regionID } }) else {
+            #if DEBUG
+            InteractionAudit.record("score rename rejected region missing")
+            #endif
+            return
+        }
+        let flushed = markup.flushInk()
+        #if DEBUG
+        InteractionAudit.record("score rename region found dictate=\(dictate) flushed=\(flushed)")
+        #endif
+        guard flushed else { return }
         presentPassageRename(passage, dictate: dictate)
     }
     private func presentPassageRename(_ passage: Passage, dictate: Bool = false) {
         // Dictation belongs to this presentation. An ordinary edit after a triple tap must
         // never inherit the previous editor's microphone request, even after Cancel or Save.
+        #if DEBUG
+        InteractionAudit.record("score present rename dictate=\(dictate) wasPresented=\(renamingPassage != nil)")
+        #endif
+        rememberScoreVoiceForEditor(.passage(passage.id))
         dictatePassageName = dictate
         renamingPassage = passage
+    }
+    private func presentPassagePicker() {
+        rememberScoreVoiceForEditor(.passagePicker)
+        sheet = .passages
     }
     private func editTextBox(_ displayed: TextBoxAnnotation, dictate: Bool) {
         // PDF overlays refresh asynchronously. A just-resized overlay can still carry the
@@ -639,6 +732,7 @@ struct ScoreWorkspace: View {
             error = "This note is no longer available in the active layer. Close and reopen the score."
             return
         }
+        rememberScoreVoiceForEditor(.textAnnotation(current.id))
         dictateTextBox = dictate
         editingSavedTextBox = true
         editingTextBox = current
@@ -667,7 +761,12 @@ struct ScoreWorkspace: View {
         }.font(.system(size: 18))
     }
     @ViewBuilder private var scoreNavigationControls: some View {
-        Button { sheet = .passages } label: { Image(systemName: "bookmark").frame(width: 44, height: 44).contentShape(Rectangle()) }
+        Button {
+            #if DEBUG
+            InteractionAudit.record("score Passages action before=\(String(describing: sheet))")
+            #endif
+            presentPassagePicker()
+        } label: { Image(systemName: "bookmark").frame(width: 44, height: 44).contentShape(Rectangle()) }
             .accessibilityLabel("Passages").accessibilityIdentifier("passages")
         if markup.mode == .reading { pageControls(compact: true) }
     }
@@ -886,9 +985,11 @@ struct ScoreWorkspace: View {
         } catch { self.error = error.localizedDescription; return false }
     }
     private func placeTextBox(_ page: Int, _ position: NormalizedRect) {
+        let box = TextBoxAnnotation(pieceID: pieceID, page: page, region: position, text: "", layer: markup.activeLayer)
+        rememberScoreVoiceForEditor(.textAnnotation(box.id))
         editingSavedTextBox = false
         dictateTextBox = false
-        editingTextBox = TextBoxAnnotation(pieceID: pieceID, page: page, region: position, text: "", layer: markup.activeLayer)
+        editingTextBox = box
     }
     /// §11 R8: "after Sloppy, optional tap where it broke." `active`'s own passage (not
     /// `selectedPassage`, which can drift once a set is running against a snapshot — e.g. after §8's
@@ -967,7 +1068,7 @@ struct ScoreWorkspace: View {
                         metronome.toggle()
                     }, metronomeOn: metronome.isPlaying,
                     onAdjustTempo: adjustRunningTempo,
-                    onMuteVoice: { speech.setMuted(!speech.isMuted) }, onVoiceOff: { speech.stop(ifOwnedBy: voiceOwnerID) },
+                    onMuteVoice: { speech.setMuted(!speech.isMuted) }, onVoiceOff: stopHandsFree,
                     onApplySuggestion: applySuggestion, onDismissSuggestion: { arm.dismiss($0, store: store) },
                     // §8: draw one box without stopping the set — a new sub-passage, not a mode
                     // change, so the dock/HUD/music never move.
@@ -1001,7 +1102,7 @@ struct ScoreWorkspace: View {
                     Spacer()
                     Button(speech.isMuted ? "Unmute" : "Mute") { speech.setMuted(!speech.isMuted) }.font(.caption.weight(.semibold))
                         .frame(minHeight: 44).contentShape(Rectangle())
-                    Button("Off") { speech.stop(ifOwnedBy: voiceOwnerID) }.font(.caption.weight(.semibold))
+                    Button("Off", action: stopHandsFree).font(.caption.weight(.semibold))
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }.accessibilityElement(children: .combine)
             }
@@ -1017,20 +1118,35 @@ struct ScoreWorkspace: View {
     /// immediately so the very next tap (or "Start") is tap 2 — no modal in between.
     private func selectPassage(_ passage: Passage) {
         if let active, !active.isComplete, active.configuration.passageID != passage.id {
+            #if DEBUG
+            if InteractionAudit.isEnabled { InteractionAudit.record("score.reading.switchConfirmation") }
+            #endif
             pendingPracticePassage = passage
             return
         }
         if active?.isComplete == true {
+            #if DEBUG
+            if InteractionAudit.isEnabled { InteractionAudit.record("score.reading.endCompletedSet") }
+            #endif
             do { try store.endSet() } catch { self.error = error.localizedDescription; return }
         }
         selectIdlePassage(passage)
     }
     private func selectIdlePassage(_ passage: Passage) {
-        guard markup.flushInk() else { return }
+        let flushed = markup.flushInk()
+        #if DEBUG
+        if InteractionAudit.isEnabled { InteractionAudit.record("score.reading.flush accepted=\(flushed) pendingPages=\(markup.pendingInk.count)") }
+        #endif
+        guard flushed else { return }
         selectedPassage = passage
         page = displayPage(forSourcePage: passage.page)
         savePage(page)
         rearmIfIdle()
+        #if DEBUG
+        if InteractionAudit.isEnabled {
+            InteractionAudit.record("score.reading.assigned selected=\(selectedPassage?.id == passage.id) armed=\(arm.configuration?.passageID == passage.id) page=\(page)")
+        }
+        #endif
     }
     private func repeatSet() {
         guard let completed = active else { return }
@@ -1126,12 +1242,44 @@ struct ScoreWorkspace: View {
         }
     }
     private var voiceSheet: some View {
+        voiceSheetLayout.presentationDetents([.large])
+    }
+    @ViewBuilder private var voiceSheetLayout: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--uitesting"),
+           ProcessInfo.processInfo.arguments.contains("--audit-simulated-voice") {
+            // Give navigation its own bounds above the synthetic controls. An inset outside
+            // the stack can leave its final List row underneath the audit strip.
+            VStack(spacing: 0) {
+                voiceSheetNavigation
+                voiceAuditControls
+            }
+        } else { voiceSheetNavigation }
+        #else
+        voiceSheetNavigation
+        #endif
+    }
+    private var voiceSheetNavigation: some View {
         NavigationStack {
             List {
                 Section {
                     Label("Your voice is the verdict", systemImage: "mic")
                     Text("Praelude recognizes short commands on this device. It never listens for right or wrong notes.").foregroundStyle(.secondary)
                 }
+                if let failure = speech.errorMessage { Section { Text(failure).foregroundStyle(.secondary) } }
+                Section {
+                    Button((speech.isEnabled || speech.isPreparing) ? "Turn hands-free off" : "Enable hands-free") {
+                        if speech.isEnabled || speech.isPreparing { stopHandsFree() }
+                        else { startHandsFree() }
+                    }.frame(minHeight: 44).fontWeight(.semibold).accessibilityIdentifier("enableHandsFree")
+                    if speech.isListening {
+                        Button(speech.isMuted ? "Unmute" : "Mute") { speech.setMuted(!speech.isMuted) }.frame(minHeight: 44)
+                    }
+                    if speech.isEnabled && !speech.isListening && !speech.isPreparing && !speech.isRecovering {
+                        Button("Retry listening") { speech.retryListening(ifOwnedBy: voiceOwnerID) }.frame(minHeight: 44).accessibilityIdentifier("retryScoreVoice")
+                    }
+                    Text(speech.status).font(.caption).foregroundStyle(.secondary)
+                } footer: { Text("Microphone and Speech Recognition permissions are requested only when you enable this. On-device speech availability depends on your device and downloaded language support.") }
                 Section("Say a command") {
                     LabeledContent("Clean · Sloppy · Again", value: "Record a rep")
                     LabeledContent("Shaky · Missed", value: "Grade the first try today")
@@ -1144,32 +1292,75 @@ struct ScoreWorkspace: View {
                     LabeledContent("Metronome start · Stop metronome", value: "Control the click")
                     LabeledContent("Tempo eighty", value: "Set 80 BPM")
                 }
-                if let failure = speech.errorMessage { Section { Text(failure).foregroundStyle(.secondary) } }
-                Section {
-                    Button((speech.isEnabled || speech.isPreparing) ? "Turn hands-free off" : "Enable hands-free") {
-                        if speech.isEnabled || speech.isPreparing { speech.stop(ifOwnedBy: voiceOwnerID) }
-                        else { startHandsFree() }
-                    }.frame(minHeight: 44).fontWeight(.semibold).accessibilityIdentifier("enableHandsFree")
-                    if speech.isListening {
-                        Button(speech.isMuted ? "Unmute" : "Mute") { speech.setMuted(!speech.isMuted) }.frame(minHeight: 44)
-                    }
-                    if speech.isEnabled && !speech.isListening && !speech.isPreparing && !speech.isRecovering {
-                        Button("Retry listening") { speech.retryListening(ifOwnedBy: voiceOwnerID) }.frame(minHeight: 44).accessibilityIdentifier("retryScoreVoice")
-                    }
-                    Text(speech.status).font(.caption).foregroundStyle(.secondary)
-                } footer: { Text("Microphone and Speech Recognition permissions are requested only when you enable this. On-device speech availability depends on your device and downloaded language support.") }
                 Section {
                     NavigationLink("Customize command phrases") { VoiceCommandSettingsView() }
                     NavigationLink("Microphone & recognition checks") { VoiceDiagnosticsView() }
                     NavigationLink("Check voice recognition") { VoiceOnboardingView() }
                 }
             }.navigationTitle("Hands-free").navigationBarTitleDisplayMode(.inline)
+                .onAppear { setVoiceControlsVisible(true) }
+                .onDisappear { setVoiceControlsVisible(false) }
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { sheet = nil } } }
+                .onChange(of: showFirstVoiceCheck) { _, _ in updateVoiceContext() }
                 .sheet(isPresented: $showFirstVoiceCheck, onDismiss: {
                     speech.start(ownerID: voiceOwnerID, onCommand: handleVoice)
+                    updateVoiceContext()
                 }) { VoiceOnboardingView() }
-        }.presentationDetents([.large])
+        }
     }
+
+    #if DEBUG
+    private var voiceAuditStateValue: String {
+        let attempts = active?.attempts.filter { $0.undoneAt == nil }.count ?? 0
+        let rawAttemptRows = active?.attempts.count ?? 0
+        let undoneRows = active?.attempts.filter { $0.undoneAt != nil }.count ?? 0
+        let supported = speech.supportedActions.map(\.rawValue).sorted().joined(separator: ",")
+        return "attempts=\(attempts);page=\(page);clickBPM=\(metronome.bpm);click=\(metronome.isPlaying ? 1 : 0);armedBPM=\(arm.configuration?.startBPM ?? -1);supported=\(supported);root=\(voiceControlsVisible ? 1 : 0);listening=\(speech.isListening ? 1 : 0);muted=\(speech.isMuted ? 1 : 0);rawAttemptRows=\(rawAttemptRows);undoneRows=\(undoneRows);historySets=\(store.state.history.count);sessions=\(store.state.sessions.count);ending=\(ending ? 1 : 0);dialogPending=\(voiceAuditDialogPending ? 1 : 0);dialogBatch=\(voiceAuditDialogBatch);dialogDeliveryEnding=\(voiceAuditDialogDeliveryEnding ? 1 : 0);scoreOwner=\(speech.ownerID == voiceOwnerID ? 1 : 0);ownerPresent=\(speech.ownerID == nil ? 0 : 1);resumePending=\(resumeScoreVoiceAfterSettings ? 1 : 0)"
+    }
+    @ViewBuilder private var voiceAuditControls: some View {
+        if ProcessInfo.processInfo.arguments.contains("--uitesting"),
+           ProcessInfo.processInfo.arguments.contains("--audit-simulated-voice") {
+            VStack(spacing: 2) {
+                Text("Synthetic recognition audit")
+                    .font(.caption2)
+                    .accessibilityIdentifier("voiceAuditState")
+                    .accessibilityValue(voiceAuditStateValue)
+                HStack(spacing: 8) {
+                    voiceAuditButton("Clean", "voiceAuditInjectClean", "clean")
+                    voiceAuditButton("Undo", "voiceAuditInjectUndo", "undo")
+                    voiceAuditButton("Next", "voiceAuditInjectNext", "next")
+                    voiceAuditButton("Click on", "voiceAuditInjectMetronomeStart", "metronome on")
+                    voiceAuditButton("Click off", "voiceAuditInjectMetronomeStop", "metronome off")
+                    Button("Retain 90") { metronome.setTempo(90) }
+                        .accessibilityIdentifier("voiceAuditRetain90")
+                    Button("Queue dialog commands") { voiceAuditDialogPending = true }
+                        .accessibilityIdentifier("voiceAuditQueueDialogCommands")
+                }.font(.caption).buttonStyle(.bordered)
+            }.padding(4).frame(maxWidth: .infinity).background(.regularMaterial)
+                .accessibilityElement(children: .contain).accessibilityIdentifier("voiceAuditStrip")
+        }
+    }
+    private func voiceAuditButton(_ title: String, _ identifier: String, _ transcript: String) -> some View {
+        Button(title) {
+            speech.receive(transcript: transcript, isFinal: true, error: nil, id: speech.activeRecognitionID)
+        }.accessibilityIdentifier(identifier)
+    }
+    private func deliverVoiceAuditDialogCommandsIfArmed() {
+        guard ProcessInfo.processInfo.arguments.contains("--uitesting"),
+              ProcessInfo.processInfo.arguments.contains("--audit-simulated-voice"),
+              voiceAuditDialogPending else { return }
+        voiceAuditDialogPending = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard ending else { return }
+            voiceAuditDialogDeliveryEnding = ending
+            for transcript in ["clean", "undo", "next", "metronome on"] {
+                speech.receive(transcript: transcript, isFinal: true, error: nil, id: speech.activeRecognitionID)
+            }
+            voiceAuditDialogBatch += 1
+        }
+    }
+    #endif
     private func openScoreSection(at source: Int) {
         scopedSectionID = piece?.scoreSections.first { $0.startPage == source }?.id
         if active == nil || active?.isComplete == true {
@@ -1285,6 +1476,7 @@ struct ScoreWorkspace: View {
             }
             FeedbackService.shared.isEnabled = feedbackEnabled
             _ = try runtime.record(verdict, hands: selectedHands)
+            updateVoiceContext()
             // §11 R8: only a Sloppy is ever worth asking "where did it break?" — offered until the
             // player either marks a spot, records the set's next repetition, or stops.
             offerBreakPointTap = verdict == .sloppy
@@ -1364,14 +1556,20 @@ struct ScoreWorkspace: View {
     private func updateCameraContext() {
         if camera.isEnabled { camera.onAction = handleCameraAction }
         else { camera.onAction = nil }
-        camera.actionsAllowed = scenePhase == .active && sheet == nil && markup.mode == .reading
-            && editingTextBox == nil && renamingPassage == nil && !importing && !ending && !exporting
+        camera.actionsAllowed = acceptsCameraActions
         camera.resetMotion()
+    }
+    private var scoreInputIsUnobstructed: Bool {
+        scenePhase == .active && editingTextBox == nil && renamingPassage == nil &&
+        !importing && !ending && !exporting && pendingPracticePassage == nil &&
+        !confirmDiscardSelection && markup.conflictPage == nil && longPressedPassage == nil && error == nil
+    }
+    private var acceptsCameraActions: Bool {
+        scoreInputIsUnobstructed && sheet == nil && markup.mode == .reading && !showFirstVoiceCheck
     }
     private func handleCameraAction(_ action: FaceGestureAction) {
         // Recheck at dispatch; a tracked face never authorizes writing through another scene or editor.
-        guard scenePhase == .active, sheet == nil, markup.mode == .reading,
-              editingTextBox == nil, renamingPassage == nil, !importing, !ending, !exporting else { return }
+        guard acceptsCameraActions else { return }
         switch action {
         case .off: break
         case .nextPage: turnPage(1)
@@ -1386,6 +1584,75 @@ struct ScoreWorkspace: View {
         speech.start(ownerID: voiceOwnerID, onCommand: handleVoice)
         updateVoiceContext()
     }
+    private func stopHandsFree() {
+        resumeScoreVoiceAfterSettings = false
+        editorVoiceHandoff = nil
+        speech.stop(ifOwnedBy: voiceOwnerID)
+    }
+    private func rememberScoreVoiceForEditor(_ target: EditorVoiceHandoff.Target) {
+        // Capture before presentation: automatic dictation may take ownership in onAppear.
+        guard speech.ownerID == voiceOwnerID, speech.isEnabled else { editorVoiceHandoff = nil; return }
+        editorVoiceHandoff = EditorVoiceHandoff(pieceID: pieceID, ownerID: voiceOwnerID,
+                                              target: target, muted: speech.isMuted)
+    }
+    private func restoreEditorVoiceIfNeeded() {
+        Task { @MainActor in
+            await Task.yield()
+            guard let handoff = editorVoiceHandoff else { return }
+            guard handoff.pieceID == pieceID, handoff.ownerID == voiceOwnerID else {
+                editorVoiceHandoff = nil
+                return
+            }
+            switch handoff.target {
+            case .passage(let id): guard renamingPassage?.id != id else { return }
+            case .textAnnotation(let id): guard editingTextBox?.id != id else { return }
+            case .passagePicker: guard sheet != .passages else { return }
+            }
+            // Nested rename can release dictation while its picker still covers the score.
+            guard sheet == nil, acceptsScoreCommands else { return }
+            if speech.ownerID == voiceOwnerID { editorVoiceHandoff = nil; return }
+            guard speech.ownerID == nil else { return }
+            startHandsFree()
+            guard speech.ownerID == voiceOwnerID else { return }
+            speech.setMuted(handoff.muted)
+            editorVoiceHandoff = nil
+        }
+    }
+    private var acceptsScoreCommands: Bool {
+        scoreInputIsUnobstructed && markup.mode != .selecting && !showFirstVoiceCheck &&
+        (sheet == nil || (sheet == .voice && voiceControlsVisible && !showFirstVoiceCheck))
+    }
+    private func setVoiceControlsVisible(_ visible: Bool) {
+        if !visible, sheet == .voice, speech.ownerID == voiceOwnerID, speech.isEnabled {
+            resumeScoreVoiceAfterSettings = true
+            resumeScoreVoiceMuted = speech.isMuted
+        }
+        voiceControlsVisible = visible
+        updateVoiceContext()
+        if visible { restoreScoreVoiceIfNeeded() }
+    }
+    private func restoreScoreVoiceIfNeeded() {
+        // A native Back transition can reveal this root before the recognition check's
+        // onDisappear releases its owner. Keep the prior opt-in until that release arrives.
+        Task { @MainActor in
+            await Task.yield()
+            guard voiceControlsVisible, sheet == .voice, resumeScoreVoiceAfterSettings,
+                  scenePhase == .active else { return }
+            if speech.ownerID == voiceOwnerID {
+                resumeScoreVoiceAfterSettings = false
+                return
+            }
+            guard speech.ownerID == nil else { return }
+            startHandsFree()
+            guard speech.ownerID == voiceOwnerID else { return }
+            speech.setMuted(resumeScoreVoiceMuted)
+            resumeScoreVoiceAfterSettings = false
+        }
+    }
+    private func prepareMetronomeForCurrentContext() {
+        if let set = store.activeSet, !set.isComplete { metronome.setTempo(set.currentBPM) }
+        else if let configuration = arm.configuration { metronome.setTempo(configuration.startBPM) }
+    }
     private func updateVoiceContext() {
         var actions: Set<VoiceCommandAction> = [.nextPage, .previousPage, .metronomeStart, .metronomeStop, .tempo, .slower, .faster]
         if !focusMode {
@@ -1393,20 +1660,22 @@ struct ScoreWorkspace: View {
                 if active.status == .running { actions.formUnion([.clean, .sloppy, .again, .pause, .stop]) }
                 if active.status == .paused { actions.formUnion([.resume, .stop]) }
                 if active.isComplete { actions.insert(.next) }
-                if active.attempts.contains(where: { $0.undoneAt == nil }) { actions.insert(.undo) }
+                if hasUndoableAttempt { actions.insert(.undo) }
             } else if store.activeSet == nil || store.activeSet?.isComplete == true {
                 actions.insert(.start)
                 if arm.awaitingColdGrade { actions.formUnion([.clean, .shaky, .missed]) }
             }
         } else if active?.status == .running { actions.insert(.pause) }
         else if active?.status == .paused { actions.insert(.resume) }
-        if markup.mode == .selecting || editingTextBox != nil || renamingPassage != nil || (sheet != nil && sheet != .voice) { actions = [] }
+        if !acceptsScoreCommands { actions = [] }
         speech.setCommandContext(active?.id ?? voiceOwnerID, supportedActions: actions, ifOwnedBy: voiceOwnerID)
+    }
+    private var hasUndoableAttempt: Bool {
+        active?.attempts.contains(where: { $0.undoneAt == nil }) == true
     }
     private func handleVoice(_ command: VoiceCommand) {
         // A modal editor owns its own input; speech never writes through an open setup sheet.
-        guard markup.mode != .selecting, sheet == nil || sheet == .voice,
-              editingTextBox == nil, renamingPassage == nil else { return }
+        guard acceptsScoreCommands else { return }
         guard !focusMode || !command.altersPracticeHistory else { return }
         let idle = store.activeSet == nil || store.activeSet?.isComplete == true
         switch command {
@@ -1417,7 +1686,7 @@ struct ScoreWorkspace: View {
         // outside that moment these two words are inert, the same firewall as every other command.
         case .shaky: if arm.awaitingColdGrade { armStart(grade: .shaky) }
         case .missed: if arm.awaitingColdGrade { armStart(grade: .missed) }
-        case .undo: if active != nil { perform { try runtime.undo() } }
+        case .undo: if hasUndoableAttempt { perform { try runtime.undo(); updateVoiceContext() } }
         case .pause: if active != nil { perform { try store.pause() } }
         case .resume: if active != nil { perform { try store.resume() } }
         case .start: if idle { armStart(skippingColdGrade: true) }
@@ -1429,7 +1698,7 @@ struct ScoreWorkspace: View {
         case .slower: nudgeTempo(-5)
         case .faster: nudgeTempo(5)
         case .metronomeStart:
-            if let set = store.activeSet, !set.isComplete { metronome.setTempo(set.currentBPM) }
+            prepareMetronomeForCurrentContext()
             metronome.start()
         case .metronomeStop: metronome.stop()
         case .setTempo(let bpm):
