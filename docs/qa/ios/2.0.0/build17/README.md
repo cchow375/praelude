@@ -1,5 +1,16 @@
 # Build17 — natural face input and score response
 
+## October 12 — Build17 installed on the personal iPad; manual opening pending
+
+**Last updated:2026-10-12. Installed personal: native2.0.0/build17/schema5; manual opening/running-process/postlaunch verification pending after iPadOS declined automatic launch. Friend remains held at Build12; Macv11.1.0/schema21 unchanged.** Guarded same-bundle refresh confirms Build17 and preserves all13 saved library files/19,972,391bytes exactly by filename/size/SHA-256, independently rehashed. Schema5/revision3509 and the paused active set,6pieces/77passages/75history sets/47sessions/487attempts/549ink rows/20stamps/6notes are retained. No uninstall/reset/restore/termination workaround or Mac import occurred. Earlier Build16/candidate checkpoints below are historical.
+
+Installed Build17 adds supported-device ARKit pose, bilateral smile/jaw/blink coefficients and a dense projected face mesh; Vision fallback uses denser landmarks/corner lift. Natural nod/shake/grin detection uses independent arming, calibrated noise floors, asymmetric sweeps, softer returns and short-dropout tolerance. Command-first customization is retained. Preview uses the capture session without restarting it and the score renderer is hidden behind sheets. Rep, bookmark, rules, checkpoint and reward preparation move off the UI actor, with originating context/revision checks and atomic save-before-publication. Old asynchronous feedback cannot replace a newer verdict. Final file replacement and audio startup still have unmeasured physical main-actor latency.
+
+Core507/1skip/0fail,2,340 service assertions and final native331/1skip/0fail20.298s pass. Actual score click/grade/Stop/relaunch/review passes60.353s. Independent synthetic controls complete6preview/Done/overlay cycles,5settings reopens, exclusive mapping persistence and ordinary page/rep/reward saving. One initial quick switch input no-op is retained with cause unproven; no first-tap repair or real video/recognition accuracy is inferred. Generic Release67checks and actual-helper Release66checks pass; the actual installed executable is675b0c7f734eaec063477376ca665d2aa9c371c4d907f42a37ef7ed1b5d59629, profile expiry2026-10-17T16:14:24Z, full app/dSYM archive inventory readback exact. Evidence: `docs/qa/ios/2.0.0/build17/personal-ipad-install.json` and neighboring native/live/package reports.
+
+**Next steps:** open Praelude manually, confirm it is idle, then read-only process/schema/full postlaunch file verification and real-camera acceptance. Check natural nod/shake/grin labels in settings, then real page/rep response during practice. B170/B171 remain OPEN until physical feedback; preview rotation/alignment, interruptions, audio and sustained practice remain unaccepted. Keep the friend iPad held.
+
+
 ## October 12 — Build17 natural face input candidate verified; personal delivery next
 
 **Last updated:2026-10-12. Personal iPad remains installed at native2.0.0/build16/schema5. Build17 candidate verification is recorded in `docs/qa/ios/2.0.0/build17/`; friend remains held at Build12 and Macv11.1.0/schema21 unchanged.** Build16 preview toggling has a scoped user pass, while natural nod/shake/grin recognition and roughly one-second score page/rep pauses remain user-reported failures (B170/B171 OPEN). These estimates are not measured accuracy or latency.
@@ -20,7 +31,7 @@ Rep, page bookmark, practice-rule, timer-checkpoint and reward preparation now r
 | Final4 actual UI | First-attempt click/grade/Stop/process-relaunch/review passes60.353s | Camera off; ordinary score/practice neighbor |
 | Independent manual | Six preview/Done/overlay cycles, five settings reopens, exclusive mapping, ordinary page save and one touch Clean/reward pass | One initial quick input no-op retained; cause unproven. Neutral-only synthetic frames; no AR video graph or changing-face→score-command acceptance |
 | Generic signed Release | 67/67 independent checks and complete app/dSYM archive readbacks pass | All187 production Swift/10resources exact; post-build test-only preference isolation delta documented |
-| Personal delivery | Pending | Current personal installation remains Build16 |
+| Personal delivery | Build17 confirmed;13files/19,972,391bytes exact | Manual open/postlaunch readback pending; friend held |
 | Real camera and score response | Pending | Natural nod/shake/grin, AR alignment/orientation, page/rep latency, sustained practice |
 
 `verification-summary.json` retains intermediate324/330-case passes and final4's331-case run with one new-test fixture failure: setting hold=.6 was a no-op because the shared preferences already held.6. The corrected isolated preferences test and all331 cases pass in final5. A test-only private teardown API compile failure was repaired before native execution; no failed result is replaced. Production/resources are exact between the final4 signed Release and final5 native tests. Evidence: `source-final4-provenance.json`, `native-final5-provenance.json`, `release-independent-final4.json`, `release-package-final4.json`.

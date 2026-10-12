@@ -1,5 +1,17 @@
 # Praelude — How To Use
 
+## October 12 — installed Build17 camera controls
+
+**Matches: installed personal native2.0.0/build17/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** Build17 is installed with all saved library files exact. Manual opening/postlaunch verification and real-camera accuracy/response remain pending. Earlier Build16/candidate sections below are historical.
+
+1. Open Praelude. In a score choose **Score options → Camera gestures → Enable camera**. Supported devices show **3D face tracking** and a live projected mesh-point count; other devices show **Landmarks**. Frames and face measurements stay on the device and are discarded, never saved or shared.
+2. Relax in your normal piano position for automatic calibration. Nod naturally and return, shake from one side to the other and return, or smile briefly and relax. Expressions now arm independently; ordinary blinks still do not count as deliberate eye closure. Use **Recalibrate neutral face** after moving substantially.
+3. Under **Choose an expression for each command**, assign **Next page**, **Previous page**, **Clean**, **Sloppy** and **Again**, or leave a command **Unassigned**. Each expression controls one command; moving it clears the previous assignment. Customize **Sensitivity**, **Expression hold** and **Time between commands**. Mouth opening and deliberate both-eye closure remain available.
+4. Test expression labels in settings, where commands are paused. **Show live preview** and **Show face landmarks** control display without restarting capture. Choose **Done** to use page commands on the score. Rep commands additionally require **Allow gestures to record reps**, a running set, score focus off and the first-attempt choice complete. Resume a paused set before reporting real reps; the user supplies every verdict.
+5. Heavy save preparation now runs away from the UI actor. Commands are retired if their score/set/camera context changes. This does not yet establish physical latency or accuracy: verify natural recognition and real page/rep response during normal practice. Keep the friend iPad held.
+
+**Next steps:** confirm opening for launch readback, then report natural nod/shake/grin reliability and any score-action pause.
+
 ## October 12 — current installed camera limitation
 
 **Matches: installed personal native2.0.0/build16/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** Preview toggling is user-confirmed responsive, but natural expression recognition remains unreliable and a score page/rep command can pause about1second. Build17 is verified in native/Simulator/package scope and awaiting guarded personal delivery; real-camera accuracy and latency remain unaccepted. The Build16 controls below remain current; do not treat the new camera path as shipped yet.

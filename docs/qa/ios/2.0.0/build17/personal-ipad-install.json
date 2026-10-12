@@ -1,0 +1,79 @@
+{
+  "verifiedUTC": "2026-10-12T21:47:04.219771+00:00",
+  "sourceCommit": "bcc594e7ef69bf5f8ebfcd88e76e873573abc035",
+  "sourceCheckpoint": "ios-v2.0.0-build17-candidate",
+  "userAuthorization": "Personal-device installation request followed by continuing camera repair request; friend iPad remains held.",
+  "installedVersion": "2.0.0",
+  "installedBuildReadback": "17",
+  "deliveryState": "installed, manual-open and postlaunch verification pending",
+  "automaticLaunch": "denied after successful installation and full preservation check",
+  "userOpened": false,
+  "runningProcessObserved": false,
+  "backupLocations": [
+    "releases/ios-device-backups/20261012T214256Z-a64e981f",
+    "releases/ios-device-backups/20261012T214432Z-3dc89f4e"
+  ],
+  "preservation": {
+    "allInventoriesIndependentlyRehashed": true,
+    "prePostFullInventoryExact": true,
+    "postLaunchInventoryExactToPostInstall": null,
+    "fileCount": 13,
+    "totalBytes": 19972391,
+    "entireLibraryJSONExactPrePost": true,
+    "schema": 5,
+    "revision": 3509,
+    "activeSetStatus": "paused",
+    "recordCounts": {
+      "badges": 1,
+      "bookmarks": 0,
+      "breakPointTaps": 0,
+      "coldGrades": 41,
+      "desktopImports": 0,
+      "folders": 0,
+      "goals": 0,
+      "history": 75,
+      "inkStrokes": 549,
+      "instruments": 1,
+      "milestoneEvents": 1,
+      "notebookEntries": 0,
+      "pageEdits": 0,
+      "passages": 77,
+      "pieces": 6,
+      "recordings": 0,
+      "rewardLedger": 572,
+      "routines": 1,
+      "ruleEvents": 90,
+      "scoreLinks": 0,
+      "sessions": 47,
+      "setlists": 0,
+      "stampAnnotations": 20,
+      "tags": 0,
+      "textAnnotations": 6,
+      "warmupExercises": 180
+    },
+    "attemptCount": 487
+  },
+  "schemaMigration": "schema5 unchanged; new-reader postlaunch verification pending",
+  "actualInstalledHelperArtifact": {
+    "archivePath": "releases/ios-build17-camera-helper-installed-20261012",
+    "manifestSHA256": "cd82b16324665b8874c2bc4a192c279c7356c38db293b6eca7a6a9c067f4a302",
+    "archives": {
+      "Praelude-build17.app.zip": {
+        "bytes": 8795409,
+        "sha256": "26ef0ede0530a086e70902e7d95c3b8c39def6787c1edb0171f8e7948066ed2a",
+        "fullInventoryReadbackExact": true
+      },
+      "Praelude-build17.dSYM.zip": {
+        "bytes": 15315286,
+        "sha256": "82123bb8865650fd81f7b570e6632c512b383c13bbf359f621434dec23be0e17",
+        "fullInventoryReadbackExact": true
+      }
+    },
+    "executableSHA256": "675b0c7f734eaec063477376ca665d2aa9c371c4d907f42a37ef7ed1b5d59629"
+  },
+  "helperPackageAudit": "helper-release-independent.json",
+  "physicalAcceptance": "pending real AR tracking/natural nod/shake/grin, preview orientation/alignment, page/rep response and sustained practice",
+  "otherDevice": "friend remains held atBuild12; no install or targeted operation",
+  "mac": "v11.1.0/schema21 unchanged; no Mac import",
+  "noUninstallResetRestoreOrTerminationWorkaround": true
+}
