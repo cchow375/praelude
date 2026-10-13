@@ -1,5 +1,13 @@
 # Praelude — the project in one page
 
+## October 13 — Build18 delivery stopped before installation
+
+**Last updated: 2026-10-13. Personal iPad remains running native2.0.0/build17/schema5; Build18 candidate is committed at ae1c34e / ios-v2.0.0-build18-candidate. Friend remains held at Build12; Mac v11.1.0/schema21 unchanged.** The guarded refresh stops during the initial data copy (CoreDevice7000/remoteservices11001/POSIX1), before any device-specific build or installation. The incomplete private copy is retained and has no verified manifest; no preservation/install pass is claimed. Subsequent read-only version/process inspection confirms Build17 running. The transport/copy cause is unproven and does not establish device lock state.
+
+All final Build18 source/native/UI/live/generic signed-package checks retain their scoped passes below. The user was asked to unlock the personal iPad, open Praelude, pause any practice set and leave it idle before retrying the guarded workflow. No uninstall, reset, restore-over or physical app-termination workaround occurred. Evidence: `docs/qa/ios/2.0.0/build18/delivery-attempt1.json`.
+
+**Next steps:** await explicit readiness, then guarded same-bundle retry with fresh complete backup, exact preservation and launch/schema readback; actual right/left/down reliability at upright2.5–3feet and page/rep response remain open. Keep the friend iPad held.
+
 ## October 13 — Build18 candidate verified; personal installation next
 
 **Last updated: 2026-10-13. Native 2.0.0/build18/schema5; candidate verified; personal installation next.** Personal iPad remains last verified running Build17/schema5. Friend iPad remains held at Build12; Mac v11.1.0/schema21 is unchanged. Christian reports Build17 recognition still fails too often at normal piano distance, approximately 2.5–3 feet with the iPad upright. B170 remains OPEN. The score page/rep pause (B171) has no new physical verdict.

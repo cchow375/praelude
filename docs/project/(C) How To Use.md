@@ -2,7 +2,7 @@
 
 ## October 13 — Build18 candidate controls (not installed yet)
 
-**Matches: installed personal native2.0.0/build17/schema5; friend Build12/schema5; Mac v11.1.0/schema21. Last updated: 2026-10-13.** Build18 is verified for guarded personal delivery. Its quick directional controls and migration are described in `docs/qa/ios/2.0.0/build18/candidate-guide.md`; the installed Build17 instructions remain below. Build17 recognition is user-reported unreliable at the upright 2.5–3 foot piano setup.
+**Matches: installed personal native2.0.0/build17/schema5; friend Build12/schema5; Mac v11.1.0/schema21. Last updated: 2026-10-13.** Build18 is verified, but delivery stopped at its initial backup before any installation. Build17 remains installed; readiness confirmation is pending. Its quick directional controls and migration are described in `docs/qa/ios/2.0.0/build18/candidate-guide.md`; the installed Build17 instructions remain below. Build17 recognition is user-reported unreliable at the upright 2.5–3 foot piano setup.
 
 **Next steps:** guarded installation and separate physical acceptance.
 
