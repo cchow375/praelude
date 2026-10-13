@@ -190,6 +190,7 @@ extension FaceGestureServiceTests {
     @MainActor func testGrinRecognitionTestsWithoutDispatchAndReportsUnavailableRepContext() async {
         let hardware = ControlledFaceCamera(), clock = FaceTestClock()
         let service = FaceGestureService(permission: { true }, workerFactory: { _, _ in hardware }, preferences: isolatedPreferences(), now: { clock.now })
+        service.settings.assign(.grin, to: .nextPage)
         service.start(); await settle { hardware.starts == 1 }
         hardware.completeStart(); await settle { service.isEnabled }
         var actions: [FaceGestureAction] = []
@@ -220,6 +221,129 @@ extension FaceGestureServiceTests {
         XCTAssertEqual(actions, [.nextPage], "Rep input additionally requires an eligible running set")
         XCTAssertTrue(service.lastGesture.localizedCaseInsensitiveContains("start a practice set"), service.lastGesture)
         service.stop(); hardware.completeStop(); await settle { !service.isStopping }
+    }
+}
+
+extension FaceGestureServiceTests {
+    @MainActor func testSourceSwitchRecalibratesOnceAndSmallVisionFaceCanTurnRight() async {
+        let hardware = ControlledFaceCamera(), clock = FaceTestClock()
+        let service = FaceGestureService(permission: { true }, workerFactory: { _, _ in hardware }, preferences: isolatedPreferences(), now: { clock.now })
+        service.start(); await settle { hardware.starts == 1 }
+        hardware.completeStart(); await settle { service.isEnabled }
+        var actions: [FaceGestureAction] = []
+        service.onAction = { actions.append($0) }
+        func send(_ time: Double, source: FaceGesturePoseSource, area: Double, yaw: Double = 0) {
+            clock.set(time)
+            let sample = FaceGestureSample(time: time, pitch: 0, yaw: yaw, smileWidth: 0.9,
+                luminance: 0.4, confidence: 0.9, faceCount: 1, faceArea: area, poseSource: source)
+            service.receive(FaceCameraFrame(sample: sample, face: nil, landmarks: []))
+        }
+        for tick in 0...12 { send(Double(tick)/10, source: .arkit, area: 0.02) }
+        XCTAssertTrue(service.calibrated)
+        let originalContext = service.commandContextID
+        send(1.3, source: .vision, area: 0.002)
+        XCTAssertFalse(service.calibrated, "AR and Vision neutral coordinates must never be mixed")
+        XCTAssertTrue(service.availableGestures.isEmpty)
+        XCTAssertNotEqual(service.commandContextID, originalContext)
+        XCTAssertTrue(actions.isEmpty)
+        for tick in 14...28 { send(Double(tick)/10, source: .vision, area: 0.002) }
+        XCTAssertTrue(service.calibrated, service.status)
+        XCTAssertTrue(service.availableGestures.contains(.lookRight))
+        XCTAssertFalse(service.availableGestures.contains(.grin), "Distant lip pixels must not pretend to be reliable expression measurements")
+        service.actionsAllowed = true
+        for tick in 29...32 { send(Double(tick)/10, source: .vision, area: 0.002) }
+        send(3.3, source: .vision, area: 0.002, yaw: 0.05)
+        send(3.4, source: .vision, area: 0.002, yaw: 0.11)
+        XCTAssertEqual(actions, [.nextPage])
+        XCTAssertTrue(service.lastGesture.contains("Look right"))
+        service.stop(); hardware.completeStop(); await settle { !service.isStopping }
+    }
+
+    @MainActor func testTrackingLossAndDelayedFramesRetirePendingCommandWithoutInventingAction() async {
+        let hardware = ControlledFaceCamera(), clock = FaceTestClock()
+        let service = FaceGestureService(permission: { true }, workerFactory: { _, _ in hardware }, preferences: isolatedPreferences(), now: { clock.now })
+        service.start(); await settle { hardware.starts == 1 }
+        hardware.completeStart(); await settle { service.isEnabled }
+        var actions: [FaceGestureAction] = []
+        service.onAction = { actions.append($0) }; service.actionsAllowed = true
+        func frame(_ time: Double, count: Int = 1) -> FaceCameraFrame {
+            FaceCameraFrame(sample: FaceGestureSample(time: time, pitch: 0, yaw: 0, smileWidth: .nan,
+                luminance: 0.4, confidence: count == 1 ? 0.9 : 0, faceCount: count,
+                faceArea: count == 1 ? 0.002 : 0, poseSource: .arkit), face: nil, landmarks: [])
+        }
+        for tick in 0...12 { clock.set(Double(tick)/10); service.receive(frame(Double(tick)/10)) }
+        XCTAssertTrue(service.calibrated)
+        let beforeLoss = service.commandContextID
+        clock.set(1.3); service.receive(frame(1.3, count: 0))
+        XCTAssertNotEqual(service.commandContextID, beforeLoss)
+        XCTAssertTrue(service.calibrated, "A brief same-source loss may preserve the neutral baseline")
+        let retired = service.commandContextID
+        clock.set(1.4); service.receive(frame(1.4, count: 0))
+        XCTAssertEqual(service.commandContextID, retired)
+        clock.set(1.5); service.receive(frame(1.5))
+        let beforeMultiple = service.commandContextID
+        clock.set(1.6); service.receive(frame(1.6, count: 2))
+        XCTAssertNotEqual(service.commandContextID, beforeMultiple)
+        XCTAssertTrue(service.status.contains("More than one face"))
+        clock.set(1.7); service.receive(frame(1.7))
+        let beforeDelay = service.commandContextID
+        clock.set(3); service.receive(frame(1.8))
+        XCTAssertNotEqual(service.commandContextID, beforeDelay)
+        XCTAssertTrue(service.status.contains("Tracking delayed"))
+        XCTAssertTrue(actions.isEmpty)
+        service.stop(); hardware.completeStop(); await settle { !service.isStopping }
+    }
+
+    @MainActor func testRecognizedDownRepSurvivesTrackingLossButExplicitContextChangesStillCancel() async {
+        let hardware = ControlledFaceCamera(), clock = FaceTestClock()
+        let service = FaceGestureService(permission: { true }, workerFactory: { _, _ in hardware }, preferences: isolatedPreferences(), now: { clock.now })
+        service.settings.allowVerdicts = true
+        service.actionsAllowed = true; service.verdictActionsAllowed = true
+        service.start(); await settle { hardware.starts == 1 }
+        hardware.completeStart(); await settle { service.isEnabled }
+        var actions: [FaceGestureAction] = []
+        var acceptedContext: UUID?
+        service.onAction = { action in
+            actions.append(action)
+            acceptedContext = service.commandContextID
+            // Matches ScoreWorkspace's synchronous dispatch before preparing the durable rep.
+            service.commandInFlight = true
+        }
+        func send(_ time: Double, pitch: Double = 0, count: Int = 1, source: FaceGesturePoseSource = .arkit) {
+            clock.set(time)
+            let sample = FaceGestureSample(time: time, pitch: pitch, yaw: 0, smileWidth: .nan,
+                luminance: 0.4, confidence: count == 1 ? 0.9 : 0, faceCount: count,
+                faceArea: count == 1 ? 0.002 : 0, poseSource: source)
+            service.receive(FaceCameraFrame(sample: sample, face: nil, landmarks: []))
+        }
+        for tick in 0...12 { send(Double(tick)/10) }
+        send(1.3, pitch: 0.055); send(1.4, pitch: 0.13)
+        XCTAssertEqual(actions, [.clean], "A measured quick downward look must dispatch the rep first")
+        XCTAssertNotNil(acceptedContext)
+        XCTAssertTrue(service.commandInFlight)
+        send(1.5, count: 0)
+        XCTAssertEqual(service.commandContextID, acceptedContext)
+        clock.set(2.5)
+        service.receive(FaceCameraFrame(sample: FaceGestureSample(time: 1.6, pitch: .nan, yaw: .nan,
+            smileWidth: .nan, luminance: 0.5, confidence: 0, faceCount: 0, faceArea: 0, poseSource: .arkit), face: nil, landmarks: []))
+        XCTAssertEqual(service.commandContextID, acceptedContext)
+        send(2.6, source: .vision)
+        XCTAssertFalse(service.calibrated, "Future input still requires the new source's neutral calibration")
+        XCTAssertEqual(service.commandContextID, acceptedContext, "Same-camera fallback cannot retract an already recognized rep")
+        XCTAssertEqual(actions, [.clean])
+
+        service.settings.assign(.grin, to: .clean)
+        XCTAssertNotEqual(service.commandContextID, acceptedContext, "Explicit remapping still retires accepted input")
+        let remapped = service.commandContextID
+        service.actionsAllowed = false; service.actionsAllowed = true
+        XCTAssertNotEqual(service.commandContextID, remapped, "Closing and reopening the score gate cannot revive input")
+        let gated = service.commandContextID
+        service.stop()
+        XCTAssertNotEqual(service.commandContextID, gated, "Explicit camera Off still cancels pending input")
+        XCTAssertFalse(service.isEnabled)
+        XCTAssertEqual(actions, [.clean])
+        service.commandInFlight = false
+        hardware.completeStop(); await settle { !service.isStopping }
     }
 }
 

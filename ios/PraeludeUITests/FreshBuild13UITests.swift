@@ -42,7 +42,7 @@ final class FreshBuild13UITests: XCTestCase {
             element.exists && element.isHittable && element.frame.width > 1 && element.frame.height > 1 && app.frame.contains(element.frame)
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 8), .completed, app.debugDescription)
-        element.tap()
+        element.press(forDuration: 0.12)
     }
 
     @MainActor private func enablePassageGoal(_ app: XCUIApplication) {
@@ -251,14 +251,14 @@ final class FreshBuild13UITests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed, app.debugDescription)
             let target = XCTAttachment(string: "row=\(row.frame) nativeSwitch=\(control.frame) desired=\(desired)")
             target.name = receipt; target.lifetime = .keepAlways; add(target)
-            control.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5)).tap()
+            control.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5)).press(forDuration: 0.12)
         }
         let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", desired), object: row)
         XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, app.debugDescription)
     }
 
     @MainActor private func waitCameraPreview(_ visible: Bool, app: XCUIApplication) {
-        let preview = cameraSettingsList(app).otherElements["faceCameraPreview"]
+        let preview = cameraSettingsList(app).descendants(matching: .any).matching(identifier: "faceCameraPreview").firstMatch
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == %@", NSNumber(value: visible)), object: preview)
         XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed, app.debugDescription)
     }
@@ -276,6 +276,34 @@ final class FreshBuild13UITests: XCTestCase {
         tap(row, app: app)
         chooseCameraExpression(expression, app: app)
         assertCameraExpression(expression, command: command, app: app)
+    }
+
+    @MainActor func testBuild18QuickDirectionalMappingsPersistAndRemainCustomizable() {
+        let app = XCUIApplication(); openScore(app, auditArguments: ["--audit-gesture-preservation", "--audit-open-gesture-score"])
+        openCameraSettings(app)
+        XCTAssertEqual(app.buttons["toggleFaceCamera"].label, "Enable camera")
+        for (command, expression) in [("nextPage", "Look right"), ("previousPage", "Look left"), ("clean", "Look down")] {
+            let row = cameraSettingsList(app).buttons["faceCommand_" + command]
+            revealCameraControl(row, app: app)
+            assertCameraExpression(expression, command: command, app: app)
+        }
+        assignCameraExpression("Look down", command: "again", app: app)
+        assertCameraExpression("Unassigned", command: "clean", app: app)
+        assertCameraExpression("Look down", command: "again", app: app)
+        shot("build18-directional-mappings-customized", app: app)
+        tap(app.navigationBars["Camera gestures"].buttons["Done"], app: app)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
+        tap(app.buttons["closeScore"], app: app)
+        app.terminate(); openScore(app, reset: false, auditArguments: ["--audit-gesture-preservation", "--audit-open-gesture-score"])
+        openCameraSettings(app)
+        for (command, expression) in [("nextPage", "Look right"), ("previousPage", "Look left"), ("again", "Look down"), ("clean", "Unassigned")] {
+            let row = cameraSettingsList(app).buttons["faceCommand_" + command]
+            revealCameraControl(row, app: app)
+            assertCameraExpression(expression, command: command, app: app)
+        }
+        shot("build18-directional-mappings-reopened", app: app)
+        tap(app.navigationBars["Camera gestures"].buttons["Done"], app: app)
+        XCTAssertFalse(app.buttons["pausePractice"].exists)
     }
 
     @MainActor func testCameraCommandFirstMappingsAndRecognitionSettingsPersistWithoutStartingSet() {

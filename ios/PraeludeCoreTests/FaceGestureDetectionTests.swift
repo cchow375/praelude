@@ -2,15 +2,191 @@ import XCTest
 @testable import PraeludeCore
 
 final class FaceGestureDetectionTests: XCTestCase {
+    private func directionReady(settings: FaceGestureSettings = .init(), pitch: Double = 0,
+                                yaw: Double = 0, area: Double = 0.1,
+                                source: FaceGesturePoseSource = .unspecified) -> FaceGestureDetector {
+        var d = FaceGestureDetector()
+        d.configure(settings: settings)
+        XCTAssertTrue(d.calibrate((0...10).map {
+            sample(Double($0)/10, pitch: pitch, yaw: yaw, confidence: 0.45, area: area, source: source)
+        }))
+        for n in 11...17 {
+            XCTAssertNil(d.consume(sample(Double(n)/10, pitch: pitch, yaw: yaw, confidence: 0.45, area: area, source: source)))
+        }
+        return d
+    }
+
+    func testDirectionalOnsetFiresRightLeftAndDownBeforeAnyReturnOrExpressionHold() {
+        for gesture in [FaceGesture.lookRight, .lookLeft, .lookDown] {
+            var settings = FaceGestureSettings(); settings.holdDuration = 1.2; settings.cooldown = 3
+            var d = directionReady(settings: settings)
+            let sign = gesture == .lookLeft ? -1.0 : 1.0
+            XCTAssertNil(d.consume(sample(1.8, pitch: gesture == .lookDown ? 0.055 : 0, yaw: gesture == .lookDown ? 0 : sign * 0.05)))
+            XCTAssertEqual(d.consume(sample(1.9, pitch: gesture == .lookDown ? 0.11 : 0, yaw: gesture == .lookDown ? 0 : sign * 0.10)), gesture)
+        }
+    }
+    func testPianoDistanceSmallFaceKeepsHeadPoseWithoutTrustingTinyLipPixels() {
+        var d = directionReady(area: 0.002, source: .vision)
+        XCTAssertTrue(d.availableGestures.contains(.lookRight))
+        XCTAssertFalse(d.availableGestures.contains(.grin))
+        XCTAssertFalse(d.availableGestures.contains(.eyesClosed))
+        XCTAssertNil(d.consume(sample(1.8, yaw: 0.05, confidence: 0.45, area: 0.002, source: .vision)))
+        XCTAssertEqual(d.consume(sample(1.9, yaw: 0.10, confidence: 0.45, area: 0.002, source: .vision)), .lookRight)
+        XCTAssertFalse(sample(2, area: 0.0019).usable)
+    }
+    func testDownUsesCalibratedPianoReadingPostureRatherThanAnAbsolutePitch() {
+        var d = directionReady(pitch: 0.45, yaw: 0.12)
+        XCTAssertNil(d.consume(sample(1.8, pitch: 0.505, yaw: 0.12)))
+        XCTAssertEqual(d.consume(sample(1.9, pitch: 0.565, yaw: 0.12)), .lookDown)
+    }
+    func testDirectionalOneFrameSpikesSmallPianoSwayAndBlinksNeverDispatch() {
+        var d = directionReady()
+        XCTAssertNil(d.consume(sample(1.8, yaw: 0.35)))
+        XCTAssertNil(d.consume(sample(1.9)))
+        for n in 20...100 {
+            XCTAssertNil(d.consume(sample(Double(n)/10, pitch: 0.03 * sin(Double(n)),
+                yaw: 0.025 * cos(Double(n)), leftEye: n % 7 == 0 ? 0.01 : 0.3, rightEye: n % 7 == 0 ? 0.01 : 0.3)))
+        }
+        d = directionReady()
+        for n in 18...35 { XCTAssertNil(d.consume(sample(Double(n)/10, pitch: Double(n-17) * 0.008))) }
+    }
+    func testHeldTurnAndOppositeReturnSweepDoNotRepeatButCenteredCorrectionIsQuick() {
+        var d = directionReady()
+        XCTAssertNil(d.consume(sample(1.8, yaw: 0.05)))
+        XCTAssertEqual(d.consume(sample(1.9, yaw: 0.11)), .lookRight)
+        for n in 20...35 { XCTAssertNil(d.consume(sample(Double(n)/10, yaw: 0.13))) }
+        XCTAssertNil(d.consume(sample(3.6)))
+        XCTAssertNil(d.consume(sample(3.7, yaw: -0.08)))
+        XCTAssertNil(d.consume(sample(3.8, yaw: -0.12)), "A sweep through center is not a second command")
+        for n in 39...41 { XCTAssertNil(d.consume(sample(Double(n)/10))) }
+        XCTAssertNil(d.consume(sample(4.2, yaw: -0.05)))
+        XCTAssertEqual(d.consume(sample(4.3, yaw: -0.11)), .lookLeft)
+
+        d = directionReady()
+        XCTAssertNil(d.consume(sample(1.8, yaw: 0.05)))
+        XCTAssertEqual(d.consume(sample(1.9, yaw: 0.11)), .lookRight)
+        for n in 20...22 { XCTAssertNil(d.consume(sample(Double(n)/10))) }
+        XCTAssertNil(d.consume(sample(2.3, yaw: -0.05)))
+        XCTAssertEqual(d.consume(sample(2.4, yaw: -0.11)), .lookLeft, "Directional interval is independent of the legacy1.25s interval")
+    }
+    func testAmbiguousDiagonalAndCompetingLegacyHeadGesturesCannotDoubleDispatch() {
+        var settings = FaceGestureSettings(); settings.assign(.nod, to: .again)
+        XCTAssertEqual(settings.suspendedGestures, [.nod, .shake])
+        var d = directionReady(settings: settings)
+        XCTAssertNil(d.consume(sample(1.8, pitch: 0.08, yaw: 0.075)))
+        XCTAssertNil(d.consume(sample(1.9, pitch: 0.13, yaw: 0.12)))
+        for n in 20...23 { XCTAssertNil(d.consume(sample(Double(n)/10))) }
+        XCTAssertNil(d.consume(sample(2.4, pitch: 0.055)))
+        XCTAssertEqual(d.consume(sample(2.5, pitch: 0.11)), .lookDown)
+        for n in 26...30 { XCTAssertNil(d.consume(sample(Double(n)/10, pitch: 0.15))) }
+        XCTAssertNil(d.consume(sample(3.1)), "Returning must not finish the legacy Nod→Again")
+    }
+    func testSignedPrelossMotionNeedsMeasuredReacquisitionAndCanFinishOnlyOnePageTurn() {
+        for sign in [-1.0, 1.0] {
+            for reacquiredYaw in [0.0, sign * 0.11] {
+                var d = directionReady()
+                XCTAssertNil(d.consume(sample(1.8, yaw: sign * 0.045)))
+                XCTAssertNil(d.consume(sample(1.9, yaw: sign * 0.075)))
+                XCTAssertNil(d.consume(sample(2.0, pitch: .nan, yaw: .nan, faces: 0, confidence: 0, area: 0)))
+                XCTAssertNil(d.consume(sample(2.05, pitch: .nan, yaw: .nan, faces: 0, confidence: 0, area: 0)))
+                XCTAssertEqual(d.consume(sample(2.1, yaw: reacquiredYaw)), sign > 0 ? .lookRight : .lookLeft)
+                XCTAssertNil(d.consume(sample(2.2, yaw: reacquiredYaw)))
+            }
+        }
+    }
+    func testLossWithoutRisingEvidenceLongLossOppositeReturnAndUnsafeQualityNeverInferDirection() {
+        for reason in 0...5 {
+            var d = directionReady()
+            XCTAssertNil(d.consume(sample(1.8, yaw: reason == 0 ? 0 : reason == 5 ? 0.075 : 0.045)))
+            if reason != 0 { XCTAssertNil(d.consume(sample(1.9, yaw: 0.075))) }
+            switch reason {
+            case 1: XCTAssertNil(d.consume(sample(2.0, light: 0.01)))
+            case 2: XCTAssertNil(d.consume(sample(2.0, faces: 2)))
+            default: XCTAssertNil(d.consume(sample(2.0, pitch: .nan, yaw: .nan, faces: 0, confidence: 0, area: 0)))
+            }
+            XCTAssertNil(d.consume(sample(reason == 3 ? 2.25 : 2.1, yaw: reason == 4 ? -0.11 : 0)))
+        }
+        var d = directionReady()
+        XCTAssertNil(d.consume(sample(1.8, yaw: 0.075)))
+        XCTAssertNil(d.consume(sample(1.9, faces: 0, confidence: 0, area: 0)))
+        XCTAssertNil(d.consume(sample(2.0)))
+    }
+    func testNeutralReacquisitionAfterDownLossNeverInventsARep() {
+        var d = directionReady()
+        XCTAssertNil(d.consume(sample(1.8, pitch: 0.055)))
+        XCTAssertNil(d.consume(sample(1.9, pitch: 0.085)))
+        XCTAssertNil(d.consume(sample(2.0, faces: 0, confidence: 0, area: 0)))
+        XCTAssertNil(d.consume(sample(2.1)))
+    }
+    func testSourceSwitchAndMixedSourceCalibrationCannotCombineMeasurements() {
+        var d = directionReady(source: .arkit)
+        XCTAssertNil(d.consume(sample(1.8, yaw: 0.05, source: .arkit)))
+        XCTAssertNil(d.consume(sample(1.9, yaw: 0.12, source: .vision)))
+        XCTAssertNil(d.baseline)
+        let mixed = (0...10).map { sample(Double($0)/10, source: $0 % 2 == 0 ? .arkit : .vision) }
+        XCTAssertFalse(d.calibrate(mixed))
+        XCTAssertNil(d.consume(sample(.nan, yaw: 0.3)))
+    }
+    func testMissingOptionalAxisDoesNotBlockMeasuredDirectionOrArmItself() {
+        var d = directionReady(); d.resetMotion()
+        for n in 18...20 { XCTAssertNil(d.consume(sample(Double(n)/10, pitch: .nan))) }
+        XCTAssertNil(d.consume(sample(2.1, pitch: .nan, yaw: 0.05)))
+        XCTAssertEqual(d.consume(sample(2.2, pitch: .nan, yaw: 0.11)), .lookRight)
+
+        d = directionReady(); d.resetMotion()
+        for n in 18...20 { XCTAssertNil(d.consume(sample(Double(n)/10, yaw: .nan))) }
+        XCTAssertNil(d.consume(sample(2.1, pitch: 0.055, yaw: .nan)))
+        XCTAssertEqual(d.consume(sample(2.2, pitch: 0.11, yaw: .nan)), .lookDown)
+
+        d = directionReady(); d.resetMotion()
+        for n in 18...20 { XCTAssertNil(d.consume(sample(Double(n)/10, pitch: .nan))) }
+        XCTAssertNil(d.consume(sample(2.1, pitch: 0.11)))
+        XCTAssertNil(d.consume(sample(2.2, pitch: 0.12)), "Missing pitch must not count as measured down-neutral")
+
+        d = directionReady(); d.resetMotion()
+        for n in 18...20 { XCTAssertNil(d.consume(sample(Double(n)/10, yaw: 0.2))) }
+        XCTAssertNil(d.consume(sample(2.1, pitch: 0.055, yaw: 0.22)))
+        XCTAssertNil(d.consume(sample(2.2, pitch: 0.11, yaw: 0.25)), "A known held other-axis offset still blocks fresh arming")
+    }
+    func testYawWrapCalibrationAndDirectionTreatPiSeamAsSmallMovement() {
+        var d = FaceGestureDetector()
+        let center = Double.pi - 0.01
+        XCTAssertTrue(d.calibrate((0...10).map { sample(Double($0)/10, yaw: $0 % 2 == 0 ? center : -Double.pi + 0.01) }))
+        XCTAssertTrue(d.availableGestures.contains(.lookRight))
+        for n in 11...17 { XCTAssertNil(d.consume(sample(Double(n)/10, yaw: center))) }
+        XCTAssertNil(d.consume(sample(1.8, yaw: -Double.pi + 0.04)))
+        XCTAssertEqual(d.consume(sample(1.9, yaw: -Double.pi + 0.10)), .lookRight)
+    }
+    func testMigrationMovesExistingNodVerdictOnceAndPreservesLaterCustomization() throws {
+        let legacy = Data(#"{"nod":"again","shake":"sloppy","grin":"nextPage","mouthOpen":"clean","eyesClosed":"previousPage","allowVerdicts":true,"sensitivity":"easy","holdDuration":0.8,"cooldown":2}"#.utf8)
+        var settings = try JSONDecoder().decode(FaceGestureSettings.self, from: legacy)
+        XCTAssertEqual(settings.lookDown, .again); XCTAssertEqual(settings.nod, .off)
+        XCTAssertEqual(settings.lookRight, .nextPage); XCTAssertEqual(settings.lookLeft, .previousPage)
+        XCTAssertEqual(settings.mouthOpen, .clean); XCTAssertEqual(settings.shake, .sloppy)
+        XCTAssertEqual(settings.grin, .off); XCTAssertEqual(settings.eyesClosed, .off)
+        XCTAssertTrue(settings.allowVerdicts); XCTAssertEqual(settings.holdDuration, 0.8)
+        XCTAssertEqual(settings.cooldown, 2); XCTAssertEqual(settings.sensitivity, .easy)
+        settings.assign(nil, to: .nextPage); settings.assign(.grin, to: .previousPage)
+        settings.directionCooldown = 0.7
+        let reloaded = try JSONDecoder().decode(FaceGestureSettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertEqual(reloaded, settings)
+        XCTAssertNil(reloaded.gesture(for: .nextPage)); XCTAssertEqual(reloaded.gesture(for: .previousPage), .grin)
+    }
     private func sample(_ t: Double, pitch: Double = 0, yaw: Double = 0, smile: Double = 0.8,
                         light: Double = 0.5, faces: Int = 1, confidence: Double = 0.99, area: Double = 0.1,
                         mouth: Double? = 0.02, leftEye: Double? = 0.3, rightEye: Double? = 0.3,
-                        lift: Double? = nil, strength: Double? = nil) -> FaceGestureSample {
+                        lift: Double? = nil, strength: Double? = nil, source: FaceGesturePoseSource = .unspecified) -> FaceGestureSample {
         .init(time: t, pitch: pitch, yaw: yaw, smileWidth: smile, luminance: light,
               confidence: confidence, faceCount: faces, faceArea: area,
-              mouthOpen: mouth, leftEyeOpen: leftEye, rightEyeOpen: rightEye, smileLift: lift, smileStrength: strength)
+              mouthOpen: mouth, leftEyeOpen: leftEye, rightEyeOpen: rightEye, smileLift: lift, smileStrength: strength, poseSource: source)
     }
-    private func ready(settings: FaceGestureSettings = .init(), calibration: [FaceGestureSample]? = nil) -> FaceGestureDetector {
+    private static func legacySettings() -> FaceGestureSettings {
+        var settings = FaceGestureSettings()
+        for action in FaceGestureAction.allCases { settings.assign(nil, to: action) }
+        settings.assign(.nod, to: .clean); settings.assign(.shake, to: .sloppy); settings.assign(.grin, to: .nextPage)
+        return settings
+    }
+    private func ready(settings: FaceGestureSettings = FaceGestureDetectionTests.legacySettings(), calibration: [FaceGestureSample]? = nil) -> FaceGestureDetector {
         var detector = FaceGestureDetector()
         detector.configure(settings: settings)
         XCTAssertTrue(detector.calibrate(calibration ?? (0...10).map { sample(Double($0)/10) }))
@@ -100,7 +276,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     func testMissingLipAndEyeLandmarksDoNotDisableHeadGestures() {
         let calibration = (0...10).map { sample(Double($0)/10, smile: .nan, mouth: nil, leftEye: nil, rightEye: nil) }
         var d = ready(calibration: calibration)
-        XCTAssertEqual(d.availableGestures, [.nod, .shake])
+        XCTAssertEqual(d.availableGestures, [.nod, .shake, .lookDown, .lookLeft, .lookRight])
         XCTAssertNil(d.consume(sample(1.8, pitch: 0.25, smile: .nan, mouth: nil, leftEye: nil, rightEye: nil)))
         XCTAssertNil(d.consume(sample(1.95, pitch: 0.25, smile: .nan, mouth: nil, leftEye: nil, rightEye: nil)))
         XCTAssertEqual(d.consume(sample(2.1, smile: .nan, mouth: nil, leftEye: nil, rightEye: nil)), .nod)
@@ -110,6 +286,7 @@ final class FaceGestureDetectionTests: XCTestCase {
             sample(t, pitch: .nan, yaw: .nan, smile: smile, mouth: nil, leftEye: nil, rightEye: nil)
         }
         var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
         XCTAssertTrue(noPose(0).usable)
         XCTAssertTrue(d.calibrate((0...10).map { noPose(Double($0)/10) }))
         XCTAssertEqual(d.availableGestures, [.grin])
@@ -120,6 +297,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     func testExpressionsCalibrateWithoutOtherLandmarksOrHeadPose() {
         for gesture in [FaceGesture.mouthOpen, .eyesClosed] {
             var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
             d.configure(settings: only(gesture))
             func expression(_ t: Double, active: Bool = false) -> FaceGestureSample {
                 sample(t, pitch: .nan, yaw: .nan, smile: .nan,
@@ -128,7 +306,7 @@ final class FaceGestureDetectionTests: XCTestCase {
                        rightEye: gesture == .eyesClosed ? (active ? 0.03 : 0.3) : nil)
             }
             XCTAssertTrue(d.calibrate((0...10).map { expression(Double($0)/10) }))
-            XCTAssertEqual(d.availableGestures, [gesture])
+            XCTAssertTrue(d.availableGestures.contains(gesture))
             for n in 11...17 { XCTAssertNil(d.consume(expression(Double(n)/10))) }
             for n in 18...25 { XCTAssertNil(d.consume(expression(Double(n)/10, active: true))) }
             XCTAssertEqual(d.consume(expression(2.6)), gesture)
@@ -136,6 +314,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     }
     func testOnlyTheUnstableMetricLosesEligibilityDuringCalibration() {
         var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
         XCTAssertTrue(d.calibrate((0...10).map { sample(Double($0)/10, pitch: Double($0)/10) }))
         XCTAssertFalse(d.availableGestures.contains(.nod))
         XCTAssertTrue(d.availableGestures.contains(.grin))
@@ -143,6 +322,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     }
     func testSupplementRecoversInitiallyMissingPitchAtEstablishedNeutral() {
         var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
         XCTAssertTrue(d.calibrate((0...10).map {
             sample(Double($0)/10, pitch: .nan, yaw: .nan, mouth: nil, leftEye: nil, rightEye: nil)
         }))
@@ -173,6 +353,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     }
     func testSupplementPreservesEveryExistingMetricExactlyAndNoExpansionKeepsMotion() {
         var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
         XCTAssertTrue(d.calibrate((0...10).map {
             sample(Double($0)/10, pitch: 0.031, yaw: .nan, smile: 0.812345, mouth: 0.023,
                    leftEye: nil, rightEye: nil)
@@ -201,6 +382,7 @@ final class FaceGestureDetectionTests: XCTestCase {
         samples[3].smileWidth = .nan
         samples[7].smileWidth = .nan
         var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
         XCTAssertTrue(d.calibrate(samples))
         XCTAssertEqual(d.baseline?.pitch, 0)
         XCTAssertEqual(d.baseline?.smileWidth, 0.8)
@@ -209,8 +391,9 @@ final class FaceGestureDetectionTests: XCTestCase {
     }
     func testCalibrationRejectsInvisibleMultipleSparseNonfiniteAndEntirelyUnmeasuredFaces() {
         var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
         for invalid in [sample(0, light: 0.01), sample(0, faces: 2), sample(0, confidence: 0.3),
-                        sample(0, area: 0.002), sample(.nan)] {
+                        sample(0, area: 0.0019), sample(.nan)] {
             XCTAssertFalse(d.calibrate((0...10).map { n in var s = invalid; s.time += Double(n)/10; return s }))
             XCTAssertNil(d.baseline)
         }
@@ -254,7 +437,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     }
     func testSensitivityChangesRequiredMotionWithoutRemovingReturnRequirement() {
         for sensitivity in FaceGestureSensitivity.allCases {
-            var settings = FaceGestureSettings()
+            var settings = Self.legacySettings()
             settings.sensitivity = sensitivity
             var d = ready(settings: settings)
             XCTAssertNil(d.consume(sample(1.8, pitch: 0.11)))
@@ -274,7 +457,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     }
     func testCooldownIsCustomizableAndStillRequiresFreshNeutralRearming() {
         for cooldown in [0.5, 1.25] {
-            var settings = FaceGestureSettings()
+            var settings = Self.legacySettings()
             settings.cooldown = cooldown
             var d = ready(settings: settings)
             XCTAssertNil(d.consume(sample(1.8, pitch: 0.25)))
@@ -309,12 +492,15 @@ final class FaceGestureDetectionTests: XCTestCase {
         for n in 18...24 { XCTAssertNil(d.consume(sample(Double(n)/10, smile: 1.0, mouth: 0.25))) }
         XCTAssertEqual(d.consume(sample(2.5)), .mouthOpen)
     }
-    func testLegacySettingsDecodeWithPreservedMappingsAndAdditiveDefaults() throws {
+    func testLegacySettingsMigrateOnlyPageOwnersAndPreserveCustomVerdicts() throws {
         let data = Data(#"{"nod":"previousPage","shake":"again","grin":"nextPage","allowVerdicts":true}"#.utf8)
         let settings = try JSONDecoder().decode(FaceGestureSettings.self, from: data)
-        XCTAssertEqual(settings.nod, .previousPage)
+        XCTAssertEqual(settings.nod, .off)
         XCTAssertEqual(settings.shake, .again)
-        XCTAssertEqual(settings.grin, .nextPage)
+        XCTAssertEqual(settings.grin, .off)
+        XCTAssertEqual(settings.lookRight, .nextPage)
+        XCTAssertEqual(settings.lookLeft, .previousPage)
+        XCTAssertEqual(settings.lookDown, .off)
         XCTAssertTrue(settings.allowVerdicts)
         XCTAssertEqual(settings.mouthOpen, .off)
         XCTAssertEqual(settings.eyesClosed, .off)
@@ -325,7 +511,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     func testCommandFirstAssignmentMovesExpressionAndClearsPreviousAssignments() {
         var settings = FaceGestureSettings()
         settings.assign(.grin, to: .clean)
-        XCTAssertNil(settings.gesture(for: .nextPage))
+        XCTAssertEqual(settings.gesture(for: .nextPage), .lookRight)
         XCTAssertEqual(settings.gesture(for: .clean), .grin)
         XCTAssertEqual(settings.action(for: .nod), .off)
         settings.assign(.mouthOpen, to: .clean)
@@ -339,7 +525,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     func testDuplicateLegacyCommandsNormalizeDeterministically() throws {
         let data = Data(#"{"nod":"clean","shake":"clean","grin":"clean","allowVerdicts":false}"#.utf8)
         let settings = try JSONDecoder().decode(FaceGestureSettings.self, from: data)
-        XCTAssertEqual(settings.gesture(for: .clean), .nod)
+        XCTAssertEqual(settings.gesture(for: .clean), .lookDown)
         XCTAssertEqual(settings.shake, .off)
         XCTAssertEqual(settings.grin, .off)
     }
@@ -360,8 +546,11 @@ final class FaceGestureDetectionTests: XCTestCase {
     func testDefaultVerdictsRemainUnarmedAndMappingIsExplicit() {
         let settings = FaceGestureSettings()
         XCTAssertFalse(settings.allowVerdicts)
-        XCTAssertEqual(settings.action(for: .grin), .nextPage)
-        XCTAssertEqual(settings.action(for: .nod), .clean)
+        XCTAssertEqual(settings.action(for: .lookRight), .nextPage)
+        XCTAssertEqual(settings.action(for: .lookLeft), .previousPage)
+        XCTAssertEqual(settings.action(for: .lookDown), .clean)
+        XCTAssertEqual(settings.action(for: .grin), .off)
+        XCTAssertEqual(settings.action(for: .nod), .off)
         XCTAssertEqual(settings.action(for: .mouthOpen), .off)
         XCTAssertEqual(settings.action(for: .eyesClosed), .off)
     }
@@ -403,6 +592,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     }
     func testBilateralSmileStrengthRecognizesNaturalNoisySmileWithoutVisionLipWidth() {
         var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
         d.configure(settings: only(.grin))
         XCTAssertTrue(d.calibrate((0...10).map {
             sample(Double($0)/10, smile: .nan, strength: 0.02 + ($0.isMultiple(of: 2) ? 0.004 : -0.004))
@@ -417,6 +607,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     }
     func testVisionCornerLiftRecognizesNaturalSmileWithoutLargeLipWidening() {
         var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
         d.configure(settings: only(.grin))
         XCTAssertTrue(d.calibrate((0...10).map { sample(Double($0)/10, lift: 0) }))
         for n in 11...17 { XCTAssertNil(d.consume(sample(Double(n)/10, lift: 0))) }
@@ -428,6 +619,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     }
     func testBilateralSmileNoiseAndSeparatedShortSmilesNeverAccumulateIntoCommand() {
         var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
         d.configure(settings: only(.grin))
         XCTAssertTrue(d.calibrate((0...10).map { sample(Double($0)/10, smile: .nan, strength: 0.02) }))
         for n in 11...70 {
@@ -437,6 +629,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     }
     func testBilateralSmileCooldownRequiresRelaxationAndNeverRepeatsWhileHeld() {
         var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
         d.configure(settings: only(.grin))
         XCTAssertTrue(d.calibrate((0...10).map { sample(Double($0)/10, smile: .nan, strength: 0.02) }))
         for n in 11...17 { XCTAssertNil(d.consume(sample(Double(n)/10, smile: .nan, strength: 0.02))) }
@@ -490,6 +683,7 @@ final class FaceGestureDetectionTests: XCTestCase {
     }
     func testCalibrationWorksAtFiveHzAndCooldownDoesNotAddHiddenRearmDelay() {
         var d = FaceGestureDetector()
+        d.configure(settings: Self.legacySettings())
         XCTAssertTrue(d.calibrate((0...4).map { sample(Double($0)/5) }))
         d = ready()
         XCTAssertNil(d.consume(sample(1.8, pitch: 0.25)))

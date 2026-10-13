@@ -2,10 +2,13 @@ import Foundation
 
 /// Deliberate gestures are explicit input from the player, never an assessment of playing.
 enum FaceGesture: String, CaseIterable, Codable, Sendable, Identifiable {
-    case nod, shake, grin, mouthOpen, eyesClosed
+    case lookRight, lookLeft, lookDown, nod, shake, grin, mouthOpen, eyesClosed
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .lookRight: "Look right"
+        case .lookLeft: "Look left"
+        case .lookDown: "Look down"
         case .nod: "Nod"
         case .shake: "Shake head"
         case .grin: "Grin"
@@ -15,6 +18,9 @@ enum FaceGesture: String, CaseIterable, Codable, Sendable, Identifiable {
     }
     var instructions: String {
         switch self {
+        case .lookRight: "Turn your head slightly right. The command fires as you turn; center your head before another command."
+        case .lookLeft: "Turn your head slightly left. The command fires as you turn; center your head before another command."
+        case .lookDown: "Tip your head slightly down from your usual reading position. The command fires as you move; return to your reading position before another command."
         case .nod: "Nod up or down, then return to your usual position."
         case .shake: "Turn to one side, then the other, and return to center."
         case .grin: "Smile naturally, hold it briefly, then relax."
@@ -22,6 +28,7 @@ enum FaceGesture: String, CaseIterable, Codable, Sendable, Identifiable {
         case .eyesClosed: "Close both eyes for at least 0.6 seconds, then open them. Ordinary blinks are ignored."
         }
     }
+    var isDirectional: Bool { self == .lookRight || self == .lookLeft || self == .lookDown }
 }
 enum FaceGestureAction: String, CaseIterable, Codable, Sendable, Identifiable {
     case off, nextPage, previousPage, clean, sloppy, again
@@ -49,23 +56,31 @@ enum FaceGestureSensitivity: String, CaseIterable, Codable, Sendable, Identifiab
     }
 }
 struct FaceGestureSettings: Codable, Equatable, Sendable {
-    // Keep the original keys and defaults when reading existing ios.faceGestures data.
-    var nod: FaceGestureAction = .clean
+    // Add directional input without replacing the existing expression choices or storage key.
+    var lookRight: FaceGestureAction = .nextPage
+    var lookLeft: FaceGestureAction = .previousPage
+    var lookDown: FaceGestureAction = .clean
+    var nod: FaceGestureAction = .off
     var shake: FaceGestureAction = .sloppy
-    var grin: FaceGestureAction = .nextPage
+    var grin: FaceGestureAction = .off
     var mouthOpen: FaceGestureAction = .off
     var eyesClosed: FaceGestureAction = .off
     var allowVerdicts = false
     var sensitivity: FaceGestureSensitivity = .standard
     var holdDuration: TimeInterval = 0.4
     var cooldown: TimeInterval = 1.25
+    var directionCooldown: TimeInterval = 0.4
+    private(set) var directionalMappingVersion = 1
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case nod, shake, grin, mouthOpen, eyesClosed, allowVerdicts, sensitivity, holdDuration, cooldown
+        case lookRight, lookLeft, lookDown, nod, shake, grin, mouthOpen, eyesClosed, allowVerdicts, sensitivity, holdDuration, cooldown, directionCooldown, directionalMappingVersion
     }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        lookRight = try values.decodeIfPresent(FaceGestureAction.self, forKey: .lookRight) ?? .off
+        lookLeft = try values.decodeIfPresent(FaceGestureAction.self, forKey: .lookLeft) ?? .off
+        lookDown = try values.decodeIfPresent(FaceGestureAction.self, forKey: .lookDown) ?? .off
         nod = try values.decodeIfPresent(FaceGestureAction.self, forKey: .nod) ?? .clean
         shake = try values.decodeIfPresent(FaceGestureAction.self, forKey: .shake) ?? .sloppy
         grin = try values.decodeIfPresent(FaceGestureAction.self, forKey: .grin) ?? .nextPage
@@ -77,6 +92,18 @@ struct FaceGestureSettings: Codable, Equatable, Sendable {
                                     in: 0.2...1.2, fallback: 0.4)
         cooldown = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .cooldown) ?? 1.25,
                                 in: 0.5...3, fallback: 1.25)
+        directionCooldown = Self.bounded(try values.decodeIfPresent(Double.self, forKey: .directionCooldown) ?? 0.4,
+                                         in: 0.25...1, fallback: 0.4)
+        let version = try values.decodeIfPresent(Int.self, forKey: .directionalMappingVersion) ?? 0
+        directionalMappingVersion = max(1, version)
+        // The player requested directional page turns. Migrate once, preserving the nod's
+        // chosen verdict and every other verdict/expression and recognition preference.
+        if version < 1 && !values.contains(.lookRight) && !values.contains(.lookLeft) && !values.contains(.lookDown) {
+            let downVerdict = nod.isVerdict ? nod : .off
+            assign(.lookRight, to: .nextPage)
+            assign(.lookLeft, to: .previousPage)
+            if downVerdict != .off { assign(.lookDown, to: downVerdict) }
+        }
         // Old expression-first settings could assign one command several times. Keep the
         // first assignment in the original gesture order, making the command-first editor exact.
         var seen: Set<FaceGestureAction> = []
@@ -87,6 +114,9 @@ struct FaceGestureSettings: Codable, Equatable, Sendable {
     }
     func action(for gesture: FaceGesture) -> FaceGestureAction {
         switch gesture {
+        case .lookRight: lookRight
+        case .lookLeft: lookLeft
+        case .lookDown: lookDown
         case .nod: nod
         case .shake: shake
         case .grin: grin
@@ -97,6 +127,13 @@ struct FaceGestureSettings: Codable, Equatable, Sendable {
     func gesture(for action: FaceGestureAction) -> FaceGesture? {
         guard action != .off else { return nil }
         return FaceGesture.allCases.first { self.action(for: $0) == action }
+    }
+    /// Retain legacy assignments for later use, but make competing head inputs explicit.
+    var suspendedGestures: Set<FaceGesture> {
+        var result: Set<FaceGesture> = []
+        if lookRight != .off || lookLeft != .off { result.insert(.shake) }
+        if lookDown != .off { result.insert(.nod) }
+        return result
     }
     /// Moving an expression to another command clears its previous assignment explicitly.
     /// Each command has at most one expression and each expression at most one command.
@@ -112,11 +149,17 @@ struct FaceGestureSettings: Codable, Equatable, Sendable {
     fileprivate var effectiveCooldown: TimeInterval {
         Self.bounded(cooldown, in: 0.5...3, fallback: 1.25)
     }
+    fileprivate var effectiveDirectionCooldown: TimeInterval {
+        Self.bounded(directionCooldown, in: 0.25...1, fallback: 0.4)
+    }
     private static func bounded(_ value: Double, in range: ClosedRange<Double>, fallback: Double) -> Double {
         value.isFinite ? min(range.upperBound, max(range.lowerBound, value)) : fallback
     }
     private mutating func setAction(_ action: FaceGestureAction, for gesture: FaceGesture) {
         switch gesture {
+        case .lookRight: lookRight = action
+        case .lookLeft: lookLeft = action
+        case .lookDown: lookDown = action
         case .nod: nod = action
         case .shake: shake = action
         case .grin: grin = action
@@ -125,9 +168,11 @@ struct FaceGestureSettings: Codable, Equatable, Sendable {
         }
     }
 }
+enum FaceGesturePoseSource: String, Sendable { case unspecified, arkit, vision }
 struct FaceGestureSample: Sendable {
     var time: TimeInterval
-    /// Vision head pose in radians. NaN means unavailable, not that the face is absent.
+    /// Camera-relative radians in displayed orientation: positive pitch is down and positive
+    /// yaw is the player's right. NaN means unavailable, not that the face is absent.
     var pitch: Double
     var yaw: Double
     /// Lip width / inter-eye distance. A missing measurement may be NaN.
@@ -143,21 +188,25 @@ struct FaceGestureSample: Sendable {
     /// Vision mouth-corner elevation / inter-eye distance; bilateral ARKit smile strength.
     var smileLift: Double? = nil
     var smileStrength: Double? = nil
+    var poseSource: FaceGesturePoseSource = .unspecified
     /// Visibility is independent of optional landmarks and pose. A small face can still have
     /// sound measurements; gesture-specific calibration decides which inputs are usable.
     var usable: Bool {
         [time, luminance, confidence, faceArea].allSatisfy(\.isFinite)
             && faceCount == 1 && luminance >= 0.025 && luminance <= 1
-            && confidence >= 0.45 && confidence <= 1 && faceArea >= 0.006 && faceArea <= 1
+            && confidence >= 0.45 && confidence <= 1 && faceArea >= 0.002 && faceArea <= 1
     }
+    // Small, tracked faces can provide stable head pose before lip/eye pixels are reliable.
+    // ARKit supplies measured blend coefficients rather than small 2D landmark ratios.
+    private var expressionMeasurementsReliable: Bool { poseSource == .arkit || faceArea >= 0.006 }
     fileprivate var measuredPitch: Double? { Self.valid(pitch, in: -.pi ... .pi) }
     fileprivate var measuredYaw: Double? { Self.valid(yaw, in: -.pi ... .pi) }
-    fileprivate var measuredSmile: Double? { Self.valid(smileWidth, in: 0.05...2.5) }
-    fileprivate var measuredMouth: Double? { mouthOpen.flatMap { Self.valid($0, in: 0...2) } }
-    fileprivate var measuredLeftEye: Double? { leftEyeOpen.flatMap { Self.valid($0, in: 0...1) } }
-    fileprivate var measuredRightEye: Double? { rightEyeOpen.flatMap { Self.valid($0, in: 0...1) } }
-    fileprivate var measuredLift: Double? { smileLift.flatMap { Self.valid($0, in: -1...1) } }
-    fileprivate var measuredStrength: Double? { smileStrength.flatMap { Self.valid($0, in: 0...1) } }
+    fileprivate var measuredSmile: Double? { expressionMeasurementsReliable ? Self.valid(smileWidth, in: 0.05...2.5) : nil }
+    fileprivate var measuredMouth: Double? { expressionMeasurementsReliable ? mouthOpen.flatMap { Self.valid($0, in: 0...2) } : nil }
+    fileprivate var measuredLeftEye: Double? { expressionMeasurementsReliable ? leftEyeOpen.flatMap { Self.valid($0, in: 0...1) } : nil }
+    fileprivate var measuredRightEye: Double? { expressionMeasurementsReliable ? rightEyeOpen.flatMap { Self.valid($0, in: 0...1) } : nil }
+    fileprivate var measuredLift: Double? { expressionMeasurementsReliable ? smileLift.flatMap { Self.valid($0, in: -1...1) } : nil }
+    fileprivate var measuredStrength: Double? { expressionMeasurementsReliable ? smileStrength.flatMap { Self.valid($0, in: 0...1) } : nil }
     private static func valid(_ value: Double, in range: ClosedRange<Double>) -> Double? {
         value.isFinite && range.contains(value) ? value : nil
     }
@@ -178,6 +227,28 @@ struct FaceGestureDetector: Sendable {
     private var neutralSince: [FaceGesture: TimeInterval] = [:]
     private var lastTime: TimeInterval?
     private var cooldownUntil: TimeInterval = 0
+    private var directionCooldownUntil: TimeInterval = 0
+    private var directionNeutralSince: [FaceGesture: TimeInterval] = [:]
+    private var directionArmed: Set<FaceGesture> = []
+    private var calibratedPoseSource: FaceGesturePoseSource?
+    private struct DirectionalExcursion: Sendable {
+        let gesture: FaceGesture
+        let start: TimeInterval
+        let originValue: Double
+        let firstValue: Double
+        var lastValid: TimeInterval
+        var lastValue: Double
+        var peak: Double
+        var evidenceCount = 1
+        var interrupted = false
+    }
+    private struct PoseObservation: Sendable {
+        let time: TimeInterval
+        let pitch: Double?
+        let yaw: Double?
+    }
+    private var directionalExcursion: DirectionalExcursion?
+    private var previousPose: PoseObservation?
     private var armed: Set<FaceGesture> = []
     private var pitchNoise = 0.0, yawNoise = 0.0, smileNoise = 0.0, liftNoise = 0.0, strengthNoise = 0.0
     private struct Excursion: Sendable {
@@ -201,8 +272,8 @@ struct FaceGestureDetector: Sendable {
     var availableGestures: Set<FaceGesture> {
         guard let baseline else { return [] }
         var result: Set<FaceGesture> = []
-        if baseline.pitch != nil { result.insert(.nod) }
-        if baseline.yaw != nil { result.insert(.shake) }
+        if baseline.pitch != nil { result.formUnion([.nod, .lookDown]) }
+        if baseline.yaw != nil { result.formUnion([.shake, .lookRight, .lookLeft]) }
         if baseline.smileWidth != nil || baseline.smileLift != nil || baseline.smileStrength != nil { result.insert(.grin) }
         if baseline.mouthOpen != nil { result.insert(.mouthOpen) }
         if let left = baseline.leftEyeOpen, let right = baseline.rightEyeOpen, left >= 0.12, right >= 0.12 {
@@ -211,7 +282,10 @@ struct FaceGestureDetector: Sendable {
         return result
     }
     private var assignedGestures: Set<FaceGesture> {
-        availableGestures.filter { settings.action(for: $0) != .off }
+        var result = availableGestures.filter { settings.action(for: $0) != .off }
+        // An onset turn cannot also finish a legacy shake/nod when the player centers again.
+        result.subtract(settings.suspendedGestures)
+        return result
     }
     mutating func configure(settings: FaceGestureSettings) {
         guard settings != self.settings else { return }
@@ -225,10 +299,13 @@ struct FaceGestureDetector: Sendable {
         guard samples.count >= 5, let first = samples.first, let last = samples.last,
               last.time - first.time >= 0.65, last.time - first.time <= 2.5,
               zip(samples, samples.dropFirst()).allSatisfy({ $1.time > $0.time && $1.time - $0.time <= 0.5 }),
+              samples.allSatisfy({ $0.poseSource == first.poseSource }),
               samples.allSatisfy(\.usable) else { return false }
+        calibratedPoseSource = first.poseSource
+        let yawValues = unwrappedYaw(samples.map(\.measuredYaw))
         baseline = FaceGestureBaseline(
             pitch: stableMedian(samples.map(\.measuredPitch), spread: 0.12),
-            yaw: stableMedian(samples.map(\.measuredYaw), spread: 0.12),
+            yaw: stableMedian(yawValues, spread: 0.12),
             smileWidth: stableMedian(samples.map(\.measuredSmile), spread: 0.10),
             mouthOpen: stableMedian(samples.map(\.measuredMouth), spread: 0.08),
             leftEyeOpen: stableMedian(samples.map(\.measuredLeftEye), spread: 0.10),
@@ -236,7 +313,7 @@ struct FaceGestureDetector: Sendable {
             smileLift: stableMedian(samples.map(\.measuredLift), spread: 0.06),
             smileStrength: stableMedian(samples.map(\.measuredStrength), spread: 0.10))
         guard !availableGestures.isEmpty else { baseline = nil; return false }
-        pitchNoise = noise(samples.map(\.measuredPitch)); yawNoise = noise(samples.map(\.measuredYaw))
+        pitchNoise = noise(samples.map(\.measuredPitch)); yawNoise = noise(yawValues)
         smileNoise = noise(samples.map(\.measuredSmile)); liftNoise = noise(samples.map(\.measuredLift))
         strengthNoise = noise(samples.map(\.measuredStrength))
         resetMotion()
@@ -249,6 +326,7 @@ struct FaceGestureDetector: Sendable {
     @discardableResult
     mutating func supplementCalibration(_ samples: [FaceGestureSample]) -> Bool {
         guard let original = baseline, let last = samples.last,
+              samples.allSatisfy({ $0.poseSource == calibratedPoseSource }),
               lastTime.map({ last.time >= $0 }) ?? true,
               samples.allSatisfy({ sample in
                   func close(_ measured: Double?, to neutral: Double?, tolerance: Double) -> Bool {
@@ -257,7 +335,9 @@ struct FaceGestureDetector: Sendable {
                       return abs(measured - neutral) < tolerance
                   }
                   return close(sample.measuredPitch, to: original.pitch, tolerance: pitchThreshold * 0.5)
-                      && close(sample.measuredYaw, to: original.yaw, tolerance: yawThreshold * 0.45)
+                      && close(sample.measuredYaw.map { value in
+                          original.yaw.map { $0 + atan2(sin(value - $0), cos(value - $0)) } ?? value
+                      }, to: original.yaw, tolerance: yawThreshold * 0.45)
                       && close(sample.measuredSmile, to: original.smileWidth, tolerance: smileThreshold * 0.6)
                       && close(sample.measuredLift, to: original.smileLift, tolerance: liftThreshold * 0.6)
                       && close(sample.measuredStrength, to: original.smileStrength, tolerance: strengthThreshold * 0.6)
@@ -288,23 +368,49 @@ struct FaceGestureDetector: Sendable {
         if expanded { resetMotion() }
         return expanded
     }
-    mutating func clearCalibration() { baseline = nil; resetMotion(); lastTime = nil }
+    mutating func clearCalibration() { baseline = nil; calibratedPoseSource = nil; resetMotion(); lastTime = nil }
     mutating func resetMotion() {
         excursions.removeAll(keepingCapacity: true)
         armed.removeAll(keepingCapacity: true)
         neutralSince.removeAll(keepingCapacity: true)
+        directionalExcursion = nil
+        directionArmed.removeAll(keepingCapacity: true)
+        directionNeutralSince.removeAll(keepingCapacity: true)
+        previousPose = nil
     }
 
     mutating func consume(_ sample: FaceGestureSample) -> FaceGesture? {
+        guard sample.time.isFinite else { resetMotion(); lastTime = nil; return nil }
         defer { lastTime = sample.time }
-        guard let baseline, sample.usable,
+        guard let baseline,
               lastTime.map({ sample.time > $0 && sample.time - $0 <= 0.55 }) ?? true else {
             resetMotion(); return nil
         }
+        guard sample.poseSource == calibratedPoseSource else { clearCalibration(); return nil }
+        guard sample.usable else {
+            // Disappearance never supplies a direction or dispatches a command. Keep only a
+            // measured, signed onset through a short loss; reacquisition must confirm it.
+            if sample.faceCount == 0, sample.luminance.isFinite, (0.025...1).contains(sample.luminance),
+               sample.confidence.isFinite, sample.faceArea.isFinite,
+               retainDirectionalLoss(at: sample.time) {
+                excursions.removeAll(keepingCapacity: true)
+                armed.removeAll(keepingCapacity: true)
+                neutralSince.removeAll(keepingCapacity: true)
+                directionArmed.removeAll(keepingCapacity: true)
+                directionNeutralSince.removeAll(keepingCapacity: true)
+            } else { resetMotion() }
+            return nil
+        }
         let m = Measurements(sample: sample, baseline: baseline)
         let assigned = assignedGestures
+        if let direction = consumeDirection(sample, measurements: m, assigned: assigned) {
+            directionCooldownUntil = sample.time + settings.effectiveDirectionCooldown
+            cooldownUntil = max(cooldownUntil, directionCooldownUntil)
+            resetMotion()
+            return direction
+        }
         var completed: [FaceGesture] = []
-        for gesture in FaceGesture.allCases where assigned.contains(gesture) {
+        for gesture in FaceGesture.allCases where assigned.contains(gesture) && !gesture.isDirectional {
             guard m.has(gesture) else {
                 // A single missing landmark must not discard a complete head trajectory.
                 // It contributes no hold evidence and a prolonged loss revokes this gesture.
@@ -334,6 +440,7 @@ struct FaceGestureDetector: Sendable {
                 track.lastValid = sample.time
                 var returned = neutral
                 switch gesture {
+                case .lookRight, .lookLeft, .lookDown: break // handled by the onset detector
                 case .nod:
                     let value = m.pitch! * track.direction
                     if value > track.peak { track.peak = value; track.peakTime = sample.time }
@@ -387,9 +494,130 @@ struct FaceGestureDetector: Sendable {
         if completed.contains(.mouthOpen) { completed.removeAll { $0 == .grin } }
         guard !completed.isEmpty else { return nil }
         cooldownUntil = sample.time + settings.effectiveCooldown
+        directionCooldownUntil = sample.time + settings.effectiveDirectionCooldown
         resetMotion()
         // Simultaneously completed explicit gestures are ambiguous, never two verdicts.
         return completed.count == 1 ? completed[0] : nil
+    }
+    private func directionalValue(_ gesture: FaceGesture, _ m: Measurements) -> Double? {
+        switch gesture {
+        case .lookRight: m.yaw
+        case .lookLeft: m.yaw.map { -$0 }
+        case .lookDown: m.pitch
+        default: nil
+        }
+    }
+    private func directionalThreshold(_ gesture: FaceGesture) -> Double {
+        gesture == .lookDown ? directionalPitchThreshold : directionalYawThreshold
+    }
+    private mutating func retainDirectionalLoss(at time: TimeInterval) -> Bool {
+        guard var track = directionalExcursion, track.evidenceCount >= 2,
+              time - track.lastValid <= 0.3 + 0.000_001,
+              track.lastValue >= directionalThreshold(track.gesture) * 0.45,
+              track.lastValue - track.originValue >= directionalThreshold(track.gesture) * 0.25 else { return false }
+        track.interrupted = true
+        directionalExcursion = track
+        directionNeutralSince.removeAll(keepingCapacity: true)
+        return true
+    }
+    private mutating func consumeDirection(_ sample: FaceGestureSample, measurements m: Measurements,
+                                          assigned: Set<FaceGesture>) -> FaceGesture? {
+        let directions = assigned.filter(\.isDirectional)
+        guard !directions.isEmpty else { return nil }
+        defer { previousPose = PoseObservation(time: sample.time, pitch: m.pitch, yaw: m.yaw) }
+        let needsYaw = directions.contains(.lookRight) || directions.contains(.lookLeft)
+        let needsPitch = directions.contains(.lookDown)
+        let neutral = (!needsYaw || m.yaw.map { abs($0) <= directionalYawThreshold * 0.35 } != false)
+            && (!needsPitch || m.pitch.map { abs($0) <= directionalPitchThreshold * 0.35 } != false)
+            && (m.yaw != nil || m.pitch != nil)
+        for gesture in directions {
+            // A missing optional axis cannot disable a sound measured axis. It also cannot
+            // arm itself: each direction must observe its own neutral measurements.
+            guard m.has(gesture) else {
+                directionArmed.remove(gesture); directionNeutralSince[gesture] = nil; continue
+            }
+            if !directionArmed.contains(gesture) {
+                if neutral && isNeutral(gesture, m) {
+                    directionNeutralSince[gesture] = directionNeutralSince[gesture] ?? sample.time
+                    if sample.time - directionNeutralSince[gesture]! >= 0.16 { directionArmed.insert(gesture) }
+                } else { directionNeutralSince[gesture] = nil }
+            }
+        }
+        guard sample.time >= directionCooldownUntil else { return nil }
+        func dominant(_ gesture: FaceGesture, _ value: Double) -> Bool {
+            let primary = value / directionalThreshold(gesture)
+            let other: Double
+            if gesture == .lookDown { other = needsYaw ? abs(m.yaw ?? 0) / directionalYawThreshold : 0 }
+            else { other = needsPitch ? abs(m.pitch ?? 0) / directionalPitchThreshold : 0 }
+            return other < 0.65 || primary >= other * 1.25
+        }
+        if var track = directionalExcursion {
+            guard let value = directionalValue(track.gesture, m) else {
+                if !retainDirectionalLoss(at: sample.time) { resetDirectionalMotion() }
+                return nil
+            }
+            let threshold = directionalThreshold(track.gesture)
+            let duration = sample.time - track.start
+            let gap = sample.time - track.lastValid
+            let action = settings.action(for: track.gesture)
+            if track.interrupted, neutral, gap <= 0.3 + 0.000_001, duration <= 0.65,
+               track.gesture != .lookDown, action == .nextPage || action == .previousPage,
+               track.evidenceCount >= 2, track.lastValue >= threshold * 0.8,
+               track.lastValue >= track.peak * 0.9,
+               track.lastValue - track.firstValue >= threshold * 0.2,
+               track.lastValid > track.start,
+               (track.lastValue - track.firstValue) / (track.lastValid - track.start) >= 0.12 {
+                // A large quick page glance may leave view before its peak. Two signed,
+                // rising near-threshold samples plus a prompt measured neutral return can
+                // finish that page turn. This bounded continuation never records a rep.
+                return track.gesture
+            }
+            guard duration <= 0.42, dominant(track.gesture, value), value >= threshold * 0.35,
+                  !track.interrupted || (sample.time - track.lastValid <= 0.3 + 0.000_001
+                    && value >= track.lastValue * 0.8) else {
+                resetDirectionalMotion(); return nil
+            }
+            track.interrupted = false
+            track.lastValid = sample.time
+            track.lastValue = value
+            track.peak = max(track.peak, value)
+            if value >= threshold * 0.45 { track.evidenceCount += 1 }
+            directionalExcursion = track
+            // Two fresh measurements confirm a quick onset. One high frame, a slow change
+            // of reading posture, or a disappearing face cannot qualify a command.
+            if track.evidenceCount >= 2, duration >= 0.06,
+               track.peak >= threshold, value >= max(threshold * 0.85, track.peak * 0.65),
+               track.peak - track.originValue >= threshold * 0.5 { return track.gesture }
+            return nil
+        }
+        guard !neutral else { return nil }
+        let choices = directions.compactMap { gesture -> (FaceGesture, Double)? in
+            guard directionArmed.contains(gesture), let value = directionalValue(gesture, m),
+                  value >= directionalThreshold(gesture) * 0.45, dominant(gesture, value) else { return nil }
+            return (gesture, value)
+        }.sorted { $0.1 / directionalThreshold($0.0) > $1.1 / directionalThreshold($1.0) }
+        guard let (gesture, value) = choices.first else { return nil }
+        var origin = 0.0
+        if let previousPose, sample.time - previousPose.time <= 0.25 {
+            switch gesture {
+            case .lookRight: origin = previousPose.yaw ?? value
+            case .lookLeft: origin = previousPose.yaw.map { -$0 } ?? value
+            case .lookDown: origin = previousPose.pitch ?? value
+            default: break
+            }
+        } else {
+            // A gap cannot invent an unseen onset, even if the first recovered frame is turned.
+            resetDirectionalMotion(); return nil
+        }
+        directionalExcursion = DirectionalExcursion(gesture: gesture, start: sample.time,
+            originValue: origin, firstValue: value, lastValid: sample.time, lastValue: value, peak: value)
+        return nil
+    }
+    private mutating func resetDirectionalMotion() {
+        directionalExcursion = nil
+        directionArmed.removeAll(keepingCapacity: true)
+        directionNeutralSince.removeAll(keepingCapacity: true)
+        previousPose = nil
     }
     private mutating func revoke(_ gesture: FaceGesture) {
         excursions[gesture] = nil
@@ -398,6 +626,8 @@ struct FaceGestureDetector: Sendable {
     }
     private var pitchThreshold: Double { max(0.12 * settings.sensitivity.thresholdScale, pitchNoise * 5) }
     private var yawThreshold: Double { max(0.15 * settings.sensitivity.thresholdScale, yawNoise * 5) }
+    private var directionalPitchThreshold: Double { max(0.095 * settings.sensitivity.thresholdScale, pitchNoise * 4.5) }
+    private var directionalYawThreshold: Double { max(0.085 * settings.sensitivity.thresholdScale, yawNoise * 4.5) }
     private var smileThreshold: Double { max(0.055 * settings.sensitivity.thresholdScale, smileNoise * 5) }
     private var liftThreshold: Double { max(0.025 * settings.sensitivity.thresholdScale, liftNoise * 5) }
     private var strengthThreshold: Double { max(0.14 * settings.sensitivity.thresholdScale, strengthNoise * 5) }
@@ -410,6 +640,8 @@ struct FaceGestureDetector: Sendable {
     }
     private func isNeutral(_ gesture: FaceGesture, _ m: Measurements) -> Bool {
         switch gesture {
+        case .lookRight, .lookLeft: m.yaw.map { abs($0) < directionalYawThreshold * 0.35 } ?? false
+        case .lookDown: m.pitch.map { abs($0) < directionalPitchThreshold * 0.35 } ?? false
         case .nod: m.pitch.map { abs($0) < pitchThreshold * 0.6 } ?? false
         case .shake: m.yaw.map { abs($0) < yawThreshold * 0.55 } ?? false
         case .grin: m.has(.grin) && activation(.grin, m) < 0.4
@@ -420,6 +652,9 @@ struct FaceGestureDetector: Sendable {
     }
     private func activation(_ gesture: FaceGesture, _ m: Measurements) -> Double {
         switch gesture {
+        case .lookRight: return m.yaw.map { $0 / directionalYawThreshold } ?? 0
+        case .lookLeft: return m.yaw.map { -$0 / directionalYawThreshold } ?? 0
+        case .lookDown: return m.pitch.map { $0 / directionalPitchThreshold } ?? 0
         case .nod: return m.pitch.map { abs($0) / pitchThreshold } ?? 0
         case .shake: return m.yaw.map { abs($0) / yawThreshold } ?? 0
         case .grin:
@@ -438,6 +673,7 @@ struct FaceGestureDetector: Sendable {
             return abs(current - initial)
         }
         switch track.gesture {
+        case .lookRight, .lookLeft, .lookDown: return false
         case .nod: return change(m.yaw, track.initialYaw) > max(0.16, track.peak * 0.7)
         case .shake: return change(m.pitch, track.initialPitch) > max(0.16, track.peak * 0.7)
         case .grin, .mouthOpen, .eyesClosed:
@@ -450,6 +686,10 @@ struct FaceGestureDetector: Sendable {
         let median = valid[valid.count / 2]
         let deviations = valid.map { abs($0 - median) }.sorted()
         return deviations[deviations.count / 2] * 1.4826
+    }
+    private func unwrappedYaw(_ values: [Double?]) -> [Double?] {
+        guard let reference = values.compactMap({ $0 }).first else { return values }
+        return values.map { $0.map { reference + atan2(sin($0 - reference), cos($0 - reference)) } }
     }
     private func stableMedian(_ values: [Double?], spread: Double) -> Double? {
         let sorted = values.compactMap { $0 }.sorted()
@@ -479,7 +719,9 @@ struct FaceGestureDetector: Sendable {
                 return measured / neutral
             }
             pitch = difference(sample.measuredPitch, baseline.pitch)
-            yaw = difference(sample.measuredYaw, baseline.yaw)
+            // Camera-relative pose may cross the ±pi seam. It is a small movement there,
+            // not a nearly full-circle turn away from the calibrated reading posture.
+            yaw = difference(sample.measuredYaw, baseline.yaw).map { atan2(sin($0), cos($0)) }
             smile = difference(sample.measuredSmile, baseline.smileWidth)
             lift = difference(sample.measuredLift, baseline.smileLift)
             strength = difference(sample.measuredStrength, baseline.smileStrength)
@@ -489,6 +731,8 @@ struct FaceGestureDetector: Sendable {
         }
         func has(_ gesture: FaceGesture) -> Bool {
             switch gesture {
+            case .lookRight, .lookLeft: yaw != nil
+            case .lookDown: pitch != nil
             case .nod: pitch != nil
             case .shake: yaw != nil
             case .grin: smile != nil || lift != nil || strength != nil

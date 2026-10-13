@@ -1,0 +1,101 @@
+{
+  "cases": [
+    {
+      "actual": [
+        "true"
+      ],
+      "name": "legacy_migration_and_new_customization_roundtrip",
+      "passed": true
+    },
+    {
+      "actual": [
+        "lookRight",
+        "lookLeft"
+      ],
+      "name": "onset_before_return_once_while_held_neutral_rearm_opposite",
+      "passed": true
+    },
+    {
+      "actual": [
+        "lookDown"
+      ],
+      "name": "down_is_relative_to_normal_reading_posture",
+      "passed": true
+    },
+    {
+      "actual": [],
+      "name": "stationary_jitter_does_not_command",
+      "passed": true
+    },
+    {
+      "actual": [],
+      "name": "equal_diagonal_motion_is_ambiguous",
+      "passed": true
+    },
+    {
+      "actual": [
+        "lookRight"
+      ],
+      "name": "supported_short_loss_and_measured_neutral_complete_one_page",
+      "passed": true
+    },
+    {
+      "actual": [],
+      "name": "loss_neutral_continuation_never_records_rep",
+      "passed": true
+    },
+    {
+      "actual": [],
+      "name": "prolonged_absence_never_commands",
+      "passed": true
+    },
+    {
+      "actual": [],
+      "name": "multiple_faces_revoke_loss",
+      "passed": true
+    },
+    {
+      "actual": [],
+      "name": "dark_visible_face_revoke_loss",
+      "passed": true
+    },
+    {
+      "actual": [
+        "true"
+      ],
+      "name": "pose_source_switch_revokes_candidate_and_baseline",
+      "passed": true
+    },
+    {
+      "actual": [
+        "lookRight"
+      ],
+      "name": "yaw_wraparound_uses_short_signed_difference",
+      "passed": true
+    },
+    {
+      "actual": [],
+      "name": "single_high_pose_spike_never_commands",
+      "passed": true
+    },
+    {
+      "actual": [],
+      "name": "slow_reading_posture_drift_never_commands",
+      "passed": true
+    },
+    {
+      "actual": [],
+      "name": "missing_pitch_does_not_disable_measured_horizontal_look",
+      "passed": false
+    }
+  ],
+  "checks": 15,
+  "passed": 14,
+  "result": "failed",
+  "scope": "Standalone current detector source; synthetic measurements, no capture, simulator or physical device operations.",
+  "sourceSHA256": "7e48bae93a2c9a6d6be56a88732b37ef3497e0627fb71a247ada5c2494719d95",
+  "sourceUnchangedDuringRun": true,
+  "checkedUTC": "2026-10-13T21:03:02.636724+00:00",
+  "boundary": "Failed initial independent synthetic detector run. Fourteen checks pass; missing pitch blocks horizontal rearm after calibration. This snapshot remains historical after repair and establishes no camera, simulator or physical acceptance.",
+  "probeSourceSHA256": "91570fb09aa66786fca527a49e138abd2c907245c9cac41e7840977ee6df32d8"
+}

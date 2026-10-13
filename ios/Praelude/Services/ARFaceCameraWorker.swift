@@ -2,6 +2,24 @@
 @preconcurrency import AVFoundation
 import UIKit
 import simd
+import ImageIO
+
+/// A bounded AR loss may recover during a turn. A usable image fallback becomes sticky for
+/// this camera session, avoiding repeated source changes and neutral calibration at the piano.
+struct FaceTrackingBackendSelector {
+    private(set) var source: FaceGesturePoseSource = .arkit
+    private var lostSince: TimeInterval?
+    private var lastTime: TimeInterval?
+    mutating func select(arUsable: Bool, visionUsable: Bool, at time: TimeInterval) -> FaceGesturePoseSource {
+        guard time.isFinite, lastTime.map({ time >= $0 }) ?? true else { return source }
+        lastTime = time
+        guard source != .vision else { return source }
+        if arUsable { lostSince = nil; return source }
+        lostSince = lostSince ?? time
+        if visionUsable, time - lostSince! >= 0.3 { source = .vision }
+        return source
+    }
+}
 
 /// Geometry conversion is independent of capture, so orientation and pose can be checked
 /// without pretending that a Simulator supplies face tracking.
@@ -40,7 +58,27 @@ enum ARFaceCameraGeometry {
         guard normal.x.isFinite, normal.y.isFinite, normal.z.isFinite,
               simd_length_squared(normal) > 0.0001 else { return nil }
         return (atan2(-Double(normal.y), hypot(Double(normal.x), Double(normal.z))),
-                atan2(Double(normal.x), Double(normal.z)))
+                -atan2(Double(normal.x), Double(normal.z)))
+    }
+
+    /// ARKit supplies the actual image-to-view transform, including front-camera mirroring.
+    /// Vision receives only the upright rotation; its unmirrored yaw has one stable sign.
+    /// Overlay coordinates are then mapped back through ARKit's exact display transform.
+    static func visionAlignment(displayTransform: CGAffineTransform) ->
+        (orientation: CGImagePropertyOrientation, imageToVision: CGAffineTransform, visionToDisplay: CGAffineTransform) {
+        let mirrored = displayTransform.a * displayTransform.d - displayTransform.b * displayTransform.c < 0
+        let upright = mirrored ? displayTransform.concatenating(CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 1, ty: 0)) : displayTransform
+        let orientation: CGImagePropertyOrientation
+        let rotation: CGAffineTransform
+        if abs(upright.a) >= abs(upright.b) {
+            if upright.a >= 0 { orientation = .up; rotation = .identity }
+            else { orientation = .down; rotation = CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: 1, ty: 1) }
+        } else if upright.b >= 0 {
+            orientation = .right; rotation = CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 1, ty: 0)
+        } else {
+            orientation = .left; rotation = CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: 1)
+        }
+        return (orientation, rotation, rotation.inverted().concatenating(displayTransform))
     }
 
     static func coefficient(_ value: Double?) -> Double? {
@@ -99,6 +137,8 @@ final class ARFaceCameraWorker: NSObject, FaceCameraCapturing, ARSessionDelegate
     private var lastFrame = -Double.infinity
     private var lastSeenFrame = -Double.infinity
     private var lastTrackingDelay = -Double.infinity
+    private var backend = FaceTrackingBackendSelector()
+    private let vision = FaceVisionAnalyzer()
 
     var captureSession: AVCaptureSession? { nil }
     var faceTrackingSession: ARSession? { session }
@@ -165,7 +205,7 @@ final class ARFaceCameraWorker: NSObject, FaceCameraCapturing, ARSessionDelegate
                 lastTrackingDelay = now
                 let viewport = ARFaceCameraGeometry.viewport(imageResolution: frame.camera.imageResolution, orientation: state.1)
                 deliver(FaceCameraFrame(sample: FaceGestureSample(time: timestamp, pitch: .nan, yaw: .nan,
-                    smileWidth: .nan, luminance: 0.5, confidence: 0, faceCount: 0, faceArea: 0),
+                    smileWidth: .nan, luminance: 0.5, confidence: 0, faceCount: 0, faceArea: 0, poseSource: backend.source),
                     face: nil, landmarks: [], orientationRevision: state.2,
                     trackingIssue: "Tracking delayed · gestures paused", imageAspect: viewport.width / viewport.height,
                     trackingMode: "3D face tracking", processedAt: now))
@@ -176,18 +216,66 @@ final class ARFaceCameraWorker: NSObject, FaceCameraCapturing, ARSessionDelegate
         lastFrame = frame.timestamp
         let viewport = ARFaceCameraGeometry.viewport(imageResolution: frame.camera.imageResolution, orientation: state.1)
         let faces = frame.anchors.compactMap { $0 as? ARFaceAnchor }.filter(\.isTracked)
-        guard faces.count == 1, let face = faces.first else {
-            deliver(FaceCameraFrame(sample: FaceGestureSample(time: timestamp, pitch: .nan, yaw: .nan,
-                smileWidth: .nan, luminance: 0.5, confidence: 0, faceCount: faces.count, faceArea: 0),
-                face: nil, landmarks: [], orientationRevision: state.2, imageAspect: viewport.width / viewport.height,
-                trackingMode: "3D face tracking", processedAt: ProcessInfo.processInfo.systemUptime))
+        // Never hide a second tracked face by selecting a single Vision observation.
+        guard faces.count <= 1 else {
+            deliver(emptyFrame(time: timestamp, count: faces.count, revision: state.2, viewport: viewport))
             return
         }
-        let cameraRelative = frame.camera.viewMatrix(for: state.1) * face.transform
+        let ar = backend.source == .vision ? nil : faces.first.map {
+            arMeasurement(frame, face: $0, orientation: state.1, revision: state.2, viewport: viewport)
+        }
+        if backend.source != .vision, let ar, ar.sample.usable {
+            _ = backend.select(arUsable: true, visionUsable: false, at: timestamp)
+            guard !lock.withLock({ cancelled }) else { return }
+            deliver(ar)
+            return
+        }
+        let alignment = ARFaceCameraGeometry.visionAlignment(
+            displayTransform: frame.displayTransform(for: state.1, viewportSize: viewport))
+        do {
+            let fallback = try vision.analyze(frame.capturedImage, orientation: alignment.orientation,
+                time: timestamp, revision: state.2, imageAspect: viewport.width / viewport.height,
+                imageToVision: alignment.imageToVision, visionToDisplay: alignment.visionToDisplay,
+                trackingMode: "Distance camera landmarks")
+            if fallback.sample.faceCount > 1 {
+                deliver(emptyFrame(time: timestamp, count: fallback.sample.faceCount, revision: state.2, viewport: viewport))
+                return
+            }
+            let source = backend.select(arUsable: false, visionUsable: fallback.sample.usable, at: timestamp)
+            guard !lock.withLock({ cancelled }) else { return }
+            if source == .vision { deliver(fallback) }
+            else if fallback.sample.faceCount == 1, !fallback.sample.usable {
+                // A known dark/unreliable face is not an absence that can complete a turn.
+                deliver(FaceCameraFrame(sample: FaceGestureSample(time: timestamp, pitch: .nan, yaw: .nan,
+                    smileWidth: .nan, luminance: fallback.sample.luminance, confidence: fallback.sample.confidence,
+                    faceCount: 1, faceArea: fallback.sample.faceArea, poseSource: backend.source),
+                    face: fallback.face, landmarks: fallback.landmarks, orientationRevision: state.2,
+                    imageAspect: viewport.width / viewport.height, trackingMode: "3D face tracking"))
+            } else { deliver(ar ?? emptyFrame(time: timestamp, count: 0, revision: state.2, viewport: viewport)) }
+        } catch {
+            guard !lock.withLock({ cancelled }) else { return }
+            deliver(emptyFrame(time: timestamp, count: 0, revision: state.2, viewport: viewport,
+                issue: "Image tracking interrupted · hold facing the iPad"))
+        }
+    }
+
+    private func emptyFrame(time: TimeInterval, count: Int, revision: Int, viewport: CGSize,
+                            issue: String? = nil) -> FaceCameraFrame {
+        FaceCameraFrame(sample: FaceGestureSample(time: time, pitch: .nan, yaw: .nan, smileWidth: .nan,
+            luminance: 0.5, confidence: 0, faceCount: count, faceArea: 0, poseSource: backend.source),
+            face: nil, landmarks: [], orientationRevision: revision, trackingIssue: issue,
+            imageAspect: viewport.width / viewport.height,
+            trackingMode: backend.source == .vision ? "Distance camera landmarks" : "3D face tracking",
+            processedAt: ProcessInfo.processInfo.systemUptime)
+    }
+
+    private func arMeasurement(_ frame: ARFrame, face: ARFaceAnchor, orientation: UIInterfaceOrientation,
+                               revision: Int, viewport: CGSize) -> FaceCameraFrame {
+        let cameraRelative = frame.camera.viewMatrix(for: orientation) * face.transform
         let pose = ARFaceCameraGeometry.headPose(cameraRelative: cameraRelative)
         let projected = face.geometry.vertices.map { vertex -> CGPoint in
             let world = face.transform * SIMD4<Float>(vertex.x, vertex.y, vertex.z, 1)
-            return frame.camera.projectPoint(SIMD3<Float>(world.x, world.y, world.z), orientation: state.1, viewportSize: viewport)
+            return frame.camera.projectPoint(SIMD3<Float>(world.x, world.y, world.z), orientation: orientation, viewportSize: viewport)
         }
         let geometry = ARFaceCameraGeometry.normalizedProjection(projected, viewport: viewport)
         func blend(_ location: ARFaceAnchor.BlendShapeLocation) -> Double? {
@@ -197,39 +285,15 @@ final class ARFaceCameraWorker: NSObject, FaceCameraCapturing, ARSessionDelegate
         let leftEye = blend(.eyeBlinkLeft).map { 0.3 * (1 - $0) }
         let rightEye = blend(.eyeBlinkRight).map { 0.3 * (1 - $0) }
         let imageRegion = ARFaceCameraGeometry.imageRegion(projectedFace: geometry.face,
-            displayTransform: frame.displayTransform(for: state.1, viewportSize: viewport))
-        let brightness = Self.luminance(frame.capturedImage, region: imageRegion)
-        let sample = FaceGestureSample(time: timestamp, pitch: pose?.pitch ?? .nan, yaw: pose?.yaw ?? .nan,
-            smileWidth: .nan, luminance: brightness, confidence: 1, faceCount: 1,
-            faceArea: geometry.face.map { Double($0.width * $0.height) } ?? 0,
+            displayTransform: frame.displayTransform(for: orientation, viewportSize: viewport))
+        let sample = FaceGestureSample(time: frame.timestamp, pitch: pose?.pitch ?? .nan, yaw: pose?.yaw ?? .nan,
+            smileWidth: .nan, luminance: FaceCameraGeometry.luminance(frame.capturedImage, box: imageRegion),
+            confidence: 1, faceCount: 1, faceArea: geometry.face.map { Double($0.width * $0.height) } ?? 0,
             mouthOpen: blend(.jawOpen), leftEyeOpen: leftEye, rightEyeOpen: rightEye,
-            smileStrength: smile)
-        guard !lock.withLock({ cancelled }) else { return }
-        deliver(FaceCameraFrame(sample: sample, face: geometry.face, landmarks: geometry.landmarks,
-            orientationRevision: state.2, imageAspect: viewport.width / viewport.height,
-            trackingMode: "3D face tracking", processedAt: ProcessInfo.processInfo.systemUptime))
-    }
-
-    /// A small grid from the camera's luma plane is sufficient for a darkness hint; ARKit's
-    /// tracked anchor remains the authority for visibility and expression measurements.
-    private static func luminance(_ image: CVPixelBuffer, region: CGRect?) -> Double {
-        guard let region, CVPixelBufferIsPlanar(image), CVPixelBufferGetPlaneCount(image) > 0 else { return 0.5 }
-        CVPixelBufferLockBaseAddress(image, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(image, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddressOfPlane(image, 0) else { return 0.5 }
-        let width = CVPixelBufferGetWidthOfPlane(image, 0), height = CVPixelBufferGetHeightOfPlane(image, 0)
-        let stride = CVPixelBufferGetBytesPerRowOfPlane(image, 0)
-        guard width > 0, height > 0 else { return 0.5 }
-        let bytes = base.assumingMemoryBound(to: UInt8.self)
-        var total = 0.0
-        for y in 0..<8 {
-            let sampleY = min(height - 1, max(0, Int((region.minY + CGFloat(2 * y + 1) * region.height / 16) * CGFloat(height))))
-            for x in 0..<8 {
-                let sampleX = min(width - 1, max(0, Int((region.minX + CGFloat(2 * x + 1) * region.width / 16) * CGFloat(width))))
-                total += Double(bytes[sampleY * stride + sampleX])
-            }
-        }
-        return total / (64 * 255)
+            smileStrength: smile, poseSource: .arkit)
+        return FaceCameraFrame(sample: sample, face: geometry.face, landmarks: geometry.landmarks,
+            orientationRevision: revision, imageAspect: viewport.width / viewport.height,
+            trackingMode: "3D face tracking", processedAt: ProcessInfo.processInfo.systemUptime)
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {

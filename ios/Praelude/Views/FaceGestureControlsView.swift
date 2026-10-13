@@ -59,15 +59,22 @@ struct FaceGestureControlsView: View {
 
                 Section {
                     ForEach(commands) { command in
-                        Picker(command.title, selection: expressionBinding(for: command)) {
-                            Text("Unassigned").tag(Optional<FaceGesture>.none)
-                            ForEach(FaceGesture.allCases) { gesture in
-                                Text(gesture.title).tag(Optional(gesture))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Picker(command.title, selection: expressionBinding(for: command)) {
+                                Text("Unassigned").tag(Optional<FaceGesture>.none)
+                                ForEach(FaceGesture.allCases) { gesture in
+                                    Text(gesture.title).tag(Optional(gesture))
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("faceCommand_" + command.rawValue)
+                            if let gesture = camera.settings.gesture(for: command), camera.settings.suspendedGestures.contains(gesture) {
+                                Text("\(gesture.title) is paused while quick looks use the same head movement. Choose another expression here, or unassign the quick look.")
+                                    .font(.caption).foregroundStyle(.orange)
+                                    .accessibilityIdentifier("pausedFaceCommand_" + command.rawValue)
                             }
                         }
-                        .pickerStyle(.menu)
-                        .frame(minHeight: 44)
-                        .accessibilityIdentifier("faceCommand_" + command.rawValue)
                     }
                     if let mappingFeedback {
                         Text(mappingFeedback).font(.caption).foregroundStyle(.secondary)
@@ -82,15 +89,15 @@ struct FaceGestureControlsView: View {
                 }
 
                 Section("Test your expressions") {
-                    Text("Commands are paused in this panel. Make an expression, then relax to test it. Return to the score when ready.")
+                    Text("Commands are paused in this panel. Quickly turn your head toward your right shoulder or left shoulder, or lower your chin, then return to your usual position. These are head movements; you do not need to hold an expression.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button(camera.calibrated ? "Recalibrate neutral face" : "Calibrate neutral face") { camera.calibrate() }
                         .frame(minHeight: 44).disabled(!camera.isEnabled)
                         .accessibilityIdentifier("calibrateFaceCamera")
-                    Text("Sit as you will at the piano with your face relaxed. Calibration starts automatically when tracking is steady. Recalibrate after moving the iPad.")
+                    Text("Calibrate from your normal piano distance, looking at the score with your face relaxed. If 3D tracking loses your face, camera landmarks take over for this session and calibrate once again. Keep the iPad where it can see your usual head position.")
                         .font(.caption).foregroundStyle(.secondary)
                     if camera.calibrated {
-                        Text("Available: " + FaceGesture.allCases.filter { camera.availableGestures.contains($0) }.map(\.title).joined(separator: ", "))
+                        Text("Available: " + FaceGesture.allCases.filter { camera.availableGestures.contains($0) && !camera.settings.suspendedGestures.contains($0) }.map(\.title).joined(separator: ", "))
                             .font(.caption).foregroundStyle(.secondary)
                             .accessibilityIdentifier("availableFaceGestures")
                     }
@@ -110,13 +117,16 @@ struct FaceGestureControlsView: View {
                             Text(sensitivity.title).tag(sensitivity)
                         }
                     }.pickerStyle(.menu).frame(minHeight: 44).accessibilityIdentifier("faceGestureSensitivity")
+                    Stepper(value: $camera.settings.directionCooldown, in: 0.25...1, step: 0.05) {
+                        LabeledContent("Head-look interval", value: seconds(camera.settings.directionCooldown))
+                    }.frame(minHeight: 44).accessibilityIdentifier("faceGestureDirectionCooldown")
                     Stepper(value: $camera.settings.holdDuration, in: 0.2...1.2, step: 0.1) {
                         LabeledContent("Expression hold", value: seconds(camera.settings.holdDuration))
                     }.frame(minHeight: 44).accessibilityIdentifier("faceGestureHold")
                     Stepper(value: $camera.settings.cooldown, in: 0.5...3, step: 0.25) {
                         LabeledContent("Time between commands", value: seconds(camera.settings.cooldown))
                     }.frame(minHeight: 44).accessibilityIdentifier("faceGestureCooldown")
-                    Text("Easy responds to smaller movements. Deliberate requires larger movements. Expression hold applies to smiling or opening your mouth; closing both eyes requires at least 0.6 seconds. A longer pause reduces accidental commands. Return to your relaxed face after each expression.")
+                    Text("Easy responds to smaller head movements. Quick looks have their own short interval and rearm when you return to center. Expression hold and Time between commands apply to smiling, opening your mouth and the older gestures; closing both eyes requires at least 0.6 seconds.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

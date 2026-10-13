@@ -1,6 +1,7 @@
 import XCTest
 import ARKit
 import simd
+import ImageIO
 @testable import Praelude
 
 final class ARFaceCameraGeometryTests: XCTestCase {
@@ -41,7 +42,7 @@ final class ARFaceCameraGeometryTests: XCTestCase {
         face.columns.3 = SIMD4<Float>(5, -3, -0.7, 1)
         let pose = try XCTUnwrap(ARFaceCameraGeometry.headPose(cameraRelative: face))
         XCTAssertEqual(pose.pitch, Double(pitch), accuracy: 0.000001)
-        XCTAssertEqual(pose.yaw, Double(yaw), accuracy: 0.000001)
+        XCTAssertEqual(pose.yaw, -Double(yaw), accuracy: 0.000001)
         let roll = simd_float4x4(simd_quatf(angle: 0.6, axis: SIMD3<Float>(0, 0, 1)))
         let rolled = try XCTUnwrap(ARFaceCameraGeometry.headPose(cameraRelative: face * roll))
         XCTAssertEqual(rolled.pitch, pose.pitch, accuracy: 0.000001)
@@ -91,5 +92,66 @@ final class ARFaceCameraGeometryTests: XCTestCase {
         XCTAssertEqual(sensor.width, 0.2, accuracy: 0.000001)
         XCTAssertEqual(sensor.height, 0.4, accuracy: 0.000001)
         XCTAssertNil(ARFaceCameraGeometry.imageRegion(projectedFace: nil, displayTransform: .identity))
+    }
+
+    func testPlayerRightLeftAndDownNormalsKeepTheirSignsAcrossFourViewOrientations() throws {
+        let angle: Float = 0.2
+        // Apple defines +x as the face's LEFT and +y as UP. These explicit outward normals
+        // therefore represent the player's right, left and down independently of Euler signs.
+        let examples: [(SIMD3<Float>, Double, Double)] = [
+            (SIMD3<Float>(-sin(angle), 0, cos(angle)), 0, Double(angle)),
+            (SIMD3<Float>(sin(angle), 0, cos(angle)), 0, -Double(angle)),
+            (SIMD3<Float>(0, -sin(angle), cos(angle)), Double(angle), 0)
+        ]
+        for rotation in [Float(0), .pi / 2, .pi, -.pi / 2] {
+            let cameraView = simd_float4x4(simd_quatf(angle: rotation, axis: SIMD3<Float>(0, 0, 1)))
+            for (normal, pitch, yaw) in examples {
+                var uprightFace = matrix_identity_float4x4
+                uprightFace.columns.2 = SIMD4<Float>(normal, 0)
+                let sensorFace = simd_inverse(cameraView) * uprightFace
+                let actual = try XCTUnwrap(ARFaceCameraGeometry.headPose(cameraRelative: cameraView * sensorFace))
+                XCTAssertEqual(actual.pitch, pitch, accuracy: 0.000001)
+                XCTAssertEqual(actual.yaw, yaw, accuracy: 0.000001)
+            }
+        }
+    }
+
+    func testVisionUprightRotationAndPreviewMappingAgreeIncludingFrontMirrorAndCrop() {
+        let rotations: [(CGImagePropertyOrientation, CGAffineTransform)] = [
+            (.up, .identity),
+            (.right, CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 1, ty: 0)),
+            (.down, CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: 1, ty: 1)),
+            (.left, CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: 1))
+        ]
+        let crop = CGAffineTransform(a: 0.8, b: 0, c: 0, d: 0.8, tx: 0.1, ty: 0.1)
+        let mirror = CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 1, ty: 0)
+        let imagePoint = CGPoint(x: 0.2, y: 0.3)
+        for (orientation, rotation) in rotations {
+            for mirrored in [false, true] {
+                var display = rotation.concatenating(crop)
+                if mirrored { display = display.concatenating(mirror) }
+                let alignment = ARFaceCameraGeometry.visionAlignment(displayTransform: display)
+                XCTAssertEqual(alignment.orientation, orientation)
+                let overlay = imagePoint.applying(alignment.imageToVision).applying(alignment.visionToDisplay)
+                let expected = imagePoint.applying(display)
+                XCTAssertEqual(overlay.x, expected.x, accuracy: 0.000001)
+                XCTAssertEqual(overlay.y, expected.y, accuracy: 0.000001)
+            }
+        }
+        XCTAssertEqual(FaceCameraGeometry.playerYaw(visionYaw: -0.2, mirrored: false), 0.2)
+        XCTAssertEqual(FaceCameraGeometry.playerYaw(visionYaw: 0.2, mirrored: true), 0.2)
+    }
+
+    func testFallbackAllowsBriefARLossThenStaysOnVisionForTheCameraSession() {
+        var selector = FaceTrackingBackendSelector()
+        XCTAssertEqual(selector.select(arUsable: true, visionUsable: false, at: 1), .arkit)
+        XCTAssertEqual(selector.select(arUsable: false, visionUsable: true, at: 1.1), .arkit)
+        XCTAssertEqual(selector.select(arUsable: false, visionUsable: true, at: 1.25), .arkit)
+        XCTAssertEqual(selector.select(arUsable: true, visionUsable: true, at: 1.3), .arkit)
+        XCTAssertEqual(selector.select(arUsable: false, visionUsable: true, at: 2), .arkit)
+        XCTAssertEqual(selector.select(arUsable: false, visionUsable: true, at: .nan), .arkit)
+        XCTAssertEqual(selector.select(arUsable: false, visionUsable: true, at: 1), .arkit)
+        XCTAssertEqual(selector.select(arUsable: false, visionUsable: true, at: 2.31), .vision)
+        XCTAssertEqual(selector.select(arUsable: true, visionUsable: true, at: 3), .vision)
     }
 }

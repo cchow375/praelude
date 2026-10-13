@@ -1,0 +1,142 @@
+{
+  "recordedUTC": "2026-10-13T21:17:01.774843+00:00",
+  "version": "2.0.0",
+  "build": 18,
+  "schema": 5,
+  "physicalSetup": {
+    "faceDistanceFeet": "2.5\u20133, user reported",
+    "orientation": "upright/portrait, almost always"
+  },
+  "core": {
+    "executed": 520,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 3.95,
+    "targetedFaceCases": 59,
+    "logSHA256": "cc75a582c6890640b740564df071212c55f3ad1032e459a9c2ebb4d069994afb"
+  },
+  "deterministicServices": {
+    "assertions": 2340,
+    "result": "passed"
+  },
+  "native": {
+    "executed": 337,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 17.542,
+    "newCases": 6,
+    "runType": "Atomic xcodebuild test on final accepted-command source",
+    "logSHA256": "0e3b58359b7c814510ca7cd5be4c2f4acf352601b802bbc4f789261654b38f6f",
+    "boundary": "Real compiled app/geometry and injected measurements; not physical face capture."
+  },
+  "independentDetector": {
+    "checks": 15,
+    "failures": 0,
+    "report": "direction-independent-final.json"
+  },
+  "affectedUI": {
+    "result": "passed",
+    "executed": 2,
+    "failures": 0,
+    "mappingPersistReopenSeconds": 189.977,
+    "sixCameraStartStopAndNinePreviewPairsSeconds": 469.423,
+    "logSHA256": "0a5c6e3b8525504a3df1c926164cbaa028eddbdce3ce270fd596748696be4178",
+    "identity": "Atomic xcodebuild test; uniquely renamed testBuild18QuickDirectionalMappingsPersistAndRemainCustomizable executes current direct-entry fixture. Preview queries Any identifier and controls use single120ms contact without retry.",
+    "boundary": "Disposable seeded library and steady synthetic face measurements only; no real AR video or moving-face to score-action recognition acceptance. UI/controls/core are unchanged by the later accepted-command service epoch fix; final native337 covers that delta."
+  },
+  "independentLive": {
+    "result": "passed",
+    "report": "independent-live-final.json",
+    "broaderUnchangedControlsReport": "independent-live-before-command-fix.json",
+    "scope": "Final current app/bundle/source identity, normal score navigation, synthetic Enable/calibration/preview/Off/Done and full unchanged library. Broader pre-command-fix mapping/relaunch/preview controls remain exact in source.",
+    "manualHeadLookInterval": "untested; wheel and one CUA drag did not move lower form, no product-scroll cause inferred.",
+    "physicalLimit": "Steady neutral synthetic frames; no actual AR video or natural face-to-score-command acceptance."
+  },
+  "release": {
+    "report": "release-independent.json",
+    "genericExecutableSHA256": "83edcd72f640ad975145951d3552a48857eb2d2cfbfe8c6780edca2edd3262e7",
+    "sourceProvenance": "source-final-provenance.json",
+    "archive": "release-package.json",
+    "boundary": "Final signed product; exact source/package/profile checks reported independently. Hardware recognition remains pending.",
+    "checks": 69,
+    "result": "passed",
+    "allCurrentSourceFiles": 283,
+    "allCurrentResourceFiles": 10
+  },
+  "retainedFailures": [
+    {
+      "run": "build1",
+      "result": "compile failed",
+      "finding": "Missing nil return in new consumeDirection helper; repaired before final tests."
+    },
+    {
+      "run": "targeted core initial",
+      "executed": 58,
+      "failedAssertions": 2,
+      "finding": "Old rejection fixture used face area now allowed for head pose; .0019 rejection and .002 head-only acceptance verified in final."
+    },
+    {
+      "run": "independent detector initial",
+      "passed": 14,
+      "checks": 15,
+      "finding": "Missing pitch blocked valid horizontal rearm; fixed per-axis measured neutral and new regression, final15/15."
+    },
+    {
+      "run": "final-tests UI initial",
+      "mappingSeconds": 52.05,
+      "mappingFailure": "Card tap left Pieces before any camera assertion; delivery/cause unproven. Later mapping uses explicit disposable score entry; independent live navigation separate.",
+      "previewSeconds": 112.831,
+      "previewFailure": "Query expected AXOther but hierarchy shows AXStaticText faceCameraPreview with preview switch1; selector corrected.",
+      "native": "336/1skip/0fail17.012s; combined command exit65 dueUI failures."
+    },
+    {
+      "run": "ui-final",
+      "mappingSeconds": 19.37,
+      "mappingFailure": "Root omitted required audit-gesture-preservation companion flag for direct-entry fixture; no camera assertions reached; fixed test only.",
+      "previewSeconds": 88.319,
+      "previewFailure": "Native switch center tap did not change1\u21920; app/hierarchy responsive, no delivered/cancelled trace or cause. Single120ms no-retry contacts used for bounded final rerun."
+    },
+    {
+      "run": "ui-final2",
+      "mappingSeconds": 21.6,
+      "previewSeconds": 73.073,
+      "result": "failed, unaccepted as current-source verification",
+      "finding": "Execution output still followed normal navigation and Other-type preview query despite updated fixture/Any selector. Correct build18 xctestrun paths and built/installed disk hashes did not prove loaded runner code. Atomic build+test with uniquely renamed case establishes current execution; no production cause inferred."
+    },
+    {
+      "run": "native-command-final",
+      "result": "interrupted during compilation before native tests",
+      "finding": "Root started before independent Simulator ownership was released; stopped exact compiler/test operation before execution. Independent agent observed no manual interruption; no test credit."
+    }
+  ],
+  "physicalAcceptance": "pending real right/left/down reliability, sensor direction/alignment, distance throughput, accidental commands and score page/rep latency",
+  "delivery": "pending guarded personal installation; friend held atBuild12; Mac unchanged",
+  "sourceCheckpoint": "ios-v2.0.0-build18-candidate",
+  "lateRepair": {
+    "finding": "A valid onset-recognized rep could be discarded if tracking loss or automatic source change changed commandContextID while asynchronous library preparation awaited.",
+    "change": "Tracking-only epoch retirement is suppressed for an already recognized commandInFlight; detector motion/calibration reset still blocks future recognition. Explicit Off/remap/calibrate/rotation/input gates still cancel.",
+    "coreAndControlsUnchanged": true,
+    "nativeRegression": "Real Look down\u2192Clean dispatch then no-face/stale/source-switch retains accepted epoch/no extra action; explicit remap/gate/stop retire it.",
+    "verification": "Final337 native/1skip/0fail17.542s and independent current-app smoke pass; signed Release rebuilt with all283source/10resources exact."
+  },
+  "nativeBeforeAcceptedCommandFix": {
+    "executed": 336,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 17.053,
+    "newCases": 5,
+    "scope": "Real compiled app with injected measurements and geometry/runtime fixtures; not physical camera capture.",
+    "previousRunSeconds": 17.012,
+    "runType": "Atomic xcodebuild test after current UI pass; successful final production/source with only explicit UI fixture delta to original capture.",
+    "logSHA256": "dc312052804025df1f8b1fa077b9bd25cafeb88e33d874eda5820616db5dd1e7"
+  },
+  "releaseBeforeAcceptedCommandFix": {
+    "report": "release-independent.json",
+    "genericExecutableSHA256": "9161525fdaa98363cd7919eeee64435fdaf73a339986f0ecf77070e2581316af",
+    "testOnlyDelta": "FreshBuild13UITests.swift changes entry flags, AX preview selector and single120ms contact; production/resources remain exact.",
+    "checks": 69,
+    "sourceProvenance": "source-final-provenance.json",
+    "postTestFixtureProvenance": "source-post-ui-fixture-provenance.json",
+    "archive": "release-package.json"
+  }
+}

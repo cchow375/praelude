@@ -1,0 +1,58 @@
+{
+  "result": "PASS",
+  "recordedUTC": "2026-10-13T21:51:51.204669+00:00",
+  "version": "2.0.0",
+  "build": "18",
+  "sourceScope": "Current final accepted-command tracking fix; all 283 captured source hashes exact. Broader navigation/remap/persistence/preview proof retains its pre-fix scope in independent-live-before-command-fix.json.",
+  "sourceProvenanceSHA256": "962e077220a7abf4af1edfccc1a413f4fc77c78a6e04cc36485b2ae3fc667b90",
+  "process": {
+    "freshPID": 5661,
+    "launchArguments": [
+      "--uitesting",
+      "--seed",
+      "--seed-sections",
+      "--audit-simulated-face"
+    ]
+  },
+  "provenance": {
+    "builtInstalledFullBundleExact": true,
+    "bundleFiles": 109,
+    "builtInstalledAllMachOCodeExact": true,
+    "machOFiles": 33,
+    "mainExecutable": {
+      "bytes": 44681080,
+      "sha256": "d74801f908df4fed3b8fd973d720c3a7bb4b926b7ceae6c63c9ec1eb524ce87b"
+    },
+    "debugDylibPresent": false,
+    "all283SourceHashesExact": true
+  },
+  "flows": [
+    {
+      "result": "PASS",
+      "flow": "Fresh process; ordinary Sidebar music-stand shortcut to score, score menu to Camera gestures."
+    },
+    {
+      "result": "PASS",
+      "flow": "Enable camera; calibrated Test mode and synthetic preview appear; Off; Done returns to score with camera overlay absent."
+    }
+  ],
+  "inputScope": "Actual CUA single 120 ms contacts, no retries; later observations allowed presentation to settle without additional input. No remap or interval-scroll repetition in this final smoke.",
+  "library": {
+    "allFilesByteExact": true,
+    "allJSONExact": true,
+    "files": 2,
+    "bytes": 97084,
+    "schemaVersion": 5,
+    "revision": 7,
+    "activeSet": false,
+    "history": 0,
+    "attempts": 0,
+    "newPracticeActivity": false
+  },
+  "boundary": [
+    "Synthetic nil-session DEBUG camera fixture; real camera capture, real preview graph, physical pose signs/distance/sensitivity/action latency remain unaccepted.",
+    "Final smoke covers the new installed service binary; prior broader manual flow and atomic two-case UI pass predate the two command-context guards. New guard behavior is separately covered by final current native regression.",
+    "Manual directional interval editing remains untested because bounded CUA scroll/drag did not move the lower form; no product cause is assigned.",
+    "No physical device query, operation or install performed by this verifier."
+  ]
+}

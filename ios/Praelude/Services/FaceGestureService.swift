@@ -3,6 +3,7 @@
 import Vision
 import Observation
 import UIKit
+import ImageIO
 
 struct FaceCameraFrame: Sendable {
     let sample: FaceGestureSample
@@ -90,8 +91,7 @@ private final class FaceCameraWorker: NSObject, FaceCameraCapturing,
     private let lock = NSLock()
     private var cancelled = false
     private var orientationRevision = 0
-    private let rectangles = VNDetectFaceRectanglesRequest()
-    private let landmarksRequest = VNDetectFaceLandmarksRequest()
+    private let vision = FaceVisionAnalyzer()
     private var lastFrame = -Double.infinity
     private var lastTrackingFailure = -Double.infinity
     private var connection: AVCaptureConnection?
@@ -99,8 +99,6 @@ private final class FaceCameraWorker: NSObject, FaceCameraCapturing,
     private var previews: [FacePreviewReference] = []
     init(deliver: @escaping @Sendable (FaceCameraFrame) -> Void, failed: @escaping @Sendable (String) -> Void) {
         self.deliver = deliver; self.failed = failed
-        rectangles.revision = VNDetectFaceRectanglesRequestRevision3
-        landmarksRequest.constellation = .constellation76Points
     }
     private var isCancelled: Bool { lock.withLock { cancelled } }
     func start(angle: CGFloat, revision: Int, completion: @escaping @Sendable () -> Void) {
@@ -124,7 +122,7 @@ private final class FaceCameraWorker: NSObject, FaceCameraCapturing,
                 connection = output.connection(with: .video)
                 self.angle = angle
                 lock.withLock { orientationRevision = revision }
-                configure(connection, angle: angle)
+                configure(connection, angle: angle, mirrored: false)
                 session.commitConfiguration()
                 guard !isCancelled else { return }
                 session.startRunning()
@@ -134,17 +132,17 @@ private final class FaceCameraWorker: NSObject, FaceCameraCapturing,
             } catch { failed("The camera could not start. Check Camera permission and try again.") }
         }
     }
-    private func configure(_ connection: AVCaptureConnection?, angle: CGFloat) {
+    private func configure(_ connection: AVCaptureConnection?, angle: CGFloat, mirrored: Bool = true) {
         guard let connection else { return }
         connection.automaticallyAdjustsVideoMirroring = false
-        if connection.isVideoMirroringSupported { connection.isVideoMirrored = true }
+        if connection.isVideoMirroringSupported { connection.isVideoMirrored = mirrored }
         if connection.isVideoRotationAngleSupported(angle) { connection.videoRotationAngle = angle }
     }
     func rotate(_ angle: CGFloat, revision: Int) {
         Self.lifecycle.perform { [self] in
             guard !isCancelled else { return }
             self.angle = angle
-            configure(connection, angle: angle)
+            configure(connection, angle: angle, mirrored: false)
             // This revision is stamped on analysis work only after capture rotation is applied.
             lock.withLock { orientationRevision = revision }
         }
@@ -186,72 +184,101 @@ private final class FaceCameraWorker: NSObject, FaceCameraCapturing,
         guard !isCancelled, now - lastFrame >= 1.0 / 15.0, let pixels = CMSampleBufferGetImageBuffer(buffer) else { return }
         lastFrame = now
         let revision = lock.withLock { orientationRevision }
-        // Landmarks alone need not populate pitch. Rectangle revision3 provides all pose angles;
-        // passing its observations into the landmark request preserves the corresponding pose.
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixels, orientation: .up)
-        do { try handler.perform([rectangles]) }
-        catch {
-            // Recover on the next frame, but never leave stale Ready feedback after repeated errors.
+        let aspect = CGFloat(CVPixelBufferGetWidth(pixels))/CGFloat(max(1,CVPixelBufferGetHeight(pixels)))
+        do {
+            let frame = try vision.analyze(pixels, orientation: .up, time: now, revision: revision,
+                imageAspect: aspect, visionToDisplay: CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 1, ty: 0),
+                trackingMode: "Camera landmarks")
+            guard !isCancelled else { return }
+            deliver(frame)
+        } catch {
             if now-lastTrackingFailure >= 1 {
                 lastTrackingFailure=now
                 let sample=FaceGestureSample(time:now,pitch:.nan,yaw:.nan,smileWidth:.nan,
-                    luminance:0,confidence:0,faceCount:0,faceArea:0)
+                    luminance:0,confidence:0,faceCount:0,faceArea:0,poseSource:.vision)
                 deliver(FaceCameraFrame(sample:sample,face:nil,landmarks:[],orientationRevision:revision,
                     trackingIssue:"Face tracking interrupted · trying the next frame"))
             }
-            return
         }
+    }
+
+}
+
+/// Reused by native capture and by ARKit's existing image stream when its 3D tracking is lost.
+/// Each owner calls this synchronously on its serial analysis queue, never on the UI actor.
+final class FaceVisionAnalyzer: @unchecked Sendable {
+    private let rectangles = VNDetectFaceRectanglesRequest()
+    private let landmarks = VNDetectFaceLandmarksRequest()
+    init() {
+        rectangles.revision = VNDetectFaceRectanglesRequestRevision3
+        landmarks.revision = VNDetectFaceLandmarksRequestRevision3
+        landmarks.constellation = .constellation76Points
+    }
+    func analyze(_ pixels: CVPixelBuffer, orientation: CGImagePropertyOrientation, time: TimeInterval,
+                 revision: Int, imageAspect: CGFloat, imageToVision: CGAffineTransform = .identity,
+                 visionToDisplay: CGAffineTransform = .identity, trackingMode: String) throws -> FaceCameraFrame {
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixels, orientation: orientation)
+        try handler.perform([rectangles])
         let faces = rectangles.results ?? []
         let pose = faces.count == 1 ? faces.first : nil
         var face = pose
         if let pose {
-            landmarksRequest.inputFaceObservations = [pose]
-            if (try? handler.perform([landmarksRequest])) != nil { face = landmarksRequest.results?.first ?? pose }
+            landmarks.inputFaceObservations = [pose]
+            if (try? handler.perform([landmarks])) != nil { face = landmarks.results?.first ?? pose }
         }
-        let box = face.flatMap { FaceCameraGeometry.validatedBox($0.boundingBox) }
+        let uprightBox = face.flatMap { FaceCameraGeometry.validatedBox($0.boundingBox) }
+        let box = FaceCameraGeometry.mappedBox(uprightBox, transform: visionToDisplay)
         let metrics = FaceCameraGeometry.metrics(face?.landmarks)
         let points = face?.landmarks?.allPoints?.normalizedPoints.compactMap { point -> CGPoint? in
             guard let face, point.x.isFinite, point.y.isFinite else { return nil }
-            let x = face.boundingBox.minX + point.x * face.boundingBox.width
-            let y = 1 - face.boundingBox.minY - point.y * face.boundingBox.height
-            guard x.isFinite, y.isFinite else { return nil }
-            return CGPoint(x: x, y: y)
+            let upright = CGPoint(x: face.boundingBox.minX + point.x * face.boundingBox.width,
+                y: 1 - face.boundingBox.minY - point.y * face.boundingBox.height)
+            return upright.applying(visionToDisplay)
         } ?? []
-        let sample = FaceGestureSample(time: now, pitch: pose?.pitch?.doubleValue ?? .nan,
-            yaw: pose?.yaw?.doubleValue ?? .nan, smileWidth: metrics.smile ?? .nan,
-            luminance: Self.luminance(pixels, box: box), confidence: Double(pose?.confidence ?? 0),
-            faceCount: faces.count, faceArea: Double(box.map { $0.width * $0.height } ?? 0),
-            mouthOpen: metrics.mouth, leftEyeOpen: metrics.leftEye, rightEyeOpen: metrics.rightEye, smileLift: metrics.smileLift)
-        guard !isCancelled else { return }
-        let aspect = CGFloat(CVPixelBufferGetWidth(pixels))/CGFloat(max(1,CVPixelBufferGetHeight(pixels)))
-        deliver(FaceCameraFrame(sample: sample, face: box, landmarks: points, orientationRevision: revision,imageAspect:aspect,trackingMode:"Landmarks",processedAt:ProcessInfo.processInfo.systemUptime))
-    }
-    private static func luminance(_ pixels: CVPixelBuffer, box: CGRect?) -> Double {
-        CVPixelBufferLockBaseAddress(pixels, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pixels, .readOnly) }
-        guard CVPixelBufferGetPlaneCount(pixels) > 0,
-              let base = CVPixelBufferGetBaseAddressOfPlane(pixels, 0) else { return 0 }
-        let w = CVPixelBufferGetWidthOfPlane(pixels,0), h = CVPixelBufferGetHeightOfPlane(pixels,0)
-        let stride = CVPixelBufferGetBytesPerRowOfPlane(pixels,0)
-        guard w > 0, h > 0, stride >= w else { return 0 }
-        let region = box ?? CGRect(x: 0, y: 0, width: 1, height: 1)
-        guard [region.minX, region.minY, region.width, region.height].allSatisfy(\.isFinite) else { return 0 }
-        let bytes = base.assumingMemoryBound(to: UInt8.self)
-        var sum = 0.0
-        for y in 0..<12 { for x in 0..<12 {
-            let fx = min(1, max(0, region.minX + region.width * (CGFloat(x)+0.5)/12))
-            let fy = min(1, max(0, region.minY + region.height * (CGFloat(y)+0.5)/12))
-            let px = min(w-1, Int(fx * CGFloat(w-1)))
-            let py = min(h-1, Int(fy * CGFloat(h-1)))
-            sum += Double(bytes[py*stride+px])/255
-        } }
-        return sum/144
+        let sensorBox = FaceCameraGeometry.mappedBox(uprightBox, transform: imageToVision.inverted())
+        let sample = FaceGestureSample(time: time, pitch: pose?.pitch?.doubleValue ?? .nan,
+            yaw: FaceCameraGeometry.playerYaw(visionYaw: pose?.yaw?.doubleValue ?? .nan, mirrored: false),
+            smileWidth: metrics.smile ?? .nan, luminance: FaceCameraGeometry.luminance(pixels, box: sensorBox),
+            confidence: Double(pose?.confidence ?? 0), faceCount: faces.count,
+            faceArea: Double(box.map { $0.width * $0.height } ?? 0),
+            mouthOpen: metrics.mouth, leftEyeOpen: metrics.leftEye, rightEyeOpen: metrics.rightEye,
+            smileLift: metrics.smileLift, poseSource: .vision)
+        return FaceCameraFrame(sample: sample, face: box, landmarks: points, orientationRevision: revision,
+            imageAspect: imageAspect, trackingMode: trackingMode, processedAt: ProcessInfo.processInfo.systemUptime)
     }
 }
 
 /// Geometry helpers keep unavailable individual landmarks separate from face visibility.
 enum FaceCameraGeometry {
     struct Metrics { var smile: Double?; var mouth: Double?; var leftEye: Double?; var rightEye: Double?; var smileLift: Double? }
+    /// Vision reports counterclockwise yaw. Unmirrored camera +x is the player's left;
+    /// normalize it to the same player-right positive contract as ARKit.
+    static func playerYaw(visionYaw: Double, mirrored: Bool) -> Double { mirrored ? visionYaw : -visionYaw }
+    static func mappedBox(_ box: CGRect?, transform: CGAffineTransform) -> CGRect? {
+        guard let box else { return nil }
+        let mapped = box.applying(transform)
+        guard [mapped.minX, mapped.minY, mapped.width, mapped.height].allSatisfy(\.isFinite) else { return nil }
+        let clipped = mapped.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        return !clipped.isNull && clipped.width > 0 && clipped.height > 0 ? clipped : nil
+    }
+    static func luminance(_ pixels: CVPixelBuffer, box: CGRect?) -> Double {
+        guard let region = mappedBox(box, transform: .identity) else { return 0 }
+        CVPixelBufferLockBaseAddress(pixels, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixels, .readOnly) }
+        guard CVPixelBufferGetPlaneCount(pixels) > 0,
+              let base = CVPixelBufferGetBaseAddressOfPlane(pixels, 0) else { return 0 }
+        let width = CVPixelBufferGetWidthOfPlane(pixels, 0), height = CVPixelBufferGetHeightOfPlane(pixels, 0)
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(pixels, 0)
+        guard width > 0, height > 0, stride >= width else { return 0 }
+        let bytes = base.assumingMemoryBound(to: UInt8.self)
+        var sum = 0.0
+        for y in 0..<8 { for x in 0..<8 {
+            let px = min(width-1, max(0, Int((region.minX+region.width*(CGFloat(x)+0.5)/8)*CGFloat(width))))
+            let py = min(height-1, max(0, Int((region.minY+region.height*(CGFloat(y)+0.5)/8)*CGFloat(height))))
+            sum += Double(bytes[py*stride+px])/255
+        } }
+        return sum/64
+    }
     static func validatedBox(_ box: CGRect) -> CGRect? {
         guard [box.minX, box.minY, box.width, box.height].allSatisfy(\.isFinite), box.width > 0, box.height > 0 else { return nil }
         let clipped = box.intersection(CGRect(x: 0,y: 0,width: 1,height: 1))
@@ -352,6 +379,8 @@ enum FaceCameraGeometry {
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var orientationRevision = 0
     @ObservationIgnored private var lastCalibrationSupplement = -Double.infinity
+    @ObservationIgnored private var poseSource: FaceGesturePoseSource = .unspecified
+    @ObservationIgnored private var trackingInvalid = true
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     private(set) var rotationAngle: CGFloat = 90
     var session: AVCaptureSession? { isEnabled ? worker?.captureSession : nil }
@@ -434,6 +463,7 @@ enum FaceCameraGeometry {
     private func stop(message:String) {
         guard !isStopping else { return }
         commandContextID=UUID(); generation=UUID(); observers.forEach(NotificationCenter.default.removeObserver); observers=[]
+        poseSource = .unspecified; trackingInvalid = true
         isEnabled=false; isPreparing=false; calibrated=false; calibrationProgress=0; availableGestures=[]; frame=nil
         detector.clearCalibration(); recent=[]; lastCalibrationSupplement = -Double.infinity; status=message
         guard let retiring=worker else {
@@ -472,17 +502,34 @@ enum FaceCameraGeometry {
         if calibrated { availableGestures=detector.availableGestures; calibrationProgress=1 }
     }
     func resetMotion() { commandContextID=UUID(); detector.resetMotion() }
+    private func invalidateTrackingContext() {
+        if !trackingInvalid {
+            // A recognized gesture is explicit input, not continuous face authentication.
+            // Later tracking loss pauses new recognition but cannot retract an accepted rep.
+            if !commandInFlight { commandContextID = UUID() }
+            trackingInvalid = true
+        }
+    }
     // Internal for native tests: inject measurements through the real calibration/action gates.
     func receive(_ frame:FaceCameraFrame) {
         guard isEnabled, frame.orientationRevision==orientationRevision else { return }
         self.frame=frame
         if let issue=frame.trackingIssue {
+            invalidateTrackingContext()
             detector.resetMotion(); recent=[]; calibrationProgress=0; status=issue; return
         }
-        guard now()-frame.sample.time <= 0.35 else {
+        guard frame.sample.time.isFinite, now() >= frame.sample.time, now()-frame.sample.time <= 0.35 else {
+            invalidateTrackingContext()
             detector.resetMotion(); recent=[]; calibrationProgress=0; status="Tracking delayed · gestures paused"; return
         }
+        if frame.sample.poseSource != poseSource {
+            if !commandInFlight { commandContextID = UUID() }
+            poseSource = frame.sample.poseSource
+            detector.clearCalibration(); recent=[]; calibrated=false; calibrationProgress=0; availableGestures=[]
+            lastCalibrationSupplement = -Double.infinity
+        }
         if frame.sample.usable {
+            trackingInvalid = false
             recent.append(frame.sample); recent=recent.filter { frame.sample.time-$0.time <= 1.3 }
             if !calibrated {
                 calibrationProgress=min(0.95, max(0,(recent.last!.time-recent.first!.time)/0.9))
@@ -497,17 +544,20 @@ enum FaceCameraGeometry {
                 let assigned=Set(FaceGestureAction.allCases.filter { $0 != .off }.compactMap { settings.gesture(for:$0) })
                 let missing=assigned.subtracting(availableGestures)
                 let detail=missing.isEmpty ? "" : " · unavailable: "+missing.map(\.title).sorted().joined(separator:", ")
-                status=(actionsAllowed ? "Ready · return to relaxed between gestures" : "Test mode · actions paused in settings")+detail
-            } else { status="Face found · hold relaxed for automatic calibration" }
+                status=(actionsAllowed ? "Ready · quick look, then return to center" : "Test mode · actions paused in settings")+detail
+            } else if !frame.sample.pitch.isFinite && !frame.sample.yaw.isFinite {
+                status="Face seen · head angle unavailable; face the iPad to calibrate"
+            } else { status="Face seen · hold your usual piano position for calibration" }
         } else {
+            invalidateTrackingContext()
             recent=[]; calibrationProgress=0
             switch frame.sample.faceCount {
             case 0:status="No face found · check the camera angle"
             case 2...:status="More than one face · gestures paused"
             default:
-                if frame.sample.faceArea < 0.006 { status="Face is too small · bring the iPad a little closer" }
+                if frame.sample.faceArea < 0.002 { status="Face seen · head angle is not reliable at this distance" }
                 else if frame.sample.luminance < 0.025 { status="Face is too dark · add light toward your face" }
-                else { status="Face found · waiting for a clearer frame" }
+                else { status="Face seen · waiting for reliable head or expression measurements" }
             }
         }
         if let gesture=detector.consume(frame.sample) {

@@ -1,5 +1,11 @@
 # Praelude — How To Use
 
+## October 13 — Build18 candidate controls (not installed yet)
+
+**Matches: installed personal native2.0.0/build17/schema5; friend Build12/schema5; Mac v11.1.0/schema21. Last updated: 2026-10-13.** Build18 is verified for guarded personal delivery. Its quick directional controls and migration are described in `docs/qa/ios/2.0.0/build18/candidate-guide.md`; the installed Build17 instructions remain below. Build17 recognition is user-reported unreliable at the upright 2.5–3 foot piano setup.
+
+**Next steps:** guarded installation and separate physical acceptance.
+
 ## October 12 — installed Build17 camera controls
 
 **Matches: installed personal native2.0.0/build17/schema5; friend native2.0.0/build12/schema5; Macv11.1.0/schema21. Last updated:2026-10-12.** Build17 is installed with all saved library files exact. Manual opening, running-process and full postlaunch verification pass. Postlaunch changes are limited to a page bookmark, revision and sync bookkeeping; real-camera accuracy/response remain pending. Earlier Build16/candidate sections below are historical.
