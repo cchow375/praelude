@@ -110,7 +110,7 @@
     }
   ],
   "physicalAcceptance": "pending real right/left/down reliability, sensor direction/alignment, distance throughput, accidental commands and score page/rep latency",
-  "delivery": "pending guarded personal installation; friend held atBuild12; Mac unchanged",
+  "delivery": "Build18 installed on personal iPad Oct15;13 files/23,655,615 bytes exact pre/post by filename,size,SHA-256; schema5/revision4061; automatic launch denied, manual open/readback pending. Friend held; Mac unchanged.",
   "sourceCheckpoint": "ios-v2.0.0-build18-candidate",
   "lateRepair": {
     "finding": "A valid onset-recognized rep could be discarded if tracking loss or automatic source change changed commandContextID while asynchronous library preparation awaited.",
@@ -138,5 +138,16 @@
     "sourceProvenance": "source-final-provenance.json",
     "postTestFixtureProvenance": "source-post-ui-fixture-provenance.json",
     "archive": "release-package.json"
-  }
+  },
+  "deliveryEvidence": "personal-ipad-install.json",
+  "priorDeliveryFailure": "delivery-attempt1.json; retained Oct13 pre-backup failure, superseded by Oct15 successful guarded installation",
+  "helperRelease": {
+    "result": "passed",
+    "checks": 66,
+    "report": "helper-release-independent.json",
+    "sourceProvenance": "helper-source-provenance.json",
+    "executableSHA256": "938846ee9907ece62d5c233cb7dc6636415cf289af12075feb273b6ab496a1b9",
+    "boundary": "Actual Oct15 guarded helper artifact; recovered read-only signature base yields66checks, separate from generic69. Manual opening/postlaunch files and physical acceptance pending."
+  },
+  "independentPreservation": "helper-preservation-independent.json;13files/23,655,615bytes exact"
 }

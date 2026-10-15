@@ -1,24 +1,16 @@
 # Build18 — quick head looks at piano distance
 
-## October 13 — Build18 delivery stopped before installation
+## October 15 — Build18 installed on the personal iPad; manual opening pending
 
-**Last updated: 2026-10-13. Personal iPad remains running native2.0.0/build17/schema5; Build18 candidate is committed at ae1c34e / ios-v2.0.0-build18-candidate. Friend remains held at Build12; Mac v11.1.0/schema21 unchanged.** The guarded refresh stops during the initial data copy (CoreDevice7000/remoteservices11001/POSIX1), before any device-specific build or installation. The incomplete private copy is retained and has no verified manifest; no preservation/install pass is claimed. Subsequent read-only version/process inspection confirms Build17 running. The transport/copy cause is unproven and does not establish device lock state.
-
-All final Build18 source/native/UI/live/generic signed-package checks retain their scoped passes below. The user was asked to unlock the personal iPad, open Praelude, pause any practice set and leave it idle before retrying the guarded workflow. No uninstall, reset, restore-over or physical app-termination workaround occurred. Evidence: `docs/qa/ios/2.0.0/build18/delivery-attempt1.json`.
-
-**Next steps:** await explicit readiness, then guarded same-bundle retry with fresh complete backup, exact preservation and launch/schema readback; actual right/left/down reliability at upright2.5–3feet and page/rep response remain open. Keep the friend iPad held.
-
-## October 13 — Build18 candidate verified; personal installation next
-
-**Last updated: 2026-10-13. Native 2.0.0/build18/schema5; candidate verified; personal installation next.** Personal iPad remains last verified running Build17/schema5. Friend iPad remains held at Build12; Mac v11.1.0/schema21 is unchanged. Christian reports Build17 recognition still fails too often at normal piano distance, approximately 2.5–3 feet with the iPad upright. B170 remains OPEN. The score page/rep pause (B171) has no new physical verdict.
+**Last updated: 2026-10-15. Native 2.0.0/build18/schema5; installed on the personal iPad; manual opening pending.** Personal iPad is installed at native2.0.0/build18/schema5. Automatic launch was declined; manual opening and postlaunch readback remain pending. Friend iPad remains held at Build12; Mac v11.1.0/schema21 is unchanged. Christian reports Build17 recognition still fails too often at normal piano distance, approximately 2.5–3 feet with the iPad upright. B170 remains OPEN. The score page/rep pause (B171) has no new physical verdict.
 
 Build18 adds quick **Look right → Next page**, **Look left → Previous page**, and **Look down → assigned command**, firing on measured onset before returning. A separate head-look interval defaults to 0.4 seconds, adjustable 0.25–1 second; measured neutral re-arms each direction. Versioned local-settings decoding moves page commands to right/left and an existing nod verdict to down, preserving other verdict assignments, opt-in and recognition preferences. Customized new mappings persist. Legacy nod/shake mappings show paused while quick looks use the same axis. These are head movements, not eye-only gaze.
 
 Tracking now uses player-relative yaw signs, smaller-face head-pose gates and a same-camera Vision fallback after 0.3 seconds of AR tracking loss. Fallback remains selected for the session and recalibrates once. Recent signed motion can survive a short gap, but disappearance never issues a command; strong horizontal evidence plus measured neutral reacquisition can finish one page turn, never infer a rep. Source changes, multiple faces, dark/stale frames and prolonged loss block future recognition. An already recognized rep can finish saving through later tracking loss or automatic fallback; explicit Off, remapping, calibration, rotation and score-input gates still cancel pending commands. Frames and face measurements remain local and discarded. No practice schema or sync contract changes.
 
-Core 520 cases/1 live-account skip/0 failures and 2,340 deterministic service assertions pass. Final native 337 cases/1 live-account skip/0 failures pass in 17.542 seconds; independent detector probes pass 15/15. Affected UI/live/package details, source provenance and retained earlier failures are recorded in the QA directory. Simulator/typechecks cannot prove actual sensor direction, distance throughput, recognition reliability or page/rep response. Candidate verification and exact result boundaries are in `docs/qa/ios/2.0.0/build18/`.
+Core 520 cases/1 live-account skip/0 failures and 2,340 deterministic service assertions pass. Final native 337 cases/1 live-account skip/0 failures pass in 17.542 seconds; independent detector probes pass 15/15. Affected UI/live/package details, source provenance and retained earlier failures are recorded in the QA directory. Simulator/typechecks cannot prove actual sensor direction, distance throughput, recognition reliability or page/rep response. Guarded same-bundle refresh independently preserves all 13 app-owned files/23,655,615 bytes exactly by filename, size and SHA-256 before/after installation. Schema 5, revision 4061 and the full library are retained. No uninstall, reset, restore-over, app-termination workaround or Mac import occurs. See `docs/qa/ios/2.0.0/build18/personal-ipad-install.json`.
 
-**Next steps:** guarded personal installation, full-file preservation, then manual launch/readback and real-camera acceptance. Test quick right/left/down, misses/accidental commands, preview alignment and page/rep pauses separately. Keep the friend iPad held.
+**Next steps:** open Praelude manually, verify running/version/schema/full postlaunch files, then real-camera acceptance at the stated upright 2.5–3 foot setup. Test quick right/left/down, misses/accidental commands, preview alignment and page/rep pauses separately. Keep the friend iPad held.
 
 ## Verified scope
 
@@ -33,7 +25,7 @@ Core 520 cases/1 live-account skip/0 failures and 2,340 deterministic service as
 | Final signed Release/package | 69/69 independent checks; all283 source/10resources exact | Strict signature/profile/trust/dSYM/resources/71marker absence and full app/dSYM zip readbacks. Saved-target inclusion; fresh personal-device gates belong to delivery |
 | Physical recognition/latency | Pending | User-reported upright2.5–3feet; real right/left/down, sensor alignment, accidental commands, page/rep response and sustained practice |
 
-Final Release executable: `83edcd72f640ad975145951d3552a48857eb2d2cfbfe8c6780edca2edd3262e7`; provisioning expires2026-10-17T16:14:24Z. Current source checkpoint: `ios-v2.0.0-build18-candidate`. Generic archives are private/ignored; sanitized inventories and hashes are in `release-package.json` and `release-independent.json`.
+Verified generic Release executable: `83edcd72f640ad975145951d3552a48857eb2d2cfbfe8c6780edca2edd3262e7`; provisioning expires2026-10-17T16:14:24Z. Current source checkpoint: `ios-v2.0.0-build18-candidate`. Generic archives are private/ignored; sanitized inventories and hashes are in `release-package.json` and `release-independent.json`.
 
 ## Retained failures and source lineage
 
@@ -41,4 +33,8 @@ Final Release executable: `83edcd72f640ad975145951d3552a48857eb2d2cfbfe8c6780edc
 
 The late accepted-command repair changes only tracking/source-driven epoch retirement: accepted input can finish saving through subsequent face loss/fallback; future motion/calibration still resets. Explicit Off/remap/calibrate/rotation/score gates cancel as before. Final native337 and independent current-app smoke verify the final source. Earlier336-case native, broader live controls and signed-package evidence remain separately named before-command-fix. No failed record is replaced, and no real-camera end-to-end pass is claimed.
 
-Next steps: guarded personal delivery with exact full-file preservation and version/launch/schema readback, then physical acceptance at the piano. Keep the friend iPad held.
+Next steps: manual opening and postlaunch readback, then physical acceptance at the piano. Keep the friend iPad held.
+
+## Delivery evidence
+
+The October13 backup failure is retained in `delivery-attempt1.json`. After explicit readiness on October15, the guarded helper built and installed Build18 and retained every owned file exactly. Actual helper independent package audit passes66/66, with all283 source/10resource hashes exact and a recovered read-only signature base. Its count is separate from the generic69 checks. Actual helper Release/package evidence is separate from the generic candidate: `helper-release-independent.json` and `personal-ipad-install.json`. The actual helper executable is `938846ee9907ece62d5c233cb7dc6636415cf289af12075feb273b6ab496a1b9`; archived app/dSYM readbacks are exact. Automatic launch was declined; manual opening and full postlaunch readback are pending.
