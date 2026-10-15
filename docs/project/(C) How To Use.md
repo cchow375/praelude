@@ -2,7 +2,7 @@
 
 ## October 15 — Build18 installed camera controls
 
-**Matches: installed personal native2.0.0/build18/schema5; friend Build12/schema5; Mac v11.1.0/schema21. Last updated: 2026-10-15.** Automatic launch was declined; manual opening and postlaunch readback remain pending. Recognition and page/rep response remain physically unaccepted.
+**Matches: installed personal native2.0.0/build18/schema5; friend Build12/schema5; Mac v11.1.0/schema21. Last updated: 2026-10-15.** Running process and full postlaunch backup are verified. Recognition and page/rep response remain physically unaccepted.
 
 Target physical setup: user-reported face distance 2.5–3 feet (about0.76–0.91m), upright iPad. This setup is not yet a measured recognition or latency pass.
 
@@ -18,7 +18,7 @@ Open a score → Score options → Camera gestures. Enable camera and calibrate 
 
 Native and synthetic results do not establish camera range, real direction alignment, recognition reliability or page/rep responsiveness. Test those at the piano after installation.
 
-**Next steps:** open Praelude for launch readback, then test quick looks at the piano.
+**Next steps:** test the quick looks at the piano and report reliability/pauses.
 
 ## Historical October 13 — Build18 candidate controls (not installed yet)
 

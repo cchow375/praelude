@@ -1,23 +1,24 @@
 {
-  "verifiedUTC": "2026-10-15T21:15:46.016536+00:00",
+  "verifiedUTC": "2026-10-15T21:38:43.563121+00:00",
   "sourceCommit": "ae1c34ed557fa49bbc665362ff64797a0c77f357",
   "sourceCheckpoint": "ios-v2.0.0-build18-candidate",
   "userAuthorization": "Explicit request to implement and install quick directional head looks on the personal iPad; friend remains held.",
   "installedVersion": "2.0.0",
   "installedBuildReadback": "18",
-  "deliveryState": "installed; manual opening/postlaunch verification pending",
+  "deliveryState": "installed, running process and full postlaunch backup verified",
   "automaticLaunch": "denied after successful installation and preservation",
-  "userOpened": false,
-  "launchVerified": false,
-  "runningProcessObserved": false,
+  "userOpened": true,
+  "launchVerified": true,
+  "runningProcessObserved": true,
   "backupLocations": [
     "releases/ios-device-backups/20261015T211427Z-d4983659",
-    "releases/ios-device-backups/20261015T211521Z-462d22b9"
+    "releases/ios-device-backups/20261015T211521Z-462d22b9",
+    "releases/ios-device-backups/20261015T213837Z-c2bcd96c"
   ],
   "preservation": {
     "allInventoriesIndependentlyRehashed": true,
     "prePostFullInventoryExact": true,
-    "postLaunchInventoryExactToPostInstall": null,
+    "postLaunchInventoryExactToPostInstall": true,
     "fileCount": 13,
     "totalBytes": 23655615,
     "entireLibraryJSONExactPrePost": true,
@@ -54,7 +55,7 @@
     },
     "attemptCount": 576
   },
-  "schemaMigration": "schema5 unchanged; new-reader postlaunch verification pending",
+  "schemaMigration": "none; schema5 retained after opening",
   "actualInstalledHelperArtifact": {
     "archivePath": "releases/ios-build18-camera-helper-installed-20261015",
     "manifestSHA256": "40f1ebd4bc864d1960716f362feee97580be637ca03a178294e8cb50a5724b9f",
@@ -77,9 +78,13 @@
   "otherDevice": "friend held atBuild12, no targeted operation or install",
   "mac": "v11.1.0/schema21 unchanged; no import",
   "noUninstallResetRestoreOrTerminationWorkaround": true,
-  "launchFailureBoundary": "iPadOS declined automatic launch after successful install and exact pre/post preservation; user asked to open manually. No launch or physical feature pass claimed.",
-  "priorAttempt": "delivery-attempt1.json retains failed pre-install backup on October13.",
+  "postLaunchComparison": {
+    "changedFiles": [],
+    "changedLibraryKeys": [],
+    "boundary": "Full file comparison. Any changed records require classification; no automatic source or gesture-acceptance inference."
+  },
   "independentPreservationReport": "helper-preservation-independent.json",
   "actualHelperPackageChecks": 66,
-  "profileExpiresUTC": "2026-10-17T16:14:24Z"
+  "profileExpiresUTC": "2026-10-17T16:14:24Z",
+  "priorAttempt": "delivery-attempt1.json retains failed pre-install backup on October13."
 }
