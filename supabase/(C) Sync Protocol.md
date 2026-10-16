@@ -1,5 +1,31 @@
 # (C) Sync Protocol — native schema5 ↔ Supabase
 
+## October16 build19 additive piece metadata
+
+Deployed migrations28/29 add `pieces.full_tempo_bpm` (nullable20–300),
+`pieces.practice_balance_plan` (nullable JSON object), and `pieces.is_photo_passage` (nullable
+boolean). No defaults, backfill, practice schema bump, RLS or bucket-privacy change. The plan has
+numeric integer `leftHandPercent`, `rightHandPercent`, `verySlowPercent`, `variantPercent` in0–100;
+left+right must be≤100. Zero values disable individual goals. Explicit null clears full tempo;
+absent full-tempo keys preserve local values, and absent/null plan or origin retain existing local
+values. A new record with unpublished metadata uses nil tempo, a zero plan and false photo origin.
+New clients encode their actual plan and true/false origin. Older DTOs omit these columns; the
+deployed upsert retains server values for omitted keys. This is whole-record LWW, not per-field
+simultaneous editing or a nested merge for the plan.
+
+Photo cards are ordinary immutable score PDFs plus passage regions; their image cover is rendered
+locally from the first region. The explicit origin flag survives filename remapping, folder
+renaming and normal random folder UUIDs. Before publishing a downloaded asset, the client validates
+its supported PDF/image/audio content away from the UI actor, rechecks the account and avoids
+overwriting any file that became local while the request was running. Queue requests also bind
+refreshed credentials to the durable owner; corrupted account-state files block sync and retain
+the originals.
+
+The user's iPhone and iPad are not signed in yet; hosted pieces count is0. Hosted schema/SQL
+fixtures and deterministic tests do not prove a real-account photo/score/history roundtrip. See
+[build19 evidence](../docs/qa/ios/2.0.0/build19/sync-verification.json) and
+[synced/local/snapshot/unsupported matrix](../docs/qa/ios/2.0.0/build19/sync-contract.md).
+
 ## Build11 note-style extension — October 10 candidate
 
 `annotations` keeps the deployed column/discriminator contract; no SQL migration is required.
@@ -174,6 +200,8 @@ there); jsonb columns are opaque per §3.
 
 `pieces.score_sections` and `pieces.measure_anchors` are non-null JSON arrays (defaults []), with
 source-page coordinates and Codable model field names. `default_practice_bpm` is nullable20–300.
+Build19's optional full tempo, coverage plan and photo-origin fields use the additive contract
+above; they do not change source-page geometry or the default-practice-tempo meaning.
 Presence distinguishes a legacy absent tempo key from a represented null clear. Current DTOs carry
 all three; older payloads preserve their server/local existing values.
 

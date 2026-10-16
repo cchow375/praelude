@@ -36,19 +36,26 @@ public final class SupabaseServices {
     /// A `PostgrestClient` authorized with the caller's current (refreshed-if-needed) access token.
     /// Throws `AuthError.sessionMissing` when signed out or in guest mode — callers only reach this
     /// while signed in (see `AuthManager`/`SyncCoordinator`).
-    public func postgrest() async throws -> PostgrestClient {
-        let token = try await auth.session.accessToken
+    public func postgrest(expectedOwnerID: UUID? = nil) async throws -> PostgrestClient {
+        let session = try await auth.session
+        try Self.requireExpectedOwner(expectedOwnerID, actualOwnerID: session.user.id)
         var headers = apiKeyHeader
-        headers["Authorization"] = "Bearer \(token)"
+        headers["Authorization"] = "Bearer \(session.accessToken)"
         // `logger: nil` is already this initializer's default; passing it explicitly disambiguates
         // toward the current init(url:schema:headers:logger:fetch:encoder:decoder:retryEnabled:)
         // instead of the deprecated pre-logger overload, which otherwise resolves first.
         return PostgrestClient(url: restURL, headers: headers, logger: nil)
     }
-    public func storage() async throws -> SupabaseStorageClient {
-        let token = try await auth.session.accessToken
+    public func storage(expectedOwnerID: UUID? = nil) async throws -> SupabaseStorageClient {
+        let session = try await auth.session
+        try Self.requireExpectedOwner(expectedOwnerID, actualOwnerID: session.user.id)
         var headers = apiKeyHeader
-        headers["Authorization"] = "Bearer \(token)"
+        headers["Authorization"] = "Bearer \(session.accessToken)"
         return SupabaseStorageClient(configuration: StorageClientConfiguration(url: storageURL, headers: headers, logger: nil))
+    }
+    nonisolated static func requireExpectedOwner(_ expectedOwnerID: UUID?, actualOwnerID: UUID) throws {
+        if let expectedOwnerID, expectedOwnerID != actualOwnerID {
+            throw SyncError.transport("Account changed while authorizing sync. Your local changes are retained.")
+        }
     }
 }

@@ -102,68 +102,15 @@ struct PracticeProgressView: View {
                 Button("Practice calendar", systemImage: "calendar") { showCalendar = true }
             }
         }
-        .sheet(isPresented: $showCalendar) { PracticeCalendarView() }
+        .sheet(isPresented: $showCalendar) {
+            NavigationStack { CalendarView().toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { showCalendar = false } }
+            } }
+        }
     }
 
     private func pieceTitle(_ id: UUID) -> String {
         store.pieces.first(where: { $0.id == id })?.title ?? "Practice session"
-    }
-}
-
-private struct PracticeCalendarView: View {
-    @Environment(PracticeStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedDate = Date.now
-
-    private var sessions: [PracticeSession] {
-        store.sessions.filter { Calendar.current.isDate($0.startedAt, inSameDayAs: selectedDate) }
-            .sorted { $0.startedAt > $1.startedAt }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    DatePicker("Practice date", selection: $selectedDate, displayedComponents: .date)
-                        .datePickerStyle(.graphical)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
-                }
-                Section(selectedDate.formatted(.dateTime.weekday(.wide).month().day())) {
-                    if sessions.isEmpty {
-                        Text("No practice recorded on this date.").foregroundStyle(.secondary)
-                    } else {
-                        HStack(alignment: .top, spacing: 20) {
-                            PracticeMetric(value: practiceDuration(sessions.reduce(0) { $0 + $1.activeSeconds }),
-                                           title: "Focused time")
-                            PracticeMetric(value: "\(sessions.reduce(0) { $0 + $1.attempts.count })", title: "Repetitions")
-                        }
-                        .padding(.vertical, 8)
-                        ForEach(sessions) { session in
-                            NavigationLink {
-                                SessionDetailView(sessionID: session.id)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(store.pieces.first { $0.id == session.pieceID }?.title ?? "Practice session")
-                                        .font(.headline)
-                                    HStack(spacing: 6) {
-                                        Text(session.startedAt, format: .dateTime.hour().minute())
-                                        Text("·")
-                                        Text(practiceDuration(session.activeSeconds))
-                                    }
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                                }
-                                .padding(.vertical, 5)
-                            }
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Practice calendar")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
-            }
-        }
     }
 }
 
@@ -206,7 +153,7 @@ private struct WeekPracticeView: View {
     }
 }
 
-private struct SessionDetailView: View {
+struct SessionDetailView: View {
     @Environment(PracticeStore.self) private var store
     let sessionID: UUID
     private var session: PracticeSession? { store.sessions.first { $0.id == sessionID } }

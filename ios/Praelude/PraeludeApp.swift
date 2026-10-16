@@ -28,7 +28,11 @@ struct PraeludeApp: App {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--uitesting") {
             directory = base.appendingPathComponent("Praelude-UI-Tests", isDirectory: true)
-            if ProcessInfo.processInfo.arguments.contains("--reset") { try? FileManager.default.removeItem(at: directory) }
+            if ProcessInfo.processInfo.arguments.contains("--reset") {
+                try? FileManager.default.removeItem(at: directory)
+                UserDefaults.standard.removeObject(forKey: "ios.practiceDisplay")
+                UserDefaults.standard.removeObject(forKey: "ios.counterKeepAwake")
+            }
         }
         #endif
         let value = PracticeStore(directory: directory)
@@ -157,17 +161,18 @@ struct PraeludeApp: App {
 }
 
 private enum Destination: String, CaseIterable, Identifiable {
-    case today = "Today", pieces = "Pieces", friends = "Friends", warmups = "Warmups", progress = "Progress"
+    case today = "Today", pieces = "Pieces", passages = "Passages", friends = "Friends", warmups = "Warmups", progress = "Progress"
     case history = "History", calendar = "Calendar", notebook = "Notebook", insights = "Data"
     case rewards = "Rewards"
     case more = "More"
-    static let compactTabs: [Destination] = [.today, .pieces, .warmups, .progress, .more]
-    static let moreDestinations: [Destination] = [.friends, .history, .calendar, .notebook, .insights, .rewards]
+    static let compactTabs: [Destination] = [.today, .passages, .pieces, .progress, .more]
+    static let moreDestinations: [Destination] = [.warmups, .friends, .history, .calendar, .notebook, .insights, .rewards]
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .today: return "sun.max"
         case .pieces: return "music.note.list"
+        case .passages: return "rectangle.stack"
         case .friends: return "person.2"
         case .warmups: return "flame"
         case .progress: return "chart.bar.xaxis"
@@ -221,6 +226,7 @@ struct AppRootView: View {
     /// hand-off, consumed and cleared by `ScoreWorkspace.onInitialPageConsumed` right after it is
     /// read) for a setlist item's own `startPage`, previously stored but never acted on.
     @State private var pendingInitialPage: (pieceID: UUID, page: Int)?
+    @State private var pendingDisplayIntent: (pieceID: UUID, intent: ScoreDisplayIntent)?
     @State private var pendingBackupAction: String?
     @State private var sidebarVisibility = NavigationSplitViewVisibility.detailOnly
     @State private var backup: NativeBackupDocument?
@@ -272,7 +278,7 @@ struct AppRootView: View {
                 NavigationSplitView(columnVisibility: $sidebarVisibility) {
                     List {
                         Section("Practice") {
-                            ForEach([Destination.today, .pieces, .warmups]) { sidebarDestination($0) }
+                            ForEach([Destination.today, .passages, .pieces, .warmups]) { sidebarDestination($0) }
                         }
                         Section("Review") {
                             ForEach([Destination.progress, .history, .notebook]) { sidebarDestination($0) }
@@ -321,7 +327,9 @@ struct AppRootView: View {
                         autoSelectPassageID: pendingAutoSelectPassage?.pieceID == selectedPiece ? pendingAutoSelectPassage?.passageID : nil,
                         onAutoSelectConsumed: { pendingAutoSelectPassage = nil },
                         initialPage: pendingInitialPage?.pieceID == selectedPiece ? pendingInitialPage?.page : nil,
-                        onInitialPageConsumed: { pendingInitialPage = nil }) }
+                        onInitialPageConsumed: { pendingInitialPage = nil },
+                        initialDisplayIntent: pendingDisplayIntent?.pieceID == selectedPiece ? pendingDisplayIntent?.intent : nil,
+                        onDisplayIntentConsumed: { pendingDisplayIntent = nil }) }
                         else { content(destination).toolbar { ToolbarItem(placement: .topBarTrailing) { settingsButton } } }
                     }
                     .toolbar(removing: sizeClass == .regular ? .sidebarToggle : nil)
@@ -350,7 +358,9 @@ struct AppRootView: View {
                                        autoSelectPassageID: pendingAutoSelectPassage?.pieceID == route.id ? pendingAutoSelectPassage?.passageID : nil,
                                        onAutoSelectConsumed: { pendingAutoSelectPassage = nil },
                                        initialPage: pendingInitialPage?.pieceID == route.id ? pendingInitialPage?.page : nil,
-                                       onInitialPageConsumed: { pendingInitialPage = nil })
+                                       onInitialPageConsumed: { pendingInitialPage = nil },
+                                       initialDisplayIntent: pendingDisplayIntent?.pieceID == route.id ? pendingDisplayIntent?.intent : nil,
+                                       onDisplayIntentConsumed: { pendingDisplayIntent = nil })
                     }
                 }
             }
@@ -534,7 +544,8 @@ struct AppRootView: View {
     @ViewBuilder private func content(_ destination: Destination) -> some View {
         switch destination {
         case .today: TodayView(onOpenPiece: { openPiece($0) }, onAddPiece: { sheet = .add }, onContinueWarmup: { practicingWarmup = true },
-                               onStartPassage: startPassage)
+                               onStartPassage: startPassage, onOpenCards: { self.destination = .passages })
+        case .passages: PassageCardsView(onStart: startPassage, onOpenScore: { id, page in openPiece(id, startPage: page, displayIntent: .score) })
         case .pieces: LibraryView(onOpenPiece: { openPiece($0) }, onAddPiece: { sheet = .add },
                                   onOpenPieceAtPage: { id, page in openPiece(id, startPage: page) })
         case .friends: FriendsView()
@@ -569,6 +580,7 @@ struct AppRootView: View {
     }
     @ViewBuilder private func secondaryContent(_ destination: Destination) -> some View {
         switch destination {
+        case .warmups: WarmupsView(onStartPractice: { practicingWarmup = true })
         case .friends: FriendsView()
         case .history: HistoryView()
         case .calendar: CalendarView()
@@ -587,12 +599,13 @@ struct AppRootView: View {
               store.activeSet?.status != .running else { return }
         activeCelebration = rewards.dequeueCelebration()
     }
-    private func openPiece(_ id: UUID, startPage: Int? = nil) {
+    private func openPiece(_ id: UUID, startPage: Int? = nil, displayIntent: ScoreDisplayIntent? = nil) {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--uitesting") { NSLog("PraeludeUITest: Open piece action") }
         InteractionAudit.record("root.openPiece.action sameSelected=\(selectedPiece == id) samePhone=\(phoneScore?.id == id) startPage=\(startPage ?? 0)")
         #endif
         if let startPage { pendingInitialPage = (id, startPage) }
+        if let displayIntent { pendingDisplayIntent = (id, displayIntent) }
         if selectedPiece == id || phoneScore?.id == id {
             sidebarVisibility = .detailOnly
             #if DEBUG
@@ -614,7 +627,7 @@ struct AppRootView: View {
     /// passage's grade prompt shows instead of silently skipping it.
     private func startPassage(pieceID: UUID, passageID: UUID) {
         pendingAutoSelectPassage = (pieceID, passageID)
-        openPiece(pieceID)
+        openPiece(pieceID, displayIntent: .practice)
     }
     private func navigateFromScore(_ action: @escaping () -> Void) {
         #if DEBUG

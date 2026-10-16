@@ -15,8 +15,9 @@ do not install this target.
 
 - The pianist supplies every verdict. No piano recognition, automatic musical grading, or
   invented practice statistics. Counting and metronome control stay deterministic and offline.
-- Keep the score prominent and page-based. Reading/zoom, annotation, and practice controls must
-  coexist without accidental marks or lost page context. Prefer PencilKit/PDFKit public APIs.
+- iPad defaults to a prominent page-based score; iPhone defaults to Counter practice. Both offer
+  Score/Counter and image-led Passages for paper music. Keep reading/zoom/annotation available
+  without accidental marks or lost page context. Prefer PencilKit/PDFKit public APIs.
 - Use native adaptive navigation, system typography and materials, generous hit targets, focused
   sheets, and restrained feedback. No gradients, decorative dashboards, or simulated desktop windows.
 - iPhone, iPad, narrow windows, landscape, and accessibility text sizes are distinct review cases.

@@ -62,6 +62,7 @@ public struct PieceSyncRow: Codable, Equatable, Sendable {
     public var title: String
     public var composer: String
     public var pdf_file_name: String?
+    public var is_photo_passage: Bool?
     public var page_count: Int
     public var last_page: Int
     public var status: String
@@ -75,6 +76,9 @@ public struct PieceSyncRow: Codable, Equatable, Sendable {
     public var measure_anchors: [ScoreMeasureAnchor]?
     public var default_practice_bpm: Double?
     public var hasDefaultPracticeTempo: Bool = false
+    public var full_tempo_bpm: Double?
+    public var hasFullTempo: Bool = false
+    public var practice_balance_plan: PracticeBalancePlan?
     public var performance_dates: [Date]
     public var created_at: Date
     public var updated_at: Date
@@ -87,6 +91,7 @@ public struct PieceSyncRow: Codable, Equatable, Sendable {
 
     public init(_ piece: Piece) {
         id = piece.id; title = piece.title; composer = piece.composer; pdf_file_name = piece.pdfFileName
+        is_photo_passage = piece.isPhotoPassage
         page_count = piece.pageCount; last_page = piece.lastPage; status = piece.status.rawValue; notes = piece.notes
         instrument_id = piece.instrumentID; tag_ids = piece.tagIDs; folder_ids = piece.folderIDs
         difficulty = piece.difficulty; custom_cover_ref = piece.customCoverRef; performance_dates = piece.performanceDates
@@ -94,28 +99,33 @@ public struct PieceSyncRow: Codable, Equatable, Sendable {
         deleted_at = piece.deletedAt
         score_sections = piece.scoreSections; measure_anchors = piece.measureAnchors
         default_practice_bpm = piece.defaultPracticeBPM; hasDefaultPracticeTempo = true
+        full_tempo_bpm = piece.fullTempoBPM; hasFullTempo = true
+        practice_balance_plan = piece.practiceBalancePlan
     }
     public var coreValue: Piece? { coreValue(preserving: nil) }
     public func coreValue(preserving existing: Piece?) -> Piece? {
         guard let status = PieceStatus(rawValue: status) else { return nil }
-        return Piece(id: id, title: title, composer: composer, pdfFileName: pdf_file_name, pageCount: page_count,
+        return Piece(id: id, title: title, composer: composer, pdfFileName: pdf_file_name,
+                      isPhotoPassage: is_photo_passage ?? existing?.isPhotoPassage ?? false, pageCount: page_count,
                       lastPage: last_page, status: status, notes: notes, createdAt: created_at, instrumentID: instrument_id,
                       tagIDs: tag_ids, folderIDs: folder_ids, difficulty: difficulty, customCoverRef: custom_cover_ref,
                       performanceDates: performance_dates,
                       scoreSections: score_sections ?? existing?.scoreSections ?? [],
                       measureAnchors: measure_anchors ?? existing?.measureAnchors ?? [],
                       defaultPracticeBPM: hasDefaultPracticeTempo ? default_practice_bpm : existing?.defaultPracticeBPM,
-                      fullTempoBPM: existing?.fullTempoBPM, practiceBalancePlan: existing?.practiceBalancePlan ?? PracticeBalancePlan(),
+                      fullTempoBPM: hasFullTempo ? full_tempo_bpm : existing?.fullTempoBPM,
+                      practiceBalancePlan: practice_balance_plan ?? existing?.practiceBalancePlan ?? PracticeBalancePlan(),
                       updatedAt: updated_at, lastPageUpdatedAt: last_page_updated_at,
                       deletedAt: deleted_at)
     }
-    private enum CodingKeys: String, CodingKey { case id, title, composer, pdf_file_name, page_count, last_page, status, notes, instrument_id, tag_ids, folder_ids, difficulty, custom_cover_ref, score_sections, measure_anchors, default_practice_bpm, performance_dates, created_at, updated_at, last_page_updated_at, deleted_at }
+    private enum CodingKeys: String, CodingKey { case id, title, composer, pdf_file_name, is_photo_passage, page_count, last_page, status, notes, instrument_id, tag_ids, folder_ids, difficulty, custom_cover_ref, score_sections, measure_anchors, default_practice_bpm, full_tempo_bpm, practice_balance_plan, performance_dates, created_at, updated_at, last_page_updated_at, deleted_at }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(UUID.self, forKey: .id)
         title = try values.decode(String.self, forKey: .title)
         composer = try values.decode(String.self, forKey: .composer)
         pdf_file_name = try values.decodeIfPresent(String.self, forKey: .pdf_file_name)
+        is_photo_passage = try values.decodeIfPresent(Bool.self, forKey: .is_photo_passage)
         page_count = try values.decode(Int.self, forKey: .page_count)
         last_page = try values.decode(Int.self, forKey: .last_page)
         status = try values.decode(String.self, forKey: .status)
@@ -128,12 +138,15 @@ public struct PieceSyncRow: Codable, Equatable, Sendable {
         score_sections = try values.decodeIfPresent([ScoreSection].self, forKey: .score_sections)
         measure_anchors = try values.decodeIfPresent([ScoreMeasureAnchor].self, forKey: .measure_anchors)
         default_practice_bpm = try values.decodeIfPresent(Double.self, forKey: .default_practice_bpm)
+        full_tempo_bpm = try values.decodeIfPresent(Double.self, forKey: .full_tempo_bpm)
+        practice_balance_plan = try values.decodeIfPresent(PracticeBalancePlan.self, forKey: .practice_balance_plan)
         performance_dates = try values.decode([Date].self, forKey: .performance_dates)
         created_at = try values.decode(Date.self, forKey: .created_at)
         updated_at = try values.decode(Date.self, forKey: .updated_at)
         last_page_updated_at = try values.decode(Date.self, forKey: .last_page_updated_at)
         deleted_at = try values.decodeIfPresent(Date.self, forKey: .deleted_at)
         hasDefaultPracticeTempo = values.contains(.default_practice_bpm)
+        hasFullTempo = values.contains(.full_tempo_bpm)
     }
     public func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
@@ -141,6 +154,7 @@ public struct PieceSyncRow: Codable, Equatable, Sendable {
         try values.encode(title, forKey: .title)
         try values.encode(composer, forKey: .composer)
         try values.encodeIfPresent(pdf_file_name, forKey: .pdf_file_name)
+        try values.encodeIfPresent(is_photo_passage, forKey: .is_photo_passage)
         try values.encode(page_count, forKey: .page_count)
         try values.encode(last_page, forKey: .last_page)
         try values.encode(status, forKey: .status)
@@ -153,6 +167,8 @@ public struct PieceSyncRow: Codable, Equatable, Sendable {
         try values.encodeIfPresent(score_sections, forKey: .score_sections)
         try values.encodeIfPresent(measure_anchors, forKey: .measure_anchors)
         if hasDefaultPracticeTempo { try values.encode(default_practice_bpm, forKey: .default_practice_bpm) }
+        if hasFullTempo { try values.encode(full_tempo_bpm, forKey: .full_tempo_bpm) }
+        try values.encodeIfPresent(practice_balance_plan, forKey: .practice_balance_plan)
         try values.encode(performance_dates, forKey: .performance_dates)
         try values.encode(created_at, forKey: .created_at)
         try values.encode(updated_at, forKey: .updated_at)

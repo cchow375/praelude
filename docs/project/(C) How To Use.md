@@ -1,5 +1,13 @@
 # Praelude — How To Use
 
+## October 16 — Build19 development preview; installed guide remains Build18
+
+**Matches: installed personal native2.0.0/build18/schema5; friend Build12/schema5; Mac v11.1.0/schema21. Last updated: 2026-10-16.** This session changes development source only. The new phone Counter, visual Passages tab, photo crop and review tools are **not installed** by this work; the Build18 installed controls below remain current. See `~/praelude/docs/qa/ios/2.0.0/build19/candidate-guide.md` for the complete candidate walkthrough and ten additional practice tools.
+
+Christian confirms neither native device is signed in yet. In the candidate's Account screen, use the same account on iPhone and iPad, then Sync library now and check queue/errors and local score availability on each device. Do not assume the current local iPad library is already uploaded. A running set remains on its originating device; the installed Mac is separate from native sync. Real-account two-device acceptance is pending.
+
+Candidate verification now passes within its recorded scope: 537 core cases and 2,340 deterministic service assertions, 360 hosted cases, 57 helper tests, all six affected flows on each simulator form factor, and a fresh independent same-card Score/Counter/Clean/Undo check. Each full core/hosted run has one opt-in live-account skip and zero failures. Unsigned arm64 Release/package inspection passes; signed delivery and physical/account acceptance remain open. Final findings and every retained intermediate failure are in `docs/qa/ios/2.0.0/build19/practice-cards.md`.
+
 ## October 15 — Build18 installed camera controls
 
 **Matches: installed personal native2.0.0/build18/schema5; friend Build12/schema5; Mac v11.1.0/schema21. Last updated: 2026-10-15.** Running process and full postlaunch backup are verified. Recognition and page/rep response remain physically unaccepted.

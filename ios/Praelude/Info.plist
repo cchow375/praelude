@@ -12,7 +12,7 @@
 <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
 <key>LSRequiresIPhoneOS</key><true/>
 <key>CADisableMinimumFrameDurationOnPhone</key><true/>
-<key>NSCameraUsageDescription</key><string>Use your camera when you choose score scanning, invite QR scanning or optional face gestures for page turns and your own practice verdicts. Face-gesture frames are processed on this device and discarded without recording or uploading.</string>
+<key>NSCameraUsageDescription</key><string>Use your camera to photograph passages, scan scores or invite QR codes, and optionally turn pages or record your own practice verdicts with face gestures. Only the cropped passage photo is saved and can sync privately to your account; face-gesture frames stay on this device and are discarded.</string>
 <key>NSMicrophoneUsageDescription</key><string>Use your microphone when you choose voice commands, dictate passage names or notes, tune an instrument, or record a take. Praelude never grades your playing.</string>
 <key>NSSpeechRecognitionUsageDescription</key><string>Recognize your practice commands, passage names and notes on this device when you tap the microphone. Speech never grades your playing.</string>
 <key>NSContactsUsageDescription</key><string>Match your contacts against other Praelude musicians. Numbers and emails are hashed on this device before anything is sent.</string>

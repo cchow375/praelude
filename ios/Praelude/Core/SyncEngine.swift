@@ -6,6 +6,9 @@ import Observation
 /// no Supabase SDK dependency, matching spec §17a ("sync engine unit tests with a fake transport").
 /// `PostgRESTSyncTransport` (`Services/`) is the real, SDK-backed conformance used at runtime.
 public protocol SyncTransport: Sendable {
+    /// Bind network credentials to the durable queue owner. Production transports must reject a
+    /// refreshed session for another account before issuing a request; local fakes need no token.
+    func scoped(to ownerID: UUID) -> any SyncTransport
     /// Whole-row upsert for a `sync_tables` member. `row` must be every column the table has except
     /// `id`/`owner_id` (see `SyncDTO.swift`'s header comment for why those are omitted).
     func upsert(table: String, row: [String: SyncJSON]) async throws -> SyncRPCResult
@@ -18,6 +21,10 @@ public protocol SyncTransport: Sendable {
     /// `cursorField` passes an append-only table's own event-date column instead (that family has no
     /// `updated_at` column to filter on at all).
     func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]]
+}
+
+public extension SyncTransport {
+    func scoped(to ownerID: UUID) -> any SyncTransport { self }
 }
 
 public struct SyncRPCResult: Equatable, Sendable {
@@ -131,7 +138,7 @@ public final class SyncEngine {
     public private(set) var status: Status = .idle
     public private(set) var lastSyncedAt: Date?
     public private(set) var state: SyncEngineState
-    private let transport: any SyncTransport
+    private var transport: any SyncTransport
     private let queue: SyncQueue
     private let stateFileURL: URL
     private let writeData: (Data, URL) throws -> Void
@@ -166,16 +173,16 @@ public final class SyncEngine {
             queue = SyncQueue(inMemory: ())
         }
         stateFileURL = directory.appendingPathComponent("sync-state.json")
-        if FileManager.default.fileExists(atPath: stateFileURL.path), let data = try? Data(contentsOf: stateFileURL),
-           let decoded = try? JSONDecoder().decode(SyncEngineState.self, from: data) {
-            state = decoded
-        } else {
-            state = SyncEngineState()
-        }
-        if queueFailure != nil {
+        var stateFailure: Error?
+        if FileManager.default.fileExists(atPath: stateFileURL.path) {
+            do { state = try JSONDecoder().decode(SyncEngineState.self, from: Data(contentsOf: stateFileURL)) }
+            catch { state = SyncEngineState(); stateFailure = error }
+        } else { state = SyncEngineState() }
+        if queueFailure != nil || stateFailure != nil {
             storageIsUnavailable = true
-            status = .stuck("Sync storage could not be opened safely. Your local library and original sync queue are preserved.")
+            status = .stuck("Sync storage could not be opened safely. Your local library and original sync files are preserved.")
         }
+        if let ownerID = state.accountOwnerID { self.transport = transport.scoped(to: ownerID) }
     }
 
     // MARK: Enqueueing (persists immediately — safe to call right before the app is force-quit)
@@ -232,12 +239,15 @@ public final class SyncEngine {
         return try content(value) != content(defaultValue)
     }
     public func bindAccount(_ userID: UUID) throws {
+        guard !storageIsUnavailable else { throw SyncError.transport("Sync storage is unavailable.") }
         if let owner = state.accountOwnerID, owner != userID { throw SyncError.transport("This sync queue belongs to a different account.") }
-        guard state.accountOwnerID != userID else { return }
-        let previous = state.accountOwnerID
-        state.accountOwnerID = userID
-        do { try persistState() }
-        catch { state.accountOwnerID = previous; throw error }
+        if state.accountOwnerID != userID {
+            let previous = state.accountOwnerID
+            state.accountOwnerID = userID
+            do { try persistState() }
+            catch { state.accountOwnerID = previous; throw error }
+        }
+        transport = transport.scoped(to: userID)
     }
     public var hasHydratedProfile: Bool {
         state.accountOwnerID != nil && state.profileHydratedOwnerID == state.accountOwnerID
@@ -581,7 +591,10 @@ public final class SyncEngine {
     /// Drops every queued write without sending it. Used only on sign-out: the queue is per-account
     /// local state, and a pending write from account A must never be replayed after signing into
     /// account B on the same device.
-    public func discardPendingWrites() throws { accountGeneration += 1; try queue.removeAll(); firstFailureAt = nil; status = .idle }
+    public func discardPendingWrites() throws {
+        guard !storageIsUnavailable else { throw SyncError.transport("Sync storage is unavailable.") }
+        accountGeneration += 1; try queue.removeAll(); firstFailureAt = nil; status = .idle
+    }
 
     /// Clears every piece of local sync bookkeeping tied to whichever account was just signed out
     /// of: the outbound queue (see `discardPendingWrites`), every table's pull cursor, and the
@@ -591,6 +604,7 @@ public final class SyncEngine {
     /// and a queued write from A can never reach B. Practice library content itself is untouched —
     /// this is sync bookkeeping, not library data (spec: never lose user data).
     public func resetLocalAccountState(preservingProfileFor ownerID: UUID? = nil) throws {
+        guard !storageIsUnavailable else { throw SyncError.transport("Sync storage is unavailable.") }
         let previous = state
         var reset = SyncEngineState()
         if let ownerID, previous.accountOwnerID == ownerID {
@@ -698,6 +712,7 @@ public final class SyncEngine {
     /// nothing past the first page.
     public func pull(table: String, cursorField: String = "updated_at", applyRow: (_ row: [String: SyncJSON]) throws -> Void) async throws {
         let generation = accountGeneration
+        try requireCurrentPull(generation)
         let rows = try await transport.fetch(table: table, field: cursorField, updatedSince: nil)
         for (index, row) in rows.enumerated() {
             // Importing hundreds of annotations otherwise monopolizes the main actor until the
@@ -713,6 +728,7 @@ public final class SyncEngine {
     /// merge in one atomic library transaction instead of rewriting the library once per rep.
     public func pullRows(table: String, cursorField: String = "updated_at", applyRows: ([[String: SyncJSON]]) throws -> Void) async throws {
         let generation = accountGeneration
+        try requireCurrentPull(generation)
         let rows = try await transport.fetch(table: table, field: cursorField, updatedSince: nil)
         try requireCurrentPull(generation)
         try applyRows(rows)
@@ -722,6 +738,7 @@ public final class SyncEngine {
 
     private func requireCurrentPull(_ generation: Int) throws {
         try Task.checkCancellation()
+        guard !storageIsUnavailable else { throw SyncError.transport("Sync storage is unavailable.") }
         guard generation == accountGeneration else { throw SyncError.transport("Account changed during sync.") }
     }
 
@@ -739,6 +756,7 @@ public final class SyncEngine {
     /// The callback commits one validated practice snapshot; failure leaves every cursor unchanged.
     public func pullPracticeSnapshot(applyRows: ([String: [[String: SyncJSON]]]) throws -> Void) async throws {
         let generation = accountGeneration
+        try requireCurrentPull(generation)
         let tables = [("practice_sessions", "updated_at"), ("sets", "updated_at"), ("attempts", "date")]
         var rows: [String: [[String: SyncJSON]]] = [:]
         for (table, field) in tables {

@@ -7,6 +7,8 @@ public enum PracticeCalendarStats {
         public var date: Date
         public var seconds: TimeInterval
         public var sessionCount: Int
+        public var repetitions: Int = 0
+        public var hasPractice: Bool { seconds > 0 || repetitions > 0 }
     }
 
     /// One entry per calendar day that had at least one session starting on it, keyed by that day's
@@ -18,9 +20,42 @@ public enum PracticeCalendarStats {
             var total = totals[day] ?? DayTotal(date: day, seconds: 0, sessionCount: 0)
             total.seconds += session.activeSeconds
             total.sessionCount += 1
+            total.repetitions += session.attempts.filter(\.isEffective).count
             totals[day] = total
         }
         return totals
+    }
+
+    public struct RecordedStreak: Equatable, Sendable {
+        public var currentDays: Int
+        public var longestDays: Int
+        public var practicedToday: Bool
+        public var daysThisWeek: Int
+    }
+
+    /// Derived from synced practice, rather than a device's reward cache. A blank opened session
+    /// is not practice. Attribute recorded work to the session's start day, like the calendar.
+    /// Calendar arithmetic handles daylight-saving days; a day is never assumed to be 86,400s.
+    public static func recordedStreak(state: LibraryState, calendar: Calendar, now: Date) -> RecordedStreak {
+        let today = calendar.startOfDay(for: now)
+        let days = Set(dailyTotals(state: state, calendar: calendar).values
+            .filter { $0.hasPractice && $0.date <= today }.map(\.date))
+        let practicedToday = days.contains(today)
+        var current = 0
+        var cursor = practicedToday ? today : calendar.date(byAdding: .day, value: -1, to: today)
+        while let day = cursor, days.contains(day) {
+            current += 1
+            cursor = calendar.date(byAdding: .day, value: -1, to: day)
+        }
+        var longest = 0, run = 0
+        var previous: Date?
+        for day in days.sorted() {
+            run = previous.flatMap { calendar.date(byAdding: .day, value: 1, to: $0) } == day ? run + 1 : 1
+            longest = max(longest, run); previous = day
+        }
+        let weekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+        return RecordedStreak(currentDays: current, longestDays: longest, practicedToday: practicedToday,
+                              daysThisWeek: days.filter { $0 >= weekStart }.count)
     }
 
     public struct PerformanceDay: Identifiable, Equatable, Sendable {

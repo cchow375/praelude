@@ -1,0 +1,215 @@
+{
+  "date": "2026-10-16",
+  "status": "PASS scoped candidate checks; not installed or physically accepted",
+  "core": {
+    "cases": 537,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 8.079
+  },
+  "deterministic_services": {
+    "assertions": 2340
+  },
+  "python_helpers": {
+    "cases": 57,
+    "failures": 0,
+    "seconds": 0.23
+  },
+  "hosted_final": {
+    "cases": 360,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 16.159
+  },
+  "ui": {
+    "phone-final3": [
+      {
+        "suite": "CounterPracticeUITests",
+        "case": "testCounterControlsRemainReachableInLandscape",
+        "seconds": 32.012
+      },
+      {
+        "suite": "CounterPracticeUITests",
+        "case": "testCounterPracticeSavesUndoRestAndModeSwitch",
+        "seconds": 50.145
+      },
+      {
+        "suite": "CounterPracticeUITests",
+        "case": "testDefaultDisplayMatchesTheDeviceAndScoreRemainsAvailable",
+        "seconds": 16.901
+      },
+      {
+        "suite": "PassageCardsUITests",
+        "case": "testCropPhotoSaveCardPracticeAndRetainAfterRelaunch",
+        "seconds": 45.265
+      },
+      {
+        "suite": "PassageCardsUITests",
+        "case": "testImageReviewDetailsAndReversibleDeferralDoNotGradePassage",
+        "seconds": 19.75
+      }
+    ],
+    "phone-final5": [
+      {
+        "suite": "CounterPracticeUITests",
+        "case": "testCounterSessionAppearsInCalendarAndRecordedHistory",
+        "seconds": 45.083
+      },
+      {
+        "suite": "PassageCardsUITests",
+        "case": "testImageReviewDetailsAndReversibleDeferralDoNotGradePassage",
+        "seconds": 36.059
+      }
+    ],
+    "phone-final6": [
+      {
+        "suite": "CounterPracticeUITests",
+        "case": "testCounterControlsRemainReachableInLandscape",
+        "seconds": 32.953
+      }
+    ],
+    "ipad-final1": [
+      {
+        "suite": "CounterPracticeUITests",
+        "case": "testCounterControlsRemainReachableInLandscape",
+        "seconds": 34.892
+      },
+      {
+        "suite": "CounterPracticeUITests",
+        "case": "testCounterPracticeSavesUndoRestAndModeSwitch",
+        "seconds": 43.16
+      },
+      {
+        "suite": "CounterPracticeUITests",
+        "case": "testCounterSessionAppearsInCalendarAndRecordedHistory",
+        "seconds": 45.18
+      },
+      {
+        "suite": "CounterPracticeUITests",
+        "case": "testDefaultDisplayMatchesTheDeviceAndScoreRemainsAvailable",
+        "seconds": 23.776
+      }
+    ],
+    "ipad-final3": [
+      {
+        "suite": "PassageCardsUITests",
+        "case": "testCropPhotoSaveCardPracticeAndRetainAfterRelaunch",
+        "seconds": 47.306
+      },
+      {
+        "suite": "PassageCardsUITests",
+        "case": "testImageReviewDetailsAndReversibleDeferralDoNotGradePassage",
+        "seconds": 48.027
+      }
+    ],
+    "ipad-final4": [
+      {
+        "suite": "CounterPracticeUITests",
+        "case": "testIndependentCardScoreCounterCleanUndoPreservesUngradedReview",
+        "seconds": 67.855
+      },
+      {
+        "suite": "PassageCardsUITests",
+        "case": "testImageReviewDetailsAndReversibleDeferralDoNotGradePassage",
+        "seconds": 50.771
+      }
+    ]
+  },
+  "unique_affected_flows": {
+    "iPhone": 6,
+    "iPad": 6,
+    "additional_independent_iPad_integration": 1
+  },
+  "package": "release-package.json",
+  "source_inputs": "source-sha256.json",
+  "sync": "sync-verification.json",
+  "raw_log_fingerprints": {
+    "/tmp/praelude-build19-deterministic-final.log": {
+      "bytes": 146056,
+      "sha256": "3bdbdc6f28782e5e08ce6b284eec680efc49d60fa01d25686b91d46dd48656c5"
+    },
+    "/tmp/praelude-build19-tools.log": {
+      "bytes": 156,
+      "sha256": "0d7bb1bded5629741b45dae91601fb0dde3ca6da8dc748d0e24d72cc0e8b7698"
+    },
+    "/tmp/praelude-build19-phone-final1.log": {
+      "bytes": 307234,
+      "sha256": "6cd1802d69faaf4a79b6db6e6601f4bc305f7963e6fbe6642f099e186ec96e57"
+    },
+    "/tmp/praelude-build19-phone-final2.log": {
+      "bytes": 354538,
+      "sha256": "5f16ddbe80a08a05bcc3e39a721b8c6b96dee937324e0d4ab70cc2447e8484d9"
+    },
+    "/tmp/praelude-build19-phone-final3.log": {
+      "bytes": 154095,
+      "sha256": "ddde61d77cc51fe2dbed9c8cccd83ecb7e339e772ce48c65651754d9f184752b"
+    },
+    "/tmp/praelude-build19-phone-final4.log": {
+      "bytes": 119091,
+      "sha256": "9faf8adc99b280530945ae044425e43c0e0f29d2a52ee2d8a95337430d3106e4"
+    },
+    "/tmp/praelude-build19-phone-final5.log": {
+      "bytes": 266930,
+      "sha256": "4f5b3eb4b23e717a841a87a26fa0c2ab9f4505c502980b3cc68ecc31d5844dcf"
+    },
+    "/tmp/praelude-build19-phone-final6.log": {
+      "bytes": 261933,
+      "sha256": "f5c1932b6ca1d41f5737dac77fbe6d147519fa2b2d14a1b3e0a68014b1995e15"
+    },
+    "/tmp/praelude-build19-ipad-final1.log": {
+      "bytes": 132820,
+      "sha256": "dece7e57040cd4cfd0dd29bcbbf161493e3a344bf0beeab400e27ac3f43ad70a"
+    },
+    "/tmp/praelude-build19-ipad-final2.log": {
+      "bytes": 134442,
+      "sha256": "c7cb89b0c69713181ea355e3a103433be6057d43a980e34053eb9fd8f5e741ee"
+    },
+    "/tmp/praelude-build19-ipad-final3.log": {
+      "bytes": 71611,
+      "sha256": "a6d51e9fa172864e0e49b5247451e6db7300b1ac7febe1b68f516e7b8aaa295e"
+    },
+    "/tmp/praelude-build19-ipad-final4.log": {
+      "bytes": 90357,
+      "sha256": "4b89064a14855d3b8a2a64308283451616409c88c2cf9ce14fe9b194e43fd4fe"
+    },
+    "/tmp/praelude-build19-release.log": {
+      "bytes": 162663,
+      "sha256": "16b12fa9c8a17f2b4a6972058812022e49b34abc0ad8b4a41805d3bcc89b45fb"
+    },
+    "/tmp/praelude-build19-native1.log": {
+      "bytes": 444563,
+      "sha256": "0e8e16810e6b18a44f1bb3b7d8038d11e79c540c8b6dceb6caa8d768725dda3f"
+    },
+    "/tmp/praelude-build19-native2.log": {
+      "bytes": 114121,
+      "sha256": "891373107fdbdfd34f61f60aeb0e2d3ba0f0900646161a3733f26436fd63b786"
+    },
+    "/tmp/praelude-build19-native3.log": {
+      "bytes": 56452,
+      "sha256": "b33cc6f12e9a55223229c7e4fba247b55e4176ff91082ecf2d63455432a0112c"
+    },
+    "/tmp/praelude-build19-native4.log": {
+      "bytes": 271553,
+      "sha256": "cae3b425cc69c9709e6a726189a1b021560a8dce0fc8b249f1b4618ccdb545eb"
+    }
+  },
+  "boundaries": [
+    "Unsigned generic Release, no physical installation or data-preservation readback in this session.",
+    "Neither personal device is signed in; no personal library convergence claimed.",
+    "Actual camera/Photos/audio/haptics/sustained latency and B170/B171 remain physical gates.",
+    "Simulator tests use only disposable synthetic UI-test library; no personal score/image was used."
+  ],
+  "docs_mirror": "PASS docs:sync and docs:check; 32 version records,18 lineage documents; /tmp/praelude-build19-docs-final.log",
+  "retained_failed_runs": {
+    "native1": "Concurrent evolving storage-test signature compile failure",
+    "native2": "Ambiguous CGFloat.nan in test fixture",
+    "native3": "Non-Sendable XCTest self capture in test fixture",
+    "phone-final1": "Ancestor accessibility identifier product finding; stopped after diagnosis",
+    "phone-final2": "Three UI helper failures; hosted358/1skip/0fail",
+    "phone-final4": "SwiftUI modifier type-check complexity; lifecycle expression split",
+    "phone-final5": "UI2 pass, hosted360/1skip/7 assertions within one storage observer fixture; path normalization repaired",
+    "ipad-final1": "Counter/default/calendar4 pass; Cards2 failed before sidebar was opened",
+    "ipad-final2": "Photo saved/card rendered, but test missed native Search button; review before-deferral pixels passed, then helper could not infer scroll direction for a virtualized offscreen image"
+  },
+  "independent_review": "PASS; independent-live.md records source/synthetic visual review, CUA limitation, authored XCTest fallback and exact final4 results."
+}

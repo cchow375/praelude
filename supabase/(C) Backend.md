@@ -1,5 +1,15 @@
 # (C) Backend — Supabase project `zotswpjyvmhnxdyibnnz`
 
+October16 build19 additions: migrations28(`pieces.full_tempo_bpm` and
+`practice_balance_plan`) and29(`pieces.is_photo_passage`) are applied. All three columns are
+nullable with no default/backfill; existing owner policies/private asset buckets and all22
+LWW/7append registrations retain RLS. Rollback-only test07 verifies roundtrip, old-client retention,
+explicit clears, bounds/type checks and owner isolation; zero fixture owners remain. The user's
+devices are not signed in yet and the hosted piece table is empty, so no real-account convergence
+or existing local-library upload is claimed. Exact hashes, queries and failures/fixes:
+[build19 sync verification](../docs/qa/ios/2.0.0/build19/sync-verification.json) and
+[coverage matrix](../docs/qa/ios/2.0.0/build19/sync-contract.md).
+
 October2 build5 additions: migrations24(score organization and represented-key LWW),25(owner
 preferences),26(private covers and account cleanup),27(future preference-key preservation) are applied to the configured project. Native
 goals/routines now use the existing registered tables. Rollback-only test06 verifies actual hosted
@@ -345,6 +355,8 @@ Re-run the whole suite after any migration that touches RLS, a grant, or one of 
 | `20261003000025_account_preferences` | Owner-keyed private JSON preferences, clocks, authenticated grants and generic registration |
 | `20261003000026_private_covers` | Private15MB PNG/JPEG covers, four owner object policies and five-bucket account-deletion guard |
 | `20261003000027_preference_forward_compatibility` | Atomic shallow preference merge preserves future unknown keys with the existing LWW clock |
+| `20261016000028_piece_practice_balance` | Nullable/no-default full tempo20–300 and typed practice-coverage JSON percentages; no personal row backfill |
+| `20261016000029_photo_passage_origin` | Nullable/no-default photo-origin boolean, independent of file/folder naming and global folder identities |
 
 `supabase/tests/06_account_preferences_and_metadata.sql` is one transaction ending in rollback. It
 uses two synthetic owner identities, tests preference isolation and metadata old-client/clear
@@ -352,3 +364,11 @@ behavior, and inspects cover policy/cleanup configuration. It does not sign up a
 a score, or establish real two-device acceptance. Existing privacy/moderation authority remains
 server-side; OS permissions/tokens and original Mac archives do not become public or synchronized
 profile fields.
+
+Build19 full tempo null explicitly clears the reference; an all-zero plan clears its optional
+goals. A null plan/origin is a legacy unpublished value. Updated clients preserve local values when
+keys are absent (and for null plan/origin), and the deployed represented-key RPC retains these
+columns when older clients omit them. New photo cards use the existing private PDF bucket and
+passage region tables; camera frames and raw capture measurements are not new server data. Test07
+uses synthetic owners in one rollback-only transaction; the initial missing-title fixture failure
+and correction are retained in the linked QA. The existing backend runner now includes tests06/07.

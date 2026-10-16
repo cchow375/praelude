@@ -11,6 +11,10 @@ final class PracticeRuntime {
     @ObservationIgnored private let recording: RecordingService
     @ObservationIgnored private let notifications = AudioNotificationBag()
     @ObservationIgnored private var scoreOwners: Set<UUID> = []
+    /// Counter layout has its own local, opt-in awake policy. A false entry also prevents the
+    /// score preference from keeping a paused counter awake. One owner cannot release another.
+    @ObservationIgnored private var counterScreenPolicies: [UUID: Bool] = [:]
+    @ObservationIgnored private var previousIdleTimerDisabled: Bool?
     private var suspendedRepOwners: Set<UUID> = []
     var isRepInputSuspended: Bool { !suspendedRepOwners.isEmpty }
 
@@ -28,6 +32,9 @@ final class PracticeRuntime {
     /// SwiftUI can deliver the background pause's status change only after the app is active
     /// again. Remember that specific retained click so a late observer cannot silence it.
     @ObservationIgnored private var retainedBackgroundClickSetID: UUID?
+    /// A player's explicit Click off wins over the set's initial click preference. Keep this
+    /// local to the current set; changing tempo, pausing or reopening controls cannot undo it.
+    @ObservationIgnored private var manualClickOffSetID: UUID?
     /// R14 pulse check (§11): the decision currently in effect, or `nil` when the click plays every
     /// bar as usual. The HUD shows `.reason` verbatim, the same "one dry human-readable line" every
     /// other rule already surfaces (`NextStepAndSuggestionsView`); the verdict for whatever attempt
@@ -196,7 +203,14 @@ final class PracticeRuntime {
     /// Manual foreground pauses, finished sets and absent sets still stop it.
     /// The optional foreground value lets lifecycle tests exercise the real view/runtime boundary.
     func refreshMetronome(for set: ActiveSet?, applicationIsActive: Bool? = nil) {
+        if manualClickOffSetID != set?.id { manualClickOffSetID = nil }
         guard let set else { retainedBackgroundClickSetID = nil; metronome.stop(); return }
+        if manualClickOffSetID == set.id {
+            retainedBackgroundClickSetID = nil
+            metronome.setTempo(set.currentBPM)
+            metronome.stop()
+            return
+        }
         if let retained = retainedBackgroundClickSetID, retained != set.id {
             retainedBackgroundClickSetID = nil
             metronome.stop()
@@ -214,6 +228,17 @@ final class PracticeRuntime {
         } else { retainedBackgroundClickSetID = nil; metronome.stop() }
     }
 
+    /// Explicit user transport, shared by Counter, Score, voice and the metronome sheet.
+    /// The set's saved starting preference is retained; this override ends with the current set.
+    func setMetronomePlaying(_ playing: Bool, for set: ActiveSet?) {
+        if let set, set.status != .completed, set.status != .ended {
+            manualClickOffSetID = playing ? nil : set.id
+            metronome.setTempo(set.currentBPM)
+        } else { manualClickOffSetID = nil }
+        if playing { metronome.start() }
+        else { retainedBackgroundClickSetID = nil; metronome.stop() }
+    }
+
     func undo() throws {
         try requireRepInput()
         try store.undo()
@@ -227,14 +252,23 @@ final class PracticeRuntime {
     }
 
     func scoreAppeared(ownerID: UUID) {
+        if scoreOwners.isEmpty { previousIdleTimerDisabled = UIApplication.shared.isIdleTimerDisabled }
         scoreOwners.insert(ownerID)
+        updateScreenAwake()
+    }
+
+    func setCounterScreenPolicy(ownerID: UUID, enabled: Bool?, isRunning: Bool) {
+        if let enabled { counterScreenPolicies[ownerID] = enabled && isRunning }
+        else { counterScreenPolicies.removeValue(forKey: ownerID) }
         updateScreenAwake()
     }
 
     func scoreDisappeared(ownerID: UUID) {
         scoreOwners.remove(ownerID)
+        counterScreenPolicies.removeValue(forKey: ownerID)
         setRepInputSuspended(false, ownerID: ownerID)
         updateScreenAwake()
+        if scoreOwners.isEmpty { previousIdleTimerDisabled = nil }
     }
 
     /// Drives `RecordingService` from `RecordingLifecycle`'s pure decision (§13 "optional per-set
@@ -382,8 +416,17 @@ final class PracticeRuntime {
     }
 
     func updateScreenAwake() {
-        UIApplication.shared.isIdleTimerDisabled = store.preferences.keepScreenAwake
-            && !scoreOwners.isEmpty && UIApplication.shared.applicationState == .active
+        guard UIApplication.shared.applicationState == .active else {
+            UIApplication.shared.isIdleTimerDisabled = false
+            return
+        }
+        guard !scoreOwners.isEmpty else {
+            if let previousIdleTimerDisabled { UIApplication.shared.isIdleTimerDisabled = previousIdleTimerDisabled }
+            return
+        }
+        let scoreAwake = store.preferences.keepScreenAwake && scoreOwners.contains { counterScreenPolicies[$0] == nil }
+        let counterAwake = scoreOwners.contains { counterScreenPolicies[$0] == true }
+        UIApplication.shared.isIdleTimerDisabled = scoreAwake || counterAwake
     }
 
     private func observe(_ name: Notification.Name, action: @escaping @MainActor @Sendable () -> Void) {

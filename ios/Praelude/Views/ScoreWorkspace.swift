@@ -6,6 +6,7 @@ private enum ScoreSheet: String, Identifiable {
     case setup, passages, metronome, pages, voice, passageDetails, share, heatmap, bookmarks, links, pageTools, sections, measureMap, gestures, practiceBalance, camera
     var id: String { rawValue }
 }
+enum ScoreDisplayIntent: Equatable { case score, practice }
 
 /// Serialization cache is not UI state. Writing it during a PDF representable refresh must not
 /// invalidate SwiftUI and schedule another refresh of that same canvas.
@@ -67,6 +68,8 @@ struct ScoreWorkspace: View {
     /// `startPage`, which previously was stored but never acted on).
     var initialPage: Int? = nil
     var onInitialPageConsumed: () -> Void = {}
+    var initialDisplayIntent: ScoreDisplayIntent? = nil
+    var onDisplayIntentConsumed: () -> Void = {}
     @Environment(PracticeStore.self) private var store
     @Environment(SyncCoordinator.self) private var syncCoordinator
     @Environment(MetronomeService.self) private var metronome
@@ -83,6 +86,12 @@ struct ScoreWorkspace: View {
     @AppStorage("ios.feedback") private var feedbackEnabled = true
     // Ergonomic device preference; intentionally local, independent of synced library settings.
     @AppStorage("ios.scoreControlsAtTop") private var controlsAtTop = false
+    // A phone normally sits beside a paper score; an iPad normally is the score. This preference
+    // is device-local so changing the phone does not move another device out of its reading mode.
+    @AppStorage("ios.practiceDisplay") private var practiceDisplay = "automatic"
+    @AppStorage("ios.counterKeepAwake") private var counterKeepAwake = false
+    @State private var displayOverride: Bool?
+    @State private var counterSaveTask: Task<Void, Never>?
     @State private var selectedHands = "Both hands"
     @State private var pageSaveTask: Task<Void, Never>?
     @State private var pendingBookmark: (pieceID: UUID, page: Int)?
@@ -120,6 +129,7 @@ struct ScoreWorkspace: View {
     @State private var cameraActionTask: Task<Void, Never>?
     @State private var arm = PracticeArmController()
     @State private var page = 1
+    @State private var scoreAssetRevision = 0
     @State private var scopedSectionID: UUID?
     @State private var localMarkup = ScoreMarkupState()
     private var markup: ScoreMarkupState { sharedMarkup ?? localMarkup }
@@ -165,6 +175,8 @@ struct ScoreWorkspace: View {
         return effectivePages.filter { $0.sourcePage.map(scopedPages.contains) == true }.map(\.displayOrder)
     }
     private var active: ActiveSet? { store.activeSet?.configuration.pieceID == pieceID ? store.activeSet : nil }
+    private var prefersCounter: Bool { displayOverride ?? (practiceDisplay == "counter" || (practiceDisplay == "automatic" && UIDevice.current.userInterfaceIdiom == .phone)) }
+    private var showsCounter: Bool { prefersCounter && markup.mode == .reading && !focusMode && !performanceMode && !markup.quickBoxArmed && !markup.breakPointArmed }
     private var scoreURL: URL? { piece.flatMap { NativeLibraryFiles(store: store).scoreURL(for: $0) } }
     // §8: `deletePassage` archives (tombstones) rather than erasing, so every list must filter it out.
     private var savedPassages: [Passage] { store.state.passages.filter { $0.pieceID == pieceID && !$0.archived } }
@@ -249,11 +261,17 @@ struct ScoreWorkspace: View {
             .flatMap { store.inkStrokes(pieceID: pieceID, page: page, layer: $0).map(\.data) }
     }
     private var scoreContent: some View {
-        Group {
+        // File publication is external to the JSON ledger. Reading this revision makes a
+        // missing-file branch re-evaluate after the matching private PDF finishes downloading.
+        let _ = scoreAssetRevision
+        return Group {
             if let piece {
                 GeometryReader { geometry in
                     ZStack {
-                        if let scoreURL, FileManager.default.fileExists(atPath: scoreURL.path) {
+                        if showsCounter {
+                            PraeludeColor.paper
+                            counterWorkspace
+                        } else if let scoreURL, FileManager.default.fileExists(atPath: scoreURL.path) {
                             // Pinned paper-white, not the paper/stage token: the score stays paper in both appearances.
                             PraeludeColor.scorePaper
                             scoreView(url: scoreURL)
@@ -276,13 +294,14 @@ struct ScoreWorkspace: View {
                     .safeAreaInset(edge: .top, spacing: 0) {
                         if !focusMode && !performanceMode {
                             VStack(spacing: 0) {
+                                if markup.mode == .reading && !markup.quickBoxArmed && !markup.breakPointArmed { practiceDisplayPicker }
                                 if markup.mode != .reading { markupHeader }
-                                if controlsAtTop { visibleControls(in: geometry.size) }
+                                if controlsAtTop && !showsCounter { visibleControls(in: geometry.size) }
                             }
                         }
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if !focusMode && !performanceMode && !controlsAtTop {
+                        if !focusMode && !performanceMode && !controlsAtTop && !showsCounter {
                             visibleControls(in: geometry.size)
                         }
                     }
@@ -307,9 +326,15 @@ struct ScoreWorkspace: View {
                             .accessibilityLabel("Close score").accessibilityIdentifier("closeScore")
                     }
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button { if markup.flushInk() { sheet = .sections } } label: {
-                            Image(systemName: "list.bullet.rectangle").frame(width: 44, height: 44).contentShape(Rectangle())
-                        }.accessibilityLabel("Movements & pieces").accessibilityIdentifier("openScoreSections")
+                        if showsCounter {
+                            Button(action: presentPassagePicker) {
+                                Image(systemName: "rectangle.stack").frame(width: 44, height: 44).contentShape(Rectangle())
+                            }.accessibilityLabel("Passages").accessibilityIdentifier("passages")
+                        } else {
+                            Button { if markup.flushInk() { sheet = .sections } } label: {
+                                Image(systemName: "list.bullet.rectangle").frame(width: 44, height: 44).contentShape(Rectangle())
+                            }.accessibilityLabel("Movements & pieces").accessibilityIdentifier("openScoreSections")
+                        }
                         Button { sheet = .metronome } label: { PraeludeIcon(glyph: .metronome, size: 22).frame(width: 44, height: 44).contentShape(Rectangle()) }
                             .accessibilityLabel("Metronome").accessibilityIdentifier("openMetronome")
                         scoreOptions
@@ -521,11 +546,13 @@ struct ScoreWorkspace: View {
         } message: { Text("Your repetitions and time stay saved. Unfinished work remains in your history.") }
         .alert("Couldn’t complete that", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
     }
-    private var lifecycleScore: some View {
+    private var displayLifecycleScore: some View {
         presentedScore
         .onAppear(perform: scoreAppeared)
-        .onDisappear { resumeScoreVoiceAfterSettings = false; editorVoiceHandoff = nil; flushBookmark(); exportTask?.cancel(); _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); cameraActionTask?.cancel(); camera.stop(); camera.onAction = nil; runtime.scoreDisappeared(ownerID: voiceOwnerID) }
+        .onDisappear { resumeScoreVoiceAfterSettings = false; editorVoiceHandoff = nil; flushBookmark(); exportTask?.cancel(); counterSaveTask?.cancel(); _ = markup.flushInk(); speech.stop(ifOwnedBy: voiceOwnerID); cameraActionTask?.cancel(); camera.stop(); camera.onAction = nil; runtime.scoreDisappeared(ownerID: voiceOwnerID) }
         .onChange(of: pieceID) { _, _ in
+            displayOverride = nil
+            consumeDisplayIntent()
             resumeScoreVoiceAfterSettings = false
             editorVoiceHandoff = nil
             flushBookmark(); setFocus(false); cameraActionTask?.cancel(); camera.stop(); camera.onAction = nil
@@ -540,7 +567,11 @@ struct ScoreWorkspace: View {
             guard let source, markup.flushInk() else { return }
             openScoreSection(at: source); onInitialPageConsumed()
         }
+        .onChange(of: initialDisplayIntent) { _, _ in consumeDisplayIntent() }
         .onChange(of: showPassageBoxes) { _, value in markup.showPassageBoxes = value }
+    }
+    private var cameraLifecycleScore: some View {
+        displayLifecycleScore
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
                 flushBookmark(); _ = markup.flushInk()
@@ -557,6 +588,9 @@ struct ScoreWorkspace: View {
         .onChange(of: speech.ownerID) { _, _ in restoreScoreVoiceIfNeeded(); restoreEditorVoiceIfNeeded() }
         .onChange(of: arm.awaitingColdGrade) { _, _ in updateVoiceContext(); updateCameraContext() }
         .onChange(of: markup.mode) { _, _ in updateVoiceContext(); updateCameraContext() }
+    }
+    private var lifecycleScore: some View {
+        cameraLifecycleScore
         .onChange(of: sheet) { _, value in
             #if DEBUG
             InteractionAudit.record("score sheet changed=\(String(describing: value))")
@@ -585,7 +619,7 @@ struct ScoreWorkspace: View {
         }
         .onChange(of: active?.currentBPM) { _, _ in refreshAudio() }
         .onChange(of: active?.status) { _, newStatus in
-            refreshAudio(); runtime.updateScreenAwake(); updateVoiceContext(); updateCameraContext()
+            refreshAudio(); updateCounterScreenPolicy(); updateVoiceContext(); updateCameraContext()
             if newStatus == .completed { offerBreakPointTap = false; markup.breakPointArmed = false }
             if newStatus == .completed, let active { arm.computeAfterSet(active, store: store) }
             // Covers every path back to "no active set for this piece" in one place — Finish,
@@ -599,6 +633,12 @@ struct ScoreWorkspace: View {
     }
     var body: some View {
         practiceObservedScore
+        .onReceive(NotificationCenter.default.publisher(for: .praeludeLibraryAssetAvailable).receive(on: RunLoop.main)) { notice in
+            guard let url = notice.object as? URL, url.path == scoreURL?.path else { return }
+            scoreAssetRevision &+= 1
+        }
+        .onChange(of: showsCounter) { _, _ in updateCounterScreenPolicy() }
+        .onChange(of: counterKeepAwake) { _, _ in updateCounterScreenPolicy() }
         .onChange(of: acceptsScoreCommands) { _, _ in updateVoiceContext(); restoreEditorVoiceIfNeeded() }
         .onChange(of: acceptsCameraActions) { _, _ in updateCameraContext() }
         .onChange(of: hasUndoableAttempt) { _, _ in updateVoiceContext() }
@@ -611,7 +651,7 @@ struct ScoreWorkspace: View {
             .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
             Button("Toggle metronome") {
                 prepareMetronomeForCurrentContext()
-                metronome.toggle()
+                runtime.setMetronomePlaying(!metronome.isPlaying, for: store.activeSet)
             }.keyboardShortcut(.space, modifiers: [])
                 .disabled(!acceptsScoreCommands)
                 .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
@@ -626,6 +666,7 @@ struct ScoreWorkspace: View {
         #endif
     }
     private func scoreAppeared() {
+            consumeDisplayIntent()
             if let initialPage { scopedSectionID = piece?.scoreSections.first { $0.startPage == initialPage }?.id }
             page = min(max(1, initialPage.map(displayPage(forSourcePage:)) ?? piece?.lastPage ?? 1), max(1, effectivePageCount))
             if initialPage != nil { savePage(page); onInitialPageConsumed() }
@@ -633,6 +674,7 @@ struct ScoreWorkspace: View {
             markup.onConfirmSelection = saveSelection
             updateCameraContext()
             runtime.scoreAppeared(ownerID: voiceOwnerID)
+            updateCounterScreenPolicy()
             runtime.setRepInputSuspended(focusMode, ownerID: voiceOwnerID)
             selectedHands = active?.configuration.hands ?? "Both hands"
             if let autoSelectPassageID, let target = savedPassages.first(where: { $0.id == autoSelectPassageID }) {
@@ -641,6 +683,116 @@ struct ScoreWorkspace: View {
             } else {
                 rearmIfIdle()
             }
+    }
+    private var practiceDisplayPicker: some View {
+        Picker("Practice display", selection: Binding(get: { prefersCounter }, set: { counter in
+            guard markup.flushInk() else { return }
+            displayOverride = nil
+            practiceDisplay = counter ? "counter" : "score"
+            if FeedbackService.shared.isEnabled && FeedbackService.shared.hapticsEnabled { PraeludeHaptic.toggle() }
+        })) {
+            Label("Score", systemImage: "doc.text").tag(false)
+            Label("Counter", systemImage: "number").tag(true)
+        }.pickerStyle(.segmented).padding(.horizontal, 12).padding(.vertical, 8)
+            .background(PraeludeColor.paper)
+            .accessibilityIdentifier("practiceDisplayPicker")
+    }
+    private func consumeDisplayIntent() {
+        guard let initialDisplayIntent else { return }
+        displayOverride = initialDisplayIntent == .score ? false : nil
+        onDisplayIntentConsumed()
+    }
+    private var counterWorkspace: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                counterIdentity
+                if let active {
+                    CounterPracticeView(active: active, selectedHands: $selectedHands, keepAwake: $counterKeepAwake,
+                        isSaving: counterSaveTask != nil || cameraActionTask != nil,
+                        onVerdict: recordCounterVerdict, onUndo: { perform { try runtime.undo() } },
+                        onTogglePause: togglePause, onStop: stopPractice,
+                        onFinishSession: { perform { try endSessionAndShare(); metronome.stop() } }, onAnotherSet: repeatSet,
+                        onAdjustTempo: adjustRunningTempo, onToggleMetronome: {
+                            runtime.setMetronomePlaying(!metronome.isPlaying, for: store.activeSet)
+                        }, onOpenMetronome: { sheet = .metronome }, onBeginRest: beginCounterRest)
+                    if let activePulseCheck = runtime.activePulseCheck {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(activePulseCheck.reason).font(.caption).foregroundStyle(.secondary)
+                            Button("Resume click") { runtime.dismissPulseCheck() }.frame(minHeight: 44)
+                        }
+                    }
+                    if active.isComplete { NextStepAndSuggestionsView(arm: arm, onApply: applySuggestion, onDismiss: { arm.dismiss($0, store: store) }) }
+                } else if let other = store.activeSet, !other.isComplete {
+                    Text("A set is open for \(store.state.pieces.first { $0.id == other.configuration.pieceID }?.title ?? "another piece").")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Button("Finish current practice") { ending = true }.buttonStyle(.praeludeQuiet)
+                } else {
+                    Text("Your music can stay on the stand. Play the passage, then tell Praelude how it went.")
+                        .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    PracticeArmView(arm: arm, passage: selectedPassage, pieceSubtitle: "Paper or digital score",
+                        onRenamePassage: { if let selectedPassage { presentPassageRename(selectedPassage) } },
+                        onStarted: {}, onOpenAdvanced: { sheet = .setup }, onSplitPassage: { beginSelection($0) })
+                    Button("Choose a passage", action: presentPassagePicker).frame(minHeight: 48).buttonStyle(.praeludeQuiet)
+                    NextStepAndSuggestionsView(arm: arm, onApply: applySuggestion, onDismiss: { arm.dismiss($0, store: store) })
+                }
+                VoiceCommandConfirmationView(speech: speech)
+                if let failure = arm.errorMessage { ErrorMessage(message: failure) }
+                if let failure = store.errorMessage { ErrorMessage(message: failure) }
+                if let failure = metronome.errorMessage { ErrorMessage(message: failure) }
+            }.padding(16).frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
+        }
+        .overlay(alignment: .top) { PracticeFeedbackView(feedback: runtime.feedback, setID: active?.id).allowsHitTesting(false) }
+        .accessibilityIdentifier("counterWorkspace")
+    }
+    private var counterIdentity: some View {
+        let passage = active?.configuration.passageSnapshot ?? selectedPassage
+        return HStack(spacing: 12) {
+            if let passage {
+                PassageCardArtwork(passage: passage, piece: piece)
+                    .frame(width: 96, height: 64).clipShape(RoundedRectangle(cornerRadius: 8))
+                    .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(passage?.title ?? piece?.title ?? "Practice").font(.headline)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                Text(active.map { "\(PracticeArmView.goalLabel($0.configuration.goal)) · \(selectedHands)" } ?? "Ready to practice")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let active, !active.configuration.focus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   active.configuration.focus != "Pulse" {
+                    Text(active.configuration.focus).font(.caption).foregroundStyle(.secondary)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    private func updateCounterScreenPolicy() {
+        runtime.setCounterScreenPolicy(ownerID: voiceOwnerID, enabled: showsCounter ? counterKeepAwake : nil, isRunning: active?.status == .running)
+    }
+    private func beginCounterRest() -> Bool {
+        guard let active, !active.isComplete, counterSaveTask == nil, cameraActionTask == nil else { return false }
+        do {
+            if active.status == .running { try store.pause() }
+            metronome.stop()
+            return store.activeSet?.status == .paused
+        } catch { self.error = error.localizedDescription; return false }
+    }
+    private func recordCounterVerdict(_ verdict: Verdict) {
+        guard !focusMode, let originatingSet = active, originatingSet.status == .running,
+              counterSaveTask == nil, cameraActionTask == nil else { return }
+        let hands = selectedHands
+        counterSaveTask = Task { @MainActor in
+            defer { counterSaveTask = nil }
+            do {
+                FeedbackService.shared.isEnabled = feedbackEnabled
+                let committed = try await runtime.recordPreparedAsync(verdict, hands: hands, canCommit: {
+                    !Task.isCancelled && !focusMode && active?.id == originatingSet.id && acceptsScoreCommands
+                })
+                guard committed, !Task.isCancelled, active?.id == originatingSet.id else { return }
+                updateVoiceContext(); offerBreakPointTap = verdict == .sloppy
+                advancePassagePageIfNeeded()
+            } catch is CancellationError { }
+            catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+        }
     }
     /// Split out of `body` — with every page-tools/link parameter inlined, the containing
     /// `GeometryReader`/`ZStack` expression was too large for the type checker to solve in one pass.
@@ -1065,8 +1217,7 @@ struct ScoreWorkspace: View {
                     onStop: stopPractice, onFinishSession: { perform { try endSessionAndShare(); metronome.stop() } },
                     onAnotherSet: repeatSet,
                     onToggleMetronome: {
-                        if let set = store.activeSet, !set.isComplete { metronome.setTempo(set.currentBPM) }
-                        metronome.toggle()
+                        runtime.setMetronomePlaying(!metronome.isPlaying, for: store.activeSet)
                     }, metronomeOn: metronome.isPlaying,
                     onAdjustTempo: adjustRunningTempo,
                     onMuteVoice: { speech.setMuted(!speech.isMuted) }, onVoiceOff: stopHandsFree,
@@ -1722,8 +1873,8 @@ struct ScoreWorkspace: View {
         case .faster: nudgeTempo(5)
         case .metronomeStart:
             prepareMetronomeForCurrentContext()
-            metronome.start()
-        case .metronomeStop: metronome.stop()
+            runtime.setMetronomePlaying(true, for: store.activeSet)
+        case .metronomeStop: runtime.setMetronomePlaying(false, for: store.activeSet)
         case .setTempo(let bpm):
             if idle {
                 metronome.setTempo(bpm)

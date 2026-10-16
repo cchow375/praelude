@@ -90,6 +90,61 @@ private final class FaceTestClock: @unchecked Sendable {
 }
 
 extension FaceGestureServiceTests {
+    @MainActor func testPhotoReservationTimeoutIsRecoverableWithoutOpeningCompetingCamera() async throws {
+        let hardware = ControlledFaceCamera()
+        let first = FaceGestureService(permission: { true }, workerFactory: { _, _ in hardware }, preferences: isolatedPreferences())
+        first.start(); await settle { hardware.starts == 1 }
+        let result = await FaceGestureService.reserveForPassageCapture(timeout: .milliseconds(5))
+        XCTAssertNil(result)
+        XCTAssertTrue(first.isStopping)
+        hardware.completeStop(); await settle { !first.isStopping }
+        let retry = await FaceGestureService.reserveForPassageCapture()
+        let token = try XCTUnwrap(retry)
+        FaceGestureService.releasePassageCapture(token)
+        first.stop()
+    }
+
+    @MainActor func testPhotoReservationWaitsForHardwareShutdownAndBlocksOtherWindows() async throws {
+        let hardware = ControlledFaceCamera()
+        let first = FaceGestureService(permission: { true }, workerFactory: { _, _ in hardware }, preferences: isolatedPreferences())
+        first.start()
+        await settle { hardware.starts == 1 }
+        hardware.completeStart()
+        await settle { first.isEnabled }
+        let reservation = Task { await FaceGestureService.reserveForPassageCapture() }
+        await settle { first.isStopping }
+        let duplicate = await FaceGestureService.reserveForPassageCapture()
+        XCTAssertNil(duplicate)
+        let second = FaceGestureService(permission: { false }, preferences: isolatedPreferences())
+        second.start()
+        XCTAssertFalse(second.isPreparing)
+        XCTAssertTrue(second.status.contains("photographing"))
+        hardware.completeStop()
+        let result = await reservation.value
+        let token = try XCTUnwrap(result)
+        XCTAssertFalse(first.isEnabled)
+        FaceGestureService.releasePassageCapture(UUID())
+        second.start(); XCTAssertFalse(second.isPreparing)
+        FaceGestureService.releasePassageCapture(token)
+        second.start(); XCTAssertTrue(second.isPreparing)
+        await settle { !second.isPreparing }
+        second.stop(); first.stop()
+    }
+
+    @MainActor func testPhotoReservationRetiresPendingGesturePermissionGrant() async throws {
+        let gate = CameraPermissionGate()
+        let first = FaceGestureService(permission: { await gate.request() }, preferences: isolatedPreferences())
+        first.start(); XCTAssertTrue(first.isPreparing)
+        let result = await FaceGestureService.reserveForPassageCapture()
+        let token = try XCTUnwrap(result)
+        await gate.resolve(true)
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertFalse(first.isEnabled)
+        XCTAssertNil(first.session)
+        FaceGestureService.releasePassageCapture(token)
+        first.stop()
+    }
+
     @MainActor private func settle(_ predicate: () -> Bool) async {
         for _ in 0..<200 where !predicate() { await Task.yield() }
         XCTAssertTrue(predicate())

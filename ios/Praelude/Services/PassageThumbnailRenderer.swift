@@ -47,27 +47,39 @@ actor PassageThumbnailRenderer {
         guard !Task.isCancelled else { return nil }
         let cacheKey = Self.identity(url: url, passage: passage) as NSString
         if let cached = passages.object(forKey: cacheKey) { return cached }
-        let number = passage.regions.map(\.page).min() ?? passage.page
-        guard number > 0, let page = document(url: url)?.page(at: number - 1),
-              let image = renderPage(url: url, number: number, size: CGSize(width: 480, height: 640)) else { return nil }
-        let boxes = passage.regions.filter { $0.page == number }.map { region -> CGRect in
-            let rect = CGRect(x: region.x, y: region.y, width: region.width, height: region.height)
+        // The first selected box is the card cover. A union of unrelated boxes makes every
+        // system tiny and removes the very visual cue the pianist needs to recognize a passage.
+        let first = passage.regions.first
+        let number = first?.page ?? passage.page
+        guard number > 0, let page = document(url: url)?.page(at: number - 1), let source = page.pageRef else { return nil }
+        let bounds = page.bounds(for: .cropBox)
+        guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else { return nil }
+        let rotation = ((page.rotation % 360) + 360) % 360
+        let swaps = rotation == 90 || rotation == 270
+        let displaySize = swaps ? CGSize(width: bounds.height, height: bounds.width) : bounds.size
+        let normalized = first.map {
+            CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
                 .normalizedRotatedForDisplay(pageRotationDegrees: page.rotation)
-            return CGRect(x: rect.minX * image.size.width, y: rect.minY * image.size.height,
-                          width: rect.width * image.size.width, height: rect.height * image.size.height)
-        }
-        let bounds = CGRect(origin: .zero, size: image.size)
-        let target = boxes.reduce(CGRect.null) { $0.union($1) }
-        let crop = target.isNull ? bounds : target.insetBy(dx: -16, dy: -16).intersection(bounds)
+        } ?? CGRect(x: 0, y: 0, width: 1, height: 1)
+        let target = CGRect(x: normalized.minX * displaySize.width, y: normalized.minY * displaySize.height,
+                            width: normalized.width * displaySize.width, height: normalized.height * displaySize.height)
+        let crop = target.intersection(CGRect(origin: .zero, size: displaySize))
         guard crop.width.isFinite, crop.height.isFinite, crop.width > 0, crop.height > 0 else { return nil }
+        let scale = 1200 / max(crop.width, crop.height)
+        guard scale.isFinite, scale > 0 else { return nil }
+        let outputSize = CGSize(width: max(1, crop.width * scale), height: max(1, crop.height * scale))
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 1 // The PDF thumbnail is already pixel-sized; avoid a second 2x/3x expansion.
+        format.scale = 1
         format.opaque = true
-        let rendered = UIGraphicsImageRenderer(size: crop.size, format: format).image { context in
-            context.cgContext.translateBy(x: -crop.minX, y: -crop.minY)
-            image.draw(at: .zero)
-            context.cgContext.setFillColor((passage.color.flatMap(AnnotationColor.init(rawValue:))?.uiColor ?? .black).withAlphaComponent(0.10).cgColor)
-            for box in boxes { context.cgContext.fill(box) }
+        // Render only the selected PDF crop at useful reading resolution. Cropping a tiny box
+        // from a full-page thumbnail leaves too few pixels and makes pinch zoom unreadable.
+        let rendered = UIGraphicsImageRenderer(size: outputSize, format: format).image { context in
+            UIColor.white.setFill(); context.fill(CGRect(origin: .zero, size: outputSize))
+            let cg = context.cgContext
+            cg.translateBy(x: 0, y: outputSize.height); cg.scaleBy(x: scale, y: -scale)
+            cg.translateBy(x: -crop.minX, y: -(displaySize.height - crop.maxY))
+            cg.concatenate(source.getDrawingTransform(.cropBox, rect: CGRect(origin: .zero, size: displaySize), rotate: 0, preserveAspectRatio: true))
+            cg.drawPDFPage(source)
         }
         passages.setObject(rendered, forKey: cacheKey, cost: byteCost(rendered))
         return rendered

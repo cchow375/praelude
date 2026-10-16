@@ -28,6 +28,7 @@ struct LibraryView: View {
     /// the collection tab (AND, not OR) — "Resting pieces tagged Recital", not a wider search.
     @State private var folderFilter: UUID?
     @State private var tagFilter: UUID?
+    @State private var photoOnly = false
     @State private var sheet: LibrarySheet?
     /// §7: cover grid / list toggle. A per-device display preference, not library data, so
     /// `AppStorage` (unlike everything under `PracticeStore`) is the right home for it.
@@ -44,6 +45,7 @@ struct LibraryView: View {
         let practiced = latestPracticeDates
         return store.realPieces.filter { piece in
             piece.status == collection
+                && (!photoOnly || PassageCardLibrary.isPhotoPiece(piece))
                 && (folderFilter == nil || piece.folderIDs.contains(folderFilter!))
                 && (tagFilter == nil || piece.tagIDs.contains(tagFilter!))
                 && (query.isEmpty || piece.title.localizedStandardContains(query) || piece.composer.localizedStandardContains(query)
@@ -85,6 +87,7 @@ struct LibraryView: View {
                         }
                     }
                     Section {
+                        Toggle("Photo passages only", isOn: $photoOnly)
                         Button("Folders", systemImage: "folder") { sheet = .folders }
                         Button("Tags", systemImage: "tag") { sheet = .tags }
                         Button("Setlists", systemImage: "list.number") { sheet = .setlists }
@@ -130,7 +133,7 @@ struct LibraryView: View {
         List {
             Section {
                 collectionPicker
-                if folderFilter != nil || tagFilter != nil { activeFilterChips }
+                if folderFilter != nil || tagFilter != nil || photoOnly { activeFilterChips }
             }
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 6, trailing: 0))
@@ -202,7 +205,7 @@ struct LibraryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 collectionPicker
-                if folderFilter != nil || tagFilter != nil { activeFilterChips }
+                if folderFilter != nil || tagFilter != nil || photoOnly { activeFilterChips }
                 if let errorMessage { ErrorMessage(message: errorMessage) }
                 if visiblePieces.isEmpty {
                     emptyState.frame(maxWidth: .infinity)
@@ -249,6 +252,7 @@ struct LibraryView: View {
 
     private var activeFilterChips: some View {
         HStack(spacing: 8) {
+            if photoOnly { filterChip("Photo passages") { photoOnly = false } }
             if let folderFilter, let folder = store.state.folders.first(where: { $0.id == folderFilter }) {
                 filterChip(folder.name) { self.folderFilter = nil }
             }
@@ -276,7 +280,10 @@ struct LibraryView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if photoOnly || folderFilter != nil || tagFilter != nil {
+            ContentUnavailableView("No matching pieces", systemImage: "line.3.horizontal.decrease",
+                                   description: Text("Clear a filter above to see the rest of your library."))
+        } else if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             ContentUnavailableView.search(text: search)
         } else if collection == .resting {
             PraeludeEmptyState(title: "Nothing resting", symbol: "archivebox",
@@ -353,6 +360,7 @@ private enum LibrarySort: String, CaseIterable, Identifiable {
 }
 
 struct LibraryPieceRow: View {
+    @Environment(PracticeStore.self) private var store
     let piece: Piece
     var section: ScoreSection? = nil
     var lastPractice: Date? = nil
@@ -363,6 +371,10 @@ struct LibraryPieceRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(section?.title ?? piece.title).font(.headline).foregroundStyle(.primary)
                     .lineLimit(2)
+                if section == nil, PassageCardLibrary.isPhotoPiece(piece),
+                   let passage = store.state.passages.first(where: { $0.pieceID == piece.id && !$0.archived && $0.deletedAt == nil }) {
+                    Text(passage.title).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                }
                 if let section {
                     Text(piece.title).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                     Text("\(section.endPage - section.startPage + 1) pages · Opens at movement page 1")
@@ -374,6 +386,8 @@ struct LibraryPieceRow: View {
                 if section == nil { HStack(spacing: 5) {
                     if !piece.scoreSections.isEmpty {
                         Text("\(piece.scoreSections.count) \(piece.scoreSections.count == 1 ? "movement" : "movements") · Complete score")
+                    } else if PassageCardLibrary.isPhotoPiece(piece) {
+                        Label("Photo passage", systemImage: "camera")
                     } else if piece.pageCount > 0 {
                         Text("\(piece.pageCount) \(piece.pageCount == 1 ? "page" : "pages")")
                     } else {
@@ -399,6 +413,7 @@ struct LibraryPieceRow: View {
 
 /// §7 cover grid: the same piece a `LibraryPieceRow` shows, as a cover-forward card instead of a row.
 struct LibraryPieceGridCell: View {
+    @Environment(PracticeStore.self) private var store
     let piece: Piece
     var section: ScoreSection? = nil
     var body: some View {
@@ -406,6 +421,9 @@ struct LibraryPieceGridCell: View {
             PieceCoverView(piece: piece, size: 132).frame(maxWidth: .infinity, alignment: .center)
             VStack(alignment: .leading, spacing: 2) {
                 Text(section?.title ?? piece.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
+                if section == nil, PassageCardLibrary.isPhotoPiece(piece), let passage = store.state.passages.first(where: { $0.pieceID == piece.id && !$0.archived && $0.deletedAt == nil }) {
+                    Label(passage.title, systemImage: "camera").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
                 if section != nil { Text(piece.title).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 else if !piece.composer.isEmpty { Text(piece.composer).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             }

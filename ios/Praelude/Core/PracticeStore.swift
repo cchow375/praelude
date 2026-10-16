@@ -89,6 +89,51 @@ import Observation
             next.pieces.append(piece)
         }
     }
+    /// The caller stages a new, immutable one-page PDF first. Piece, visible origin folder and
+    /// passage publish together, so a failed ledger write cannot leave a half-created card.
+    public func addPassageCard(piece: Piece, passage: Passage) throws {
+        let date = now()
+        try transaction { next in try Self.appendPassageCard(piece: piece, passage: passage, at: date, to: &next) }
+    }
+    /// Photo decoding and PDF writing already happen off the UI actor. Prepare the potentially
+    /// much larger library ledger there too, then publish once against its unchanged revision.
+    public func addPassageCardPreparedAsync(piece: Piece, passage: Passage) async throws {
+        guard !isReadOnly else { throw PracticeError.unavailable(errorMessage ?? "The library is read-only.") }
+        let date = now()
+        for _ in 0..<3 {
+            try Task.checkCancellation()
+            let baseline = state
+            let (next, data) = try await prepareMutation(baseline) { next in
+                try Self.appendPassageCard(piece: piece, passage: passage, at: date, to: &next)
+            }
+            try Task.checkCancellation()
+            guard state.revision == baseline.revision else { continue }
+            try publishPrepared(next, data: data); return
+        }
+        throw PracticeError.conflict("Your library is busy saving another change. The photo remains open; try Save again.")
+    }
+    nonisolated private static func appendPassageCard(piece: Piece, passage: Passage, at date: Date, to next: inout LibraryState) throws {
+            guard passage.pieceID == piece.id, piece.pdfFileName != nil, piece.pageCount == 1,
+                  passage.page == 1, passage.regions.count == 1,
+                  !next.pieces.contains(where: { $0.id == piece.id }),
+                  !next.passages.contains(where: { $0.id == passage.id }) else {
+                throw PracticeError.invalid("This photo passage could not be added safely.")
+            }
+            // Folder IDs are global server primary keys. Never use a shared constant UUID for
+            // an account-owned row: a second user's sync would collide under row-level security.
+            let folderID: UUID
+            if let folder = next.folders.first(where: { $0.deletedAt == nil && $0.name == PassageCardLibrary.photoFolderName }) {
+                folderID = folder.id
+            } else {
+                let folder = Folder(name: PassageCardLibrary.photoFolderName, createdAt: date, updatedAt: date)
+                next.folders.append(folder); folderID = folder.id
+            }
+            var saved = piece
+            saved.isPhotoPassage = true
+            if !saved.folderIDs.contains(folderID) { saved.folderIDs.append(folderID) }
+            next.pieces.append(saved)
+            next.passages.append(passage)
+    }
     /// Replaces a piece's fields wholesale, like schema2 always did. As with `createdAt` already,
     /// `updatedAt` is whatever the caller's struct carries — an editor is expected to set it to
     /// the edit time before calling this, the same way it already sets every other changed field;

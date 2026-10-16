@@ -713,6 +713,33 @@ final class SyncEngineTests: XCTestCase {
         guard case .stuck = engine.status else { return XCTFail("Unsafe queue storage must be visible.") }
     }
 
+    func testCorruptAccountStateCannotRebindOrSendRetainedQueue() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let server = FakeSyncServer()
+        let original = SyncEngine(transport: FakeSyncTransport(server: server), directory: path)
+        try original.bindAccount(UUID())
+        try original.enqueueUpsert(table: "pieces", row: row(id: UUID(), title: "Offline score", updatedAt: Date()))
+        let queueURL = path.appendingPathComponent("sync-queue.json")
+        let queuedBytes = try Data(contentsOf: queueURL)
+        let stateURL = path.appendingPathComponent("sync-state.json")
+        let damagedState = Data("damaged account binding".utf8)
+        try damagedState.write(to: stateURL)
+
+        let reopened = SyncEngine(transport: FakeSyncTransport(server: server), directory: path)
+        XCTAssertThrowsError(try reopened.bindAccount(UUID()))
+        XCTAssertThrowsError(try reopened.resetLocalAccountState())
+        XCTAssertThrowsError(try reopened.discardPendingWrites())
+        let drained = await reopened.drain()
+        XCTAssertFalse(drained)
+        do { try await reopened.pull(table: "pieces") { _ in XCTFail("Unsafe sync state must never apply data.") }; XCTFail("Expected closed storage") }
+        catch { XCTAssertEqual(error as? SyncError, .transport("Sync storage is unavailable.")) }
+        XCTAssertEqual(server.count(table: "pieces"), 0)
+        XCTAssertEqual(reopened.pendingCount, 1)
+        XCTAssertEqual(try Data(contentsOf: queueURL), queuedBytes)
+        XCTAssertEqual(try Data(contentsOf: stateURL), damagedState)
+        guard case .stuck = reopened.status else { return XCTFail("Damaged account state must be visible.") }
+    }
+
     func testQueueWriteFailureDoesNotRemoveOrExposeUnpersistedEntries() throws {
         let directory = directory()
         var failWrites = false

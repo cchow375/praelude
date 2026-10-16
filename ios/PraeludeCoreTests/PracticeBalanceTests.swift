@@ -157,7 +157,7 @@ final class PracticeBalanceTests: XCTestCase {
         XCTAssertThrowsError(try store.setPracticeReference(160, plan: PracticeBalancePlan(leftHandPercent: 60, rightHandPercent: 60), for: id))
         XCTAssertEqual(store.state, before)
     }
-    func testWireUsesExistingJSONAndPieceTargetRemainsLocalOnRemoteMetadataPull() throws {
+    func testWireKeepsSetSnapshotsAndSyncsPiecePlanningWithLegacyPreservation() throws {
         var state = state(snapshot: 160)
         let attemptID = state.history[0].attempts[0].id.uuidString
         state.history[0].configuration.recordedHands[attemptID] = "Left hand"
@@ -172,9 +172,17 @@ final class PracticeBalanceTests: XCTestCase {
         XCTAssertEqual(decoded.configuration.recordedHands[attemptID], "Left hand")
         let piece = state.pieces[0]
         let row = PieceSyncRow(piece)
-        XCTAssertNil(try SyncJSON(encoding: row).objectValue?["full_tempo_bpm"])
+        var pieceObject = try XCTUnwrap(SyncJSON(encoding: row).objectValue)
+        XCTAssertEqual(pieceObject["full_tempo_bpm"], .number(160))
+        XCTAssertEqual(try XCTUnwrap(pieceObject["practice_balance_plan"]).decoded(as: PracticeBalancePlan.self), piece.practiceBalancePlan)
         XCTAssertEqual(row.coreValue(preserving: piece)?.fullTempoBPM, 160)
-        XCTAssertNil(row.coreValue?.fullTempoBPM)
+        XCTAssertEqual(row.coreValue?.fullTempoBPM, 160)
+        pieceObject.removeValue(forKey: "full_tempo_bpm")
+        pieceObject.removeValue(forKey: "practice_balance_plan")
+        let legacy = try SyncJSON.object(pieceObject).decoded(as: PieceSyncRow.self)
+        XCTAssertEqual(legacy.coreValue(preserving: piece)?.fullTempoBPM, 160)
+        XCTAssertEqual(legacy.coreValue(preserving: piece)?.practiceBalancePlan, piece.practiceBalancePlan)
+        XCTAssertNil(legacy.coreValue?.fullTempoBPM)
     }
     @MainActor func testLegacySetSyncCannotEraseLocalCapturedContext() throws {
         let store = try store(); let id = store.pieces[0].id

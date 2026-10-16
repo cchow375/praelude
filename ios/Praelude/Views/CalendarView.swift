@@ -15,22 +15,53 @@ struct CalendarView: View {
     private var performanceDays: [PracticeCalendarStats.PerformanceDay] {
         PracticeCalendarStats.performanceDays(state: store.state, calendar: calendar)
     }
-    private var maxSeconds: TimeInterval { max(60, dailyTotals.values.map(\.seconds).max() ?? 0) }
 
     var body: some View {
+        let totals = dailyTotals
+        let performances = performanceDays
+        let streak = PracticeCalendarStats.recordedStreak(state: store.state, calendar: calendar, now: .now)
         List {
             Section {
+                HStack(alignment: .top, spacing: 20) {
+                    PracticeMetric(value: "\(streak.currentDays)", title: "Recorded day streak", symbol: "flame")
+                    PracticeMetric(value: "\(streak.longestDays)", title: "Longest run", symbol: "calendar")
+                }.padding(.vertical, 6)
+                Text(streak.practicedToday ? "Today's practice is recorded." : streak.currentDays > 0 ? "Your run includes yesterday. Today is still open." : "No focused work recorded today. Start whenever you are ready.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Text("\(PracticeRulesEngine.pluralize(streak.daysThisWeek, "practice day")) this week")
+                    .font(.caption).foregroundStyle(.secondary)
+            } footer: {
+                Text("A recorded day has focused time or a saved repetition. Empty sessions and undone repetitions do not count. Work belongs to the session's start date in your current time zone. Reward freezes are separate from this record.")
+            }
+            Section {
                 monthHeader
-                monthGrid.padding(.vertical, 6)
+                monthGrid(totals: totals, performances: performances).padding(.vertical, 6)
+                let month = calendar.dateInterval(of: .month, for: visibleMonth)
+                let monthTotals = totals.values.filter { month?.contains($0.date) == true }
+                Text("\(PracticeRulesEngine.pluralize(monthTotals.filter(\.hasPractice).count, "day")) · \(practiceDuration(monthTotals.reduce(0) { $0 + $1.seconds })) · \(PracticeRulesEngine.pluralize(monthTotals.reduce(0) { $0 + $1.repetitions }, "rep"))")
+                    .font(.caption).foregroundStyle(.secondary)
             }.listRowBackground(Color.clear)
 
             Section(selectedDay.formatted(.dateTime.weekday(.wide).month().day())) {
                 let daySessions = store.sessions.filter { calendar.isDate($0.startedAt, inSameDayAs: selectedDay) }
-                let dayPerformances = performanceDays.filter { calendar.isDate($0.date, inSameDayAs: selectedDay) }
-                if let total = dailyTotals[calendar.startOfDay(for: selectedDay)] {
+                let dayPerformances = performances.filter { calendar.isDate($0.date, inSameDayAs: selectedDay) }
+                if let total = totals[calendar.startOfDay(for: selectedDay)] {
                     LabeledContent("Practiced", value: "\(practiceDuration(total.seconds)) · \(PracticeRulesEngine.pluralize(total.sessionCount, "session"))")
+                    LabeledContent("Saved repetitions", value: "\(total.repetitions)")
                 } else if daySessions.isEmpty {
                     Text("No practice recorded on this day.").foregroundStyle(.secondary)
+                }
+                ForEach(daySessions.sorted { $0.startedAt < $1.startedAt }) { session in
+                    NavigationLink {
+                        SessionDetailView(sessionID: session.id)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(pieceTitle(session.pieceID) ?? "Practice session").font(.headline)
+                            Text("\(session.startedAt.formatted(date: .omitted, time: .shortened)) · \(practiceDuration(session.activeSeconds))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("calendarSession_\(session.id)")
                 }
                 ForEach(dayPerformances) { performance in
                     Label(pieceTitle(performance.pieceID) ?? "Performance", systemImage: "star.fill")
@@ -58,8 +89,14 @@ struct CalendarView: View {
             if let errorMessage { Section { ErrorMessage(message: errorMessage) } }
         }
         .scrollContentBackground(.hidden)
+        .accessibilityIdentifier("practiceCalendarList")
         .background(PraeludeColor.paper)
         .navigationTitle("Calendar")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Today") { selectedDay = calendar.startOfDay(for: .now); visibleMonth = selectedDay }
+            }
+        }
         .sheet(item: $addingPerformanceFor) { route in AddPerformanceView(date: route.date) }
     }
 
@@ -94,8 +131,10 @@ struct CalendarView: View {
         return days
     }
 
-    private var monthGrid: some View {
+    private func monthGrid(totals: [Date: PracticeCalendarStats.DayTotal], performances: [PracticeCalendarStats.PerformanceDay]) -> some View {
         let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+        let performanceDates = Set(performances.map(\.date))
+        let maxSeconds = max(60, totals.values.map(\.seconds).max() ?? 0)
         return LazyVGrid(columns: columns, spacing: 6) {
             // Indexed, not `id: \.self`: `veryShortWeekdaySymbols` repeats letters (S/T), which
             // would give ForEach non-unique ids for a plain string identity.
@@ -103,14 +142,15 @@ struct CalendarView: View {
                 Text(symbol).font(.caption2).foregroundStyle(.secondary)
             }
             ForEach(Array(monthDays.enumerated()), id: \.offset) { _, day in
-                if let day { dayCell(day) } else { Color.clear.frame(height: 40) }
+                if let day { dayCell(day, total: totals[day], hasPerformance: performanceDates.contains(day), maxSeconds: maxSeconds) }
+                else { Color.clear.frame(height: 44) }
             }
         }
     }
 
-    private func dayCell(_ day: Date) -> some View {
-        let seconds = dailyTotals[calendar.startOfDay(for: day)]?.seconds ?? 0
-        let hasPerformance = performanceDays.contains { calendar.isDate($0.date, inSameDayAs: day) }
+    private func dayCell(_ day: Date, total: PracticeCalendarStats.DayTotal?, hasPerformance: Bool, maxSeconds: Double) -> some View {
+        let seconds = total?.seconds ?? 0
+        let hasPractice = total?.hasPractice ?? false
         let isSelected = calendar.isDate(day, inSameDayAs: selectedDay)
         let isToday = calendar.isDateInToday(day)
         return Button { selectedDay = calendar.startOfDay(for: day) } label: {
@@ -119,17 +159,17 @@ struct CalendarView: View {
                     .font(.subheadline.monospacedDigit()).fontWeight(isToday ? .bold : .regular)
                     .foregroundStyle(PraeludeColor.ink)
                 Circle()
-                    .fill(seconds > 0 ? PraeludeColor.ink.opacity(min(1, 0.25 + 0.75 * seconds / maxSeconds)) : Color.clear)
+                    .fill(hasPractice ? PraeludeColor.ink.opacity(min(1, 0.25 + 0.75 * seconds / maxSeconds)) : Color.clear)
                     .frame(width: 5, height: 5)
                 Image(systemName: "star.fill").font(.system(size: 7)).foregroundStyle(PraeludeColor.inkSecondary)
                     .opacity(hasPerformance ? 1 : 0)
             }
-            .frame(maxWidth: .infinity, minHeight: 40)
+            .frame(maxWidth: .infinity, minHeight: 44)
             .background(isSelected ? PraeludeColor.inkFillQuiet : Color.clear, in: RoundedRectangle(cornerRadius: PraeludeRadius.tight))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(day.formatted(.dateTime.weekday(.wide).month().day()))
-        .accessibilityValue(seconds > 0 ? practiceDuration(seconds) : "No practice")
+        .accessibilityValue(hasPractice ? "\(practiceDuration(seconds)), \(total?.repetitions ?? 0) repetitions" : "No practice")
     }
 
     private func changeMonth(_ delta: Int) {
@@ -161,7 +201,7 @@ private struct AddPerformanceView: View {
     var body: some View {
         NavigationStack {
             List {
-                let pieces = store.state.pieces.filter { $0.status != .resting }.sorted { $0.title < $1.title }
+                let pieces = store.realPieces.filter { $0.status != .resting }.sorted { $0.title < $1.title }
                 if pieces.isEmpty {
                     Text("Add a piece first.").foregroundStyle(.secondary)
                 } else {

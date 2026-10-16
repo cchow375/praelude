@@ -20,6 +20,7 @@ struct TodayView: View {
     /// §9/R3: hands a cold-eligible passage off to the score's own arm/cold-grade flow — see
     /// `startItem` below for why a review/learning/new item can't simply `store.startSet` here.
     var onStartPassage: (UUID, UUID) -> Void = { _, _ in }
+    var onOpenCards: () -> Void = {}
 
     private var todaySessions: [PracticeSession] {
         store.sessions.filter { Calendar.current.isDateInToday($0.startedAt) }
@@ -92,10 +93,12 @@ struct TodayView: View {
 
             if store.realPieces.isEmpty {
                 PraeludeEmptyState(title: "Start practicing", symbol: "pianokeys",
-                                  message: "Add a piece and its PDF score, then choose a passage to practice.",
+                                  message: "Use a PDF score, or photograph passages from your paper music in Passages.",
                                   actionTitle: "Add your first piece", action: onAddPiece)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
+                Button("Photograph a passage", systemImage: "camera", action: onOpenCards)
+                    .frame(minHeight: 44)
             } else {
                 Section {
                     HStack(spacing: 10) {

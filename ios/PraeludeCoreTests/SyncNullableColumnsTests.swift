@@ -34,6 +34,58 @@ private actor NullablePatchTransport: SyncTransport {
         FileManager.default.temporaryDirectory.appendingPathComponent("sync-nullable-\(UUID())")
     }
 
+    func testFullTempoAndCoveragePlanRoundTripWithoutLocalFallback() throws {
+        let plan = PracticeBalancePlan(leftHandPercent: 30, rightHandPercent: 20, verySlowPercent: 40, variantPercent: 10)
+        let piece = Piece(title: "Photo passage", pdfFileName: "cropped-passage.pdf", isPhotoPassage: true, pageCount: 1,
+                          fullTempoBPM: 144, practiceBalancePlan: plan)
+        let row = try SyncJSON(encoding: PieceSyncRow(piece)).decoded(as: PieceSyncRow.self)
+        let received = try XCTUnwrap(row.coreValue)
+        XCTAssertEqual(received.fullTempoBPM, 144)
+        XCTAssertEqual(received.practiceBalancePlan, plan)
+        XCTAssertEqual(received.pdfFileName, piece.pdfFileName)
+        XCTAssertTrue(received.isPhotoPassage)
+    }
+
+    func testOlderPiecePayloadKeepsLocalPlanningAndDoesNotInventClearKeys() throws {
+        let plan = PracticeBalancePlan(leftHandPercent: 25, rightHandPercent: 25)
+        let piece = Piece(title: "Existing", isPhotoPassage: true, fullTempoBPM: 160, practiceBalancePlan: plan)
+        var object = try XCTUnwrap(SyncJSON(encoding: PieceSyncRow(piece)).objectValue)
+        object.removeValue(forKey: "full_tempo_bpm"); object.removeValue(forKey: "practice_balance_plan")
+        object.removeValue(forKey: "is_photo_passage")
+        let older = try SyncJSON.object(object).decoded(as: PieceSyncRow.self)
+        let preserved = try XCTUnwrap(older.coreValue(preserving: piece))
+        XCTAssertEqual(preserved.fullTempoBPM, 160)
+        XCTAssertEqual(preserved.practiceBalancePlan, plan)
+        XCTAssertTrue(preserved.isPhotoPassage)
+        let reencoded = try XCTUnwrap(SyncJSON(encoding: older).objectValue)
+        XCTAssertNil(reencoded["full_tempo_bpm"])
+        XCTAssertNil(reencoded["practice_balance_plan"])
+        XCTAssertNil(reencoded["is_photo_passage"])
+        object["practice_balance_plan"] = .null
+        let unpublished = try SyncJSON.object(object).decoded(as: PieceSyncRow.self)
+        XCTAssertEqual(unpublished.coreValue(preserving: piece)?.practiceBalancePlan, plan)
+        object["is_photo_passage"] = .null
+        XCTAssertTrue(try XCTUnwrap(try SyncJSON.object(object).decoded(as: PieceSyncRow.self).coreValue(preserving: piece)).isPhotoPassage)
+    }
+
+    func testClearingFullTempoAndPlanReachesSelectiveServer() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let transport = NullablePatchTransport()
+        let engine = SyncEngine(transport: transport, directory: path)
+        var piece = Piece(title: "Passage", fullTempoBPM: 160, practiceBalancePlan: PracticeBalancePlan(verySlowPercent: 50))
+        try engine.enqueueUpsert(table: "pieces", row: try XCTUnwrap(SyncJSON(encoding: PieceSyncRow(piece)).objectValue))
+        let sent = await engine.drain(); XCTAssertTrue(sent)
+        piece.fullTempoBPM = nil; piece.practiceBalancePlan = PracticeBalancePlan()
+        try engine.enqueueUpsert(table: "pieces", row: try XCTUnwrap(SyncJSON(encoding: PieceSyncRow(piece)).objectValue))
+        let cleared = await engine.drain(); XCTAssertTrue(cleared)
+        let fetched = await transport.row(table: "pieces", id: piece.id)
+        let row = try XCTUnwrap(fetched)
+        XCTAssertEqual(row["full_tempo_bpm"], .null)
+        let received = try XCTUnwrap(try SyncJSON.object(row).decoded(as: PieceSyncRow.self).coreValue(preserving: Piece(title: "Existing", fullTempoBPM: 160)))
+        XCTAssertNil(received.fullTempoBPM)
+        XCTAssertEqual(received.practiceBalancePlan, PracticeBalancePlan())
+    }
+
     func testLibrarySnapshotClearsSavedNullableMetadataWithSelectiveServer() async throws {
         let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
         let transport = NullablePatchTransport()

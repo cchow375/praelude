@@ -2,6 +2,15 @@ import Foundation
 import Observation
 import Storage
 import CryptoKit
+import PDFKit
+import ImageIO
+import AVFAudio
+
+extension Notification.Name {
+    /// Local, transient asset availability. Posted on MainActor after verified publication;
+    /// object is the destination URL so only matching views reload. This is not a sync receipt.
+    static let praeludeLibraryAssetAvailable = Notification.Name("praeludeLibraryAssetAvailable")
+}
 
 /// Uploads score PDFs / recordings to their private Storage buckets (spec §4a) and downloads them on
 /// demand when a device has a synced `pieces`/`audio_recordings` row pointing at a file it does not
@@ -95,7 +104,7 @@ public final class ScoreAndRecordingStorage {
             let digest = try await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })
             guard !Task.isCancelled, self.ownerID == ownerID else { return false }
             if try receipts(at: receiptURL(localURL))[key] == digest { return true }
-            let storage = try await services.storage()
+            let storage = try await services.storage(expectedOwnerID: ownerID)
             guard !Task.isCancelled, self.ownerID == ownerID else { return false }
             try await storage.from(bucket).upload(path, fileURL: localURL, options: FileOptions(contentType: contentType, upsert: true))
             guard !Task.isCancelled, self.ownerID == ownerID else { return false }
@@ -113,15 +122,103 @@ public final class ScoreAndRecordingStorage {
         guard let ownerID else { return false }
         guard Self.isSafeFileName(fileName) else { lastError = "A library file has an invalid file name."; return false }
         let path = Self.objectPath(ownerID: ownerID, recordID: recordID, fileName: fileName)
+        let key = receiptKey(bucket: bucket, path: path)
+        guard !inFlight.contains(key) else { return false }
+        inFlight.insert(key); defer { inFlight.remove(key) }
         do {
-            let storage = try await services.storage()
+            let storage = try await services.storage(expectedOwnerID: ownerID)
             let data = try await storage.from(bucket).download(path: path)
             guard !Task.isCancelled, self.ownerID == ownerID else { return false }
-            try FileManager.default.createDirectory(at: localURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: localURL, options: [.atomic, .completeFileProtectionUnlessOpen])
-            try saveReceipt(bucket: bucket, path: path, localURL: localURL, fingerprint: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
+            // Hash and write large score/photo/recording bytes away from the UI actor. The final
+            // move publishes a complete file only after the account is checked again.
+            let work = Task.detached(priority: .utility) { try Self.stageDownload(data, destination: localURL, validatingBucket: bucket) }
+            let staged = try await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })
+            defer { try? FileManager.default.removeItem(at: staged.url) }
+            guard !Task.isCancelled, self.ownerID == ownerID else { return false }
+            _ = try Self.publishAndAcknowledgeDownload(staged, destination: localURL) {
+                try saveReceipt(bucket: bucket, path: path, localURL: localURL, fingerprint: staged.fingerprint)
+            }
             return true
-        } catch { lastError = "A library file transfer will be retried. \(error.localizedDescription)"; return false }
+        } catch {
+            if !Task.isCancelled, self.ownerID == ownerID {
+                lastError = "A library file transfer will be retried. \(error.localizedDescription)"
+            }
+            return false
+        }
+    }
+
+    struct StagedDownload: Sendable { let url: URL; let fingerprint: String }
+    /// A valid new local asset is available even if saving its transfer receipt subsequently fails.
+    /// Keep account checking/publication/notification in one main-actor turn. Receipt failure still
+    /// reaches the transfer status; already-local destinations and publication failures emit no event.
+    static func publishAndAcknowledgeDownload(_ staged: StagedDownload, destination: URL,
+                                             acknowledge: () throws -> Void) throws -> Bool {
+        guard try publishDownload(staged, destination: destination) else { return false }
+        NotificationCenter.default.post(name: .praeludeLibraryAssetAvailable, object: destination)
+        try acknowledge()
+        return true
+    }
+
+    nonisolated static func stageDownload(_ data: Data, destination: URL, validatingBucket bucket: String? = nil) throws -> StagedDownload {
+        try Task.checkCancellation()
+        guard !data.isEmpty else { throw SyncError.transport("The cloud file is empty. The local library is preserved.") }
+        let directory = destination.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stagedURL = directory.appendingPathComponent(".sync-download-\(UUID().uuidString)").appendingPathExtension(destination.pathExtension)
+        do {
+            try data.write(to: stagedURL, options: [.atomic, .completeFileProtectionUnlessOpen])
+            if let bucket { try validateDownloadedAsset(data, stagedURL: stagedURL, bucket: bucket) }
+            try Task.checkCancellation()
+            return StagedDownload(url: stagedURL, fingerprint: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
+        } catch { try? FileManager.default.removeItem(at: stagedURL); throw error }
+    }
+    /// A nonempty error page or damaged cloud object must not become a permanent local asset with
+    /// an upload receipt. This runs on the download worker before any public filename is created.
+    nonisolated private static func validateDownloadedAsset(_ data: Data, stagedURL: URL, bucket: String) throws {
+        switch bucket {
+        case "scores":
+            guard data.count <= 209_715_200, let pdf = PDFDocument(data: data), !pdf.isLocked,
+                  pdf.pageCount > 0, pdf.pageCount <= 2000 else {
+                throw SyncError.transport("The cloud score is not an unlocked PDF with up to 2,000 pages.")
+            }
+        case "covers":
+            guard data.count <= 15_000_000, let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  CGImageSourceGetCount(source) > 0, CGImageSourceGetStatus(source) == .statusComplete,
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+                  let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
+                  width.isFinite, height.isFinite, width > 0, height > 0,
+                  width <= 16_384, height <= 16_384, width * height <= 64_000_000,
+                  CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 1024,
+                    kCGImageSourceShouldCacheImmediately: true
+                  ] as CFDictionary) != nil else {
+                throw SyncError.transport("The cloud cover is not a readable image within the supported size.")
+            }
+        case "recordings":
+            guard data.count <= 104_857_600 else { throw SyncError.transport("The cloud recording is too large.") }
+            let audio = try AVAudioFile(forReading: stagedURL)
+            guard audio.length > 0, audio.processingFormat.sampleRate.isFinite,
+                  audio.processingFormat.sampleRate > 0, (1...32).contains(audio.processingFormat.channelCount),
+                  let buffer = AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: 1) else {
+                throw SyncError.transport("The cloud recording has no readable audio.")
+            }
+            audio.framePosition = max(0, audio.length - 1)
+            try audio.read(into: buffer, frameCount: 1)
+            guard buffer.frameLength == 1 else { throw SyncError.transport("The cloud recording is incomplete.") }
+        default: throw SyncError.transport("Unsupported private library file.")
+        }
+    }
+    /// Never overwrite a score restored/imported while its cloud request was in flight. A move
+    /// cannot replace an existing destination; the next reconciliation fingerprints the local copy.
+    nonisolated static func publishDownload(_ staged: StagedDownload, destination: URL) throws -> Bool {
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return false }
+        do { try FileManager.default.moveItem(at: staged.url, to: destination); return true }
+        catch {
+            if FileManager.default.fileExists(atPath: destination.path) { return false }
+            throw error
+        }
     }
 
     public init(services: SupabaseServices, auth: AuthManager) { self.services = services; self.auth = auth }

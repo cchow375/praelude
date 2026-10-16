@@ -341,6 +341,43 @@ enum FaceCameraGeometry {
 
 @MainActor @Observable final class FaceGestureService {
     private static weak var captureOwner: FaceGestureService?
+    private static var passageCaptureReservation: UUID?
+    @ObservationIgnored private var shutdownWaiters: [CheckedContinuation<Bool, Never>] = []
+
+    /// Photo capture waits for AR/Vision to release the physical camera. A reservation also
+    /// prevents a score in another window from restarting gestures behind the crop sheet.
+    static func reserveForPassageCapture(timeout: Duration = .seconds(4)) async -> UUID? {
+        guard passageCaptureReservation == nil else { return nil }
+        let token = UUID()
+        passageCaptureReservation = token
+        if let owner = captureOwner {
+            let stopped: Bool = await withCheckedContinuation { continuation in
+                owner.shutdownWaiters.append(continuation)
+                owner.stop()
+                if !owner.isStopping { owner.finishShutdownWaiters() }
+                else {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: timeout)
+                        if owner.isStopping, passageCaptureReservation == token {
+                            owner.finishShutdownWaiters(success: false)
+                        }
+                    }
+                }
+            }
+            guard stopped else { releasePassageCapture(token); return nil }
+        }
+        return token
+    }
+
+    static func releasePassageCapture(_ token: UUID) {
+        if passageCaptureReservation == token { passageCaptureReservation = nil }
+    }
+
+    private func finishShutdownWaiters(success: Bool = true) {
+        let waiters = shutdownWaiters
+        shutdownWaiters.removeAll()
+        for waiter in waiters { waiter.resume(returning: success) }
+    }
     #if DEBUG
     private static var didResetTestPreferences = false
     #endif
@@ -414,6 +451,9 @@ enum FaceCameraGeometry {
     }
     func start() {
         guard !isEnabled && !isPreparing && !isStopping else { return }
+        guard Self.passageCaptureReservation == nil else {
+            status = "Finish photographing your passage before enabling camera gestures."; return
+        }
         if let owner=Self.captureOwner, owner !== self {
             status="Camera gestures are in use in another score. Turn them off there before enabling them here."; return
         }
@@ -467,14 +507,15 @@ enum FaceCameraGeometry {
         isEnabled=false; isPreparing=false; calibrated=false; calibrationProgress=0; availableGestures=[]; frame=nil
         detector.clearCalibration(); recent=[]; lastCalibrationSupplement = -Double.infinity; status=message
         guard let retiring=worker else {
-            if Self.captureOwner===self { Self.captureOwner=nil }; return
+            if Self.captureOwner===self { Self.captureOwner=nil }
+            finishShutdownWaiters(); return
         }
         isStopping=true
-        retiring.stop { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+        retiring.stop { [self] in
+            Task { @MainActor [self] in
                 self.worker=nil; self.isStopping=false
                 if Self.captureOwner===self { Self.captureOwner=nil }
+                self.finishShutdownWaiters()
             }
         }
     }

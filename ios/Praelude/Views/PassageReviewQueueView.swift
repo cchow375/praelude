@@ -6,6 +6,7 @@ struct PassageReviewQueueView: View {
     @Environment(PracticeStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var editing: Passage?
+    @State private var showingGuide = false
     var onStart: (UUID, UUID) -> Void
 
     private var context: RuleContext { RuleContext(state: store.state, now: Date()) }
@@ -33,8 +34,16 @@ struct PassageReviewQueueView: View {
             }
             .accessibilityIdentifier("passageReviewQueue")
             .navigationTitle("Passage reviews").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("How reviews work", systemImage: "questionmark.circle") { showingGuide = true } }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
             .sheet(item: $editing) { passage in PassageRenameView(passage: passage) }
+            .sheet(isPresented: $showingGuide) {
+                NavigationStack { List { ReviewRulesExplanation() }.navigationTitle("How reviews work")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showingGuide = false } } } }
+            }
         }
     }
 
@@ -51,6 +60,8 @@ struct PassageReviewQueueView: View {
 }
 
 struct PassageReviewRow: View {
+    @Environment(PracticeStore.self) private var store
+    @State private var showingDetails = false
     let review: TodayOverview.DueReview
     let passage: Passage
     let pieceTitle: String
@@ -59,6 +70,10 @@ struct PassageReviewRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
+            Button { showingDetails = true } label: {
+                PassageCardArtwork(passage: passage, piece: store.pieces.first { $0.id == passage.pieceID })
+                    .frame(height: 112).clipped()
+            }.buttonStyle(.plain).accessibilityLabel("See review details for \(passage.title)")
             Text(review.label).font(.caption.weight(.bold))
                 .foregroundStyle(review.isUrgent ? Color.orange : PraeludeColor.inkSecondary)
                 .accessibilityIdentifier("reviewPriority_\(passage.id)")
@@ -89,7 +104,10 @@ struct PassageReviewRow: View {
                 Text("Scheduled \(date.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Button("Review date & first-attempt history", systemImage: "clock.arrow.circlepath") { showingDetails = true }
+                .font(.caption).frame(minHeight: 44)
         }.padding(.vertical, 4)
         .accessibilityElement(children: .contain)
+        .sheet(isPresented: $showingDetails) { PassageReviewDetailsView(passageID: passage.id) }
     }
 }

@@ -5,6 +5,7 @@ private enum MetronomeTool: String, CaseIterable, Identifiable { case metronome,
 struct MetronomeView: View {
     @Environment(MetronomeService.self) private var metronome
     @Environment(PracticeStore.self) private var store
+    @Environment(PracticeRuntime.self) private var runtime
     @Environment(\.dismiss) private var dismiss
     @State private var tool = MetronomeTool.metronome
     @State private var tempoError: String?
@@ -55,8 +56,7 @@ struct MetronomeView: View {
                         }
                         HStack(spacing: 12) {
                             Button {
-                                if let active = store.activeSet, !active.isComplete { metronome.setTempo(active.currentBPM) }
-                                metronome.toggle()
+                                runtime.setMetronomePlaying(!metronome.isPlaying, for: store.activeSet)
                             } label: {
                                 Label(metronome.isPlaying ? "Stop" : "Start", systemImage: metronome.isPlaying ? "stop.fill" : "play.fill")
                                     .frame(maxWidth: .infinity, minHeight: 28)

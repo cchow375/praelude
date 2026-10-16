@@ -10,6 +10,8 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
     public var title: String
     public var composer: String
     public var pdfFileName: String?
+    /// A cropped paper-score passage stored in its own immutable, ordinary PDF asset.
+    public var isPhotoPassage: Bool
     public var pageCount: Int
     public var lastPage: Int
     public var status: PieceStatus
@@ -28,7 +30,7 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
     public var scoreSections: [ScoreSection]
     public var measureAnchors: [ScoreMeasureAnchor]
     public var defaultPracticeBPM: Double?
-    /// Deliberate full-tempo reference, independent of the current practice/set tempo. Local metadata.
+    /// Deliberate full-tempo reference, independent of current practice tempo; synced with the piece.
     public var fullTempoBPM: Double?
     public var practiceBalancePlan: PracticeBalancePlan
     /// Sync metadata (§4d) for everything except `lastPage`, which turning a page changes far more
@@ -37,7 +39,7 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
     public var updatedAt: Date
     public var lastPageUpdatedAt: Date
     public var deletedAt: Date?
-    public init(id: UUID = UUID(), title: String, composer: String = "", pdfFileName: String? = nil,
+    public init(id: UUID = UUID(), title: String, composer: String = "", pdfFileName: String? = nil, isPhotoPassage: Bool = false,
                 pageCount: Int = 0, lastPage: Int = 1, status: PieceStatus = .active,
                 notes: String = "", createdAt: Date = Date(), instrumentID: UUID? = nil,
                 tagIDs: [UUID] = [], folderIDs: [UUID] = [], difficulty: Int? = nil, customCoverRef: String? = nil,
@@ -46,6 +48,7 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
                 practiceBalancePlan: PracticeBalancePlan = PracticeBalancePlan(), updatedAt: Date = Date(), lastPageUpdatedAt: Date = Date(),
                 deletedAt: Date? = nil) {
         self.id = id; self.title = title; self.composer = composer; self.pdfFileName = pdfFileName
+        self.isPhotoPassage = isPhotoPassage
         self.pageCount = pageCount; self.lastPage = lastPage; self.status = status
         self.notes = notes; self.createdAt = createdAt
         self.instrumentID = instrumentID; self.tagIDs = tagIDs; self.folderIDs = folderIDs
@@ -55,7 +58,7 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
         self.updatedAt = updatedAt; self.lastPageUpdatedAt = lastPageUpdatedAt; self.deletedAt = deletedAt
     }
     private enum CodingKeys: String, CodingKey {
-        case id, title, composer, pdfFileName, pageCount, lastPage, status, notes, createdAt, instrumentID,
+        case id, title, composer, pdfFileName, isPhotoPassage, pageCount, lastPage, status, notes, createdAt, instrumentID,
              tagIDs, folderIDs, difficulty, customCoverRef, performanceDates, scoreSections, measureAnchors, defaultPracticeBPM, fullTempoBPM, practiceBalancePlan, updatedAt, lastPageUpdatedAt, deletedAt
     }
     public init(from decoder: Decoder) throws {
@@ -64,6 +67,7 @@ public struct Piece: Identifiable, Codable, Equatable, Sendable {
         title = try values.decode(String.self, forKey: .title)
         composer = try values.decode(String.self, forKey: .composer)
         pdfFileName = try values.decodeIfPresent(String.self, forKey: .pdfFileName)
+        isPhotoPassage = try values.decodeIfPresent(Bool.self, forKey: .isPhotoPassage) ?? false
         pageCount = try values.decode(Int.self, forKey: .pageCount)
         lastPage = try values.decode(Int.self, forKey: .lastPage)
         status = try values.decode(PieceStatus.self, forKey: .status)

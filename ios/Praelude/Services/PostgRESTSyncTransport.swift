@@ -7,8 +7,13 @@ import PostgREST
 /// protocol, so it stays testable with a fake transport and no network.
 public struct PostgRESTSyncTransport: SyncTransport {
     private let services: SupabaseServices
+    private var expectedOwnerID: UUID?
 
-    @MainActor public init(services: SupabaseServices) { self.services = services }
+    @MainActor public init(services: SupabaseServices) { self.services = services; expectedOwnerID = nil }
+
+    public func scoped(to ownerID: UUID) -> any SyncTransport {
+        var copy = self; copy.expectedOwnerID = ownerID; return copy
+    }
 
     public func upsert(table: String, row: [String: SyncJSON]) async throws -> SyncRPCResult {
         try await callRPC("sync_upsert", params: TableRowParams(p_table: table, p_row: .object(row)))
@@ -32,7 +37,7 @@ public struct PostgRESTSyncTransport: SyncTransport {
     /// append-only log's own event-date column instead (that family has no `updated_at` at all).
     public func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
         do {
-            let postgrest = try await services.postgrest()
+            let postgrest = try await services.postgrest(expectedOwnerID: expectedOwnerID)
             // Hosted PostgREST caps responses at 1,000 rows. Read ordered pages until an
             // empty response, including when a server cap is lower than our requested page size.
             let orderColumn = table == "rule_settings" || table == "rewards_state" ? "owner_id" : "id"
@@ -54,7 +59,7 @@ public struct PostgRESTSyncTransport: SyncTransport {
 
     private func callRPC<Params: Encodable>(_ name: String, params: Params) async throws -> SyncRPCResult {
         do {
-            let postgrest = try await services.postgrest()
+            let postgrest = try await services.postgrest(expectedOwnerID: expectedOwnerID)
             let response: RPCEnvelope = try await postgrest.rpc(name, params: params).execute().value
             return SyncRPCResult(applied: response.applied, row: response.row?.objectValue)
         } catch let error as SyncError {

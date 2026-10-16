@@ -83,8 +83,10 @@ struct AccountView: View {
 
     @ViewBuilder private var signedOutSections: some View {
         Section {
-            Text("Practice stays on this device either way. An account adds sync across your iPhone and iPad, and a backup off this device.")
+            Text("Your practice is saved on this device. Sign in to the same account on your iPhone and iPad to upload your library and download it on the other device.")
                 .foregroundStyle(PraeludeColor.inkSecondary)
+            Text("Scores and photo passages stay local until you sign in. An account is optional for practicing.")
+                .font(.footnote).foregroundStyle(.secondary)
         }
         Section {
             Picker("Mode", selection: $mode) {
@@ -144,6 +146,23 @@ struct AccountView: View {
         Section {
             LabeledContent("Signed in as", value: email ?? "Your account")
             syncStatusRow
+            Button("Sync library now", systemImage: "arrow.triangle.2.circlepath") {
+                Task { await syncCoordinator.syncAll() }
+            }.disabled(syncIsRunning)
+                .accessibilityIdentifier("syncLibraryNow")
+        }
+        Section {
+            let scores = store.realPieces.filter { $0.pdfFileName != nil }
+            let files = NativeLibraryFiles(store: store)
+            let available = scores.filter { piece in
+                files.scoreURL(for: piece).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+            }.count
+            LabeledContent("Scores on this device", value: "\(available) of \(scores.count)")
+            LabeledContent("Passage cards", value: "\(store.state.passages.filter { !$0.archived && $0.deletedAt == nil }.count)")
+            Text("Scores, photo crops, passages, annotations and saved practice history sync privately to this account. Offline changes wait for a connection.")
+                .font(.footnote).foregroundStyle(.secondary)
+        } header: { Text("Library on this device") } footer: {
+            Text("Check this screen on both signed-in devices. Local file counts show availability here; they do not prove the other device has downloaded them. Counter layout and camera preferences stay device-local. A running set stays on the device where you started it.")
         }
         Section { NavigationLink("Edit profile") { ProfileEditView() } }
         Section {
@@ -169,7 +188,7 @@ struct AccountView: View {
     }
     private var syncStatusText: String {
         switch syncCoordinator.status {
-        case .idle: "Synced"
+        case .idle: "No queued changes"
         case .syncing: "Syncing…"
         case .offline: "Offline — will sync when connected"
         case .stuck(let message): message
@@ -178,5 +197,9 @@ struct AccountView: View {
     private var syncStatusColor: Color {
         if case .stuck = syncCoordinator.status { return PraeludeColor.live }
         return PraeludeColor.inkSecondary
+    }
+    private var syncIsRunning: Bool {
+        if case .syncing = syncCoordinator.status { return true }
+        return false
     }
 }
