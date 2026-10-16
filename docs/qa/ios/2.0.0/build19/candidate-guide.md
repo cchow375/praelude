@@ -1,6 +1,6 @@
 # Build19 candidate — phone practice and passage cards
 
-Date: 2026-10-16. Native 2.0.0/build19/schema5 source candidate. This guide describes development source, not the installed personal Build18 or friend Build12. Mac v11.1.0/schema21 is unchanged.
+Date: 2026-10-16. Native 2.0.0/build19/schema5 source candidate. This guide describes Build19, now installed/opened/read back on the personal iPhone. The personal iPad remains Build18 and friend iPad Build12; new tablet controls remain source/simulator-verified until a separately authorized update. Mac v11.1.0/schema21 is unchanged.
 
 ## Practice from paper or a PDF
 
@@ -39,4 +39,4 @@ Source/native/simulator/backend evidence and remaining physical/two-device gates
 
 ## Next steps
 
-Scoped native/UI/unsigned Release verification passes. Prepare signed packaging and guarded authorized delivery. Physically test camera/Photos/retake/crop in both orientations, audio/haptics, interruptions, phone legibility at the piano, and offline two-device account convergence without touching personal data during automated tests.
+Scoped native/UI/unsigned Release verification passes. Signed first-install/open/readback on the personal iPhone also passes; see personal-iphone-install.json. Further device delivery requires its own guarded update. Physically test camera/Photos/retake/crop in both orientations, audio/haptics, interruptions, phone legibility at the piano, and offline two-device account convergence without touching personal data during automated tests.

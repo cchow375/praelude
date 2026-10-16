@@ -1,10 +1,24 @@
 # Praelude — How To Use
 
-## October 16 — Build19 development preview; installed guide remains Build18
+## October 16 — Build19 installed and opened on the personal iPhone
+
+**Last updated: 2026-10-16. Personal iPhone: native 2.0.0/build19/schema5, installed, user-opened and observed running.** Personal iPad remains last verified Build18, friend held at Build12; Mac v11.1.0/schema21 is unchanged. Christian explicitly requested installation on the connected iPhone. After unlock/computer trust, the exact iPhone 16 Pro Max is discovered with Developer Mode and development services ready. Both preflight and the guarded helper find no existing Praelude: this is a true first install, with prior-library preservation and schema migration not applicable, rather than an invented pre/post hash pass.
+
+The guarded helper builds/signs Release and reads back installed 2.0.0/build19. Its exit 1 is the subsequent automatic-launch denial, not an installation failure. Christian confirms Praelude opens; read-only process/version and complete postlaunch backup confirm running Build19, schema5/revision189, no active set and no pieces/passages/history/sessions/attempts/ink/text records. The three initial owned files total 109,341 bytes and are independently rehashed against the private backup manifest. Built-in app defaults are retained; no personal library or credentials were transferred.
+
+Independent actual-helper package audit passes 35/35 checks: deep strict signature/trusted signer, original team/stable bundle, exact phone in provisioning, arm64/matching dSYM, 21 debug-marker absence and 13 expected files with no personal resources. Executable SHA-256 is `4f0755c427a0bef334f33dbbf454b08f43faf6abcc8006da09d673fa45b5ae0d`. Profile expires October 23 at 19:42:03 EDT (23:42:03 UTC). The complete signed app+dSYM private archive has 16 files/111,544,953 bytes; every archived filename/size/SHA-256 reads back exactly. No uninstall/reset/restore-over/physical termination workaround or Mac import occurs. Evidence: `docs/qa/ios/2.0.0/build19/personal-iphone-install.json` and `iphone-package-review.json`.
+
+**Next steps:** use Build19 on the iPhone. Sign in locally to the same Praelude account on phone/iPad, allow complete private metadata/assets catch-up, then verify offline/reconnect convergence. Physical camera/Photos quality, audible feedback/haptics and sustained responsiveness remain separate acceptance gates; B170/B171/B172/B173 stay open. Refresh the Personal Team signature before its expiration. Keep the friend iPad held.
+
+**Matches: personal iPhone native2.0.0/build19/schema5; personal iPad native2.0.0/build18/schema5; friend Build12/schema5; Mac v11.1.0/schema21.** Phone controls are described in `~/praelude/docs/qa/ios/2.0.0/build19/candidate-guide.md`: Counter is the phone default; Passages → Add photo creates cropped cards. The phone initially has no score or practice records. Check Account on both devices and use the same Praelude account; matching local ownership alone does not verify a live session or convergence. Installed iPad Build18 controls remain as recorded below.
+
+
+
+## Historical October 16 — Build19 development preview before phone installation
 
 **Matches: installed personal native2.0.0/build18/schema5; friend Build12/schema5; Mac v11.1.0/schema21. Last updated: 2026-10-16.** This session changes development source only. The new phone Counter, visual Passages tab, photo crop and review tools are **not installed** by this work; the Build18 installed controls below remain current. See `~/praelude/docs/qa/ios/2.0.0/build19/candidate-guide.md` for the complete candidate walkthrough and ten additional practice tools.
 
-Christian confirms neither native device is signed in yet. In the candidate's Account screen, use the same account on iPhone and iPad, then Sync library now and check queue/errors and local score availability on each device. Do not assume the current local iPad library is already uploaded. A running set remains on its originating device; the installed Mac is separate from native sync. Real-account two-device acceptance is pending.
+At this earlier implementation checkpoint, Christian reported neither native device signed in. In the Account screen, use the same account on iPhone and iPad, then Sync library now and check queue/errors and local score availability on each device. Do not assume the current local iPad library is already uploaded. A running set remains on its originating device; the installed Mac is separate from native sync. Real-account two-device acceptance is pending.
 
 Candidate verification now passes within its recorded scope: 537 core cases and 2,340 deterministic service assertions, 360 hosted cases, 57 helper tests, all six affected flows on each simulator form factor, and a fresh independent same-card Score/Counter/Clean/Undo check. Each full core/hosted run has one opt-in live-account skip and zero failures. Unsigned arm64 Release/package inspection passes; signed delivery and physical/account acceptance remain open. Final findings and every retained intermediate failure are in `docs/qa/ios/2.0.0/build19/practice-cards.md`.
 

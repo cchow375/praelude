@@ -1,7 +1,8 @@
 # Build19 native sync contract
 
-Verified October 16, 2026. The user confirms neither device is signed in yet; the hosted score
-table contains **0 rows**. The additive schema is deployed and deterministic checks pass. This
+Implementation checkpoint October 16, 2026: the user reported neither device signed in; the hosted score
+table contained **0 rows**. Later iPhone installation/readback has matching local profile/sync ownership;
+this does not verify a live session or convergence. The additive schema is deployed and deterministic checks pass. This
 does **not** establish that the existing local iPad library is already in the cloud, or prove
 real-account iPhone↔iPad convergence. See [exact verification](sync-verification.json).
 
@@ -9,7 +10,7 @@ This is a **personal sync acceptance gate**, not a blocked backend deployment. T
 in locally to the same account on iPhone and iPad before their libraries can upload and be compared.
 No additional backend migration is pending for that flow. Candidate verification can complete
 while this separate personal roundtrip remains unaccepted. “Synced” in the table below describes
-the implemented signed-in data contract; it does not claim the user's current guest library has
+the implemented signed-in data contract; it does not claim the user's local library has
 already uploaded.
 
 | Data | Classification | Behavior and boundary |

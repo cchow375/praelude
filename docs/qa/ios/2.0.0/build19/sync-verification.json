@@ -1,15 +1,16 @@
 {
   "date": "2026-10-16",
-  "scope": "Build19 native sync and private asset integrity; hosted additive schema applied, no personal-device installation or real-account convergence claimed",
+  "scope": "Build19 native sync and private asset integrity; hosted additive schema applied. Later iPhone installation is recorded separately; real-account convergence remains unaccepted.",
   "account_state": {
-    "user_report": "Neither personal iPhone nor iPad is signed in yet.",
+    "user_report": "Earlier implementation checkpoint: neither personal iPhone nor iPad signed in.",
     "hosted_piece_rows_before": 0,
     "hosted_piece_rows_after": 0,
-    "real_account_two_device_convergence": "NOT RUN; neither device is signed in yet. Personal sign-in, library catch-up, roundtrip comparison and offline recovery remain acceptance gates.",
+    "real_account_two_device_convergence": "NOT RUN; verify the same live account on both devices, library catch-up, roundtrip comparison and offline recovery.",
     "confirmed_by_user_on": "2026-10-16",
     "gate_classification": "PERSONAL_ACCEPTANCE_PENDING; not a deployed-backend blockage",
     "backend_state": "Additive migrations28/29 deployed; hosted SQL fixtures and catalog/RLS checks passed. No backend deployment step is pending for same-account native sync.",
-    "sign_in_policy": "The user signs in locally to the same account on iPhone and iPad. This verification does not collect credentials or sign into a personal account."
+    "sign_in_policy": "The user signs in locally to the same account on iPhone and iPad. This verification does not collect credentials or sign into a personal account.",
+    "later_iphone_readback": "Installed/opened Build19; local profile owner is well formed and matches sync-state owner. This is not live-session or cross-device convergence evidence. No identity values retained."
   },
   "migration_deployment": [
     {
@@ -218,7 +219,7 @@
     "native_regression": "testAssetAvailabilityFollowsNewPublicationEvenWhenReceiptPersistenceFails validates complete-byte ordering, event despite receipt failure, and no event for existing/rejected/invalid files.",
     "source_parse": "PASS; git diff --check PASS",
     "prior_ordering": "Initial root proposal waited for receipt persistence; revised after review demonstrated receipt failure could otherwise leave a valid newly local image unavailable.",
-    "personal_acceptance_boundary": "Hosted storage11 and view-pixel tests pass. Neither device is signed into an account; personal same-account sign-in, full asset/history catch-up and offline recovery remain separate unaccepted gates.",
+    "personal_acceptance_boundary": "Hosted storage11 and view-pixel tests pass. Earlier user report was signed out; later iPhone readback has matching local profile/sync ownership. Verify the same live account, full asset/history catch-up and offline recovery separately.",
     "native_regression_result": {
       "test": "StorageIdentityTests.testAssetAvailabilityFollowsNewPublicationEvenWhenReceiptPersistenceFails",
       "result": "PASS",
@@ -238,11 +239,11 @@
     }
   },
   "personal_sync_acceptance_gate": {
-    "status": "AWAITING_LOCAL_SIGN_IN_AND_PHYSICAL_ROUNDTRIP",
+    "status": "AWAITING_SAME_ACCOUNT_VERIFICATION_AND_PHYSICAL_ROUNDTRIP",
     "backend_blocked": false,
-    "reason": "The user confirmed neither iPhone nor iPad is signed in. An empty hosted score library is consistent with that state; it is not evidence of a server failure.",
+    "reason": "Earlier user report and hosted-row check predate phone installation. Matching local profile/sync ownership after first open does not establish live authentication or same-account convergence. No backend deployment blocker is inferred.",
     "required_steps": [
-      "Sign in locally to the same Supabase account on both devices.",
+      "Verify locally that iPhone and iPad use the same live Supabase account; sign in where needed.",
       "Keep local libraries/backups; allow metadata and private PDF/photo/cover/recording transfer to finish.",
       "Compare scores, cropped passage cards, annotations, completed practice history, calendar/streak totals and remote Undo across devices.",
       "Make an offline edit, relaunch, reconnect and verify eventual convergence."
