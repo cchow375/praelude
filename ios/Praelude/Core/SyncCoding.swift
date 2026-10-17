@@ -1,5 +1,21 @@
 import Foundation
 
+/// Keep associated diagnostics through Foundation/UI error presentation. Without LocalizedError,
+/// `.transport(message).localizedDescription` becomes the unhelpful "SyncError error 0".
+extension SyncError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .transport(let message):
+            return message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Sync could not finish. Your practice remains saved on this device." : message
+        case .malformedQueueEntry(let reason):
+            return "A queued sync change is incomplete (\(reason)). Your local practice is preserved."
+        case .invalidRemoteRow(let context):
+            return "Cloud practice data could not be read (\(context)). Your local practice is preserved."
+        }
+    }
+}
+
 /// The wire-format JSON encoder/decoder for everything crossing the sync boundary (§3 of
 /// "(C) Sync Protocol.md"). Deliberately separate from `PracticeStore`'s own `encoder()`/`decoder()`
 /// (`.deferredToDate`, for `library.json` on disk) — `timestamptz` needs ISO 8601 text, not

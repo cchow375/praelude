@@ -93,15 +93,16 @@ public final class SyncCoordinator {
 
     /// The tables this coordinator pulls and LWW-merges, in order. Parents before children matters
     /// only in that a later row should not transiently point at a not-yet-local parent (see
-    /// `PracticeStore.validate`'s own reference checks, which are a local sanity check, not a hard
-    /// FK, for everything except `attempts.set_id` — the one real FK reachable through these RPCs, so
-    /// `sets` must land before `attempts` here for the same reason `SyncCoordinator`'s *push* side
-    /// pushes a set before any of its attempts: see `syncSet(_:)` below). `cursorField` is
+    /// `PracticeStore.validate`'s own reference checks, as well as server-side foreign keys.
+    /// Organization must precede pieces, and the practice graph is merged atomically below.
+    /// Folder/passage tables also merge atomically because UUID ordering cannot order their
+    /// parent and provenance references. `cursorField` is
     /// `"updated_at"` for every `sync_tables` member; an `append_only_tables` member has none, so it
     /// passes its own event-date column instead (`SyncEngine.pull`'s own doc comment).
-    private static let pullTables: [(table: String, cursorField: String)] = [
-        ("instruments", "updated_at"), ("pieces", "updated_at"), ("passages", "updated_at"), ("ink_strokes", "updated_at"),
-        ("tags", "updated_at"), ("folders", "updated_at"), ("setlists", "updated_at"), ("bookmarks", "updated_at"),
+    static let pullTables: [(table: String, cursorField: String)] = [
+        ("instruments", "updated_at"), ("tags", "updated_at"), ("folders", "updated_at"),
+        ("pieces", "updated_at"), ("passages", "updated_at"), ("ink_strokes", "updated_at"),
+        ("setlists", "updated_at"), ("bookmarks", "updated_at"),
         ("page_edits", "updated_at"), ("score_links", "updated_at"), ("annotations", "updated_at"),
         ("warmup_exercises", "updated_at"), ("audio_recordings", "updated_at"), ("notebook_entries", "updated_at"),
         ("practice_goals", "updated_at"), ("practice_routines", "updated_at"),
@@ -187,7 +188,13 @@ public final class SyncCoordinator {
         }
         do {
             try engine.bindAccount(userID)
-            try await engine.initializeProfileIfNeeded(currentProfile: { self.store.state.profile }) { profile in
+            try await engine.initializeProfileIfNeeded(currentProfile: { self.store.state.profile }, prepareProfile: { profile in
+                try await self.prepareProfileDependencies(profile) {
+                    guard self.canSync, self.store.state.profile.ownerID == userID else {
+                        throw SyncError.transport("Account changed during profile sync.")
+                    }
+                }
+            }) { profile in
                 guard self.canSync else { throw SyncError.transport("Account changed during profile sync.") }
                 try self.store.applySyncedProfile(profile)
             }
@@ -215,10 +222,22 @@ public final class SyncCoordinator {
             for entry in Self.pullTables {
                 // Full paginated reads preserve late offline uploads and remote Undo until the
                 // hosted schema exposes a server-owned ingestion/change sequence.
-                if entry.table == "practice_sessions" {
+                if entry.table == "pieces" {
+                    try await engine.pullScoreSnapshot { rows in
+                        guard self.canSync else { throw SyncError.transport("Account changed during sync.") }
+                        try self.applyPulledScoreSnapshot(rows)
+                    }
+                } else if entry.table == "page_edits" {
+                    continue
+                } else if entry.table == "practice_sessions" {
                     try await pullPracticeSnapshot()
                 } else if entry.table == "sets" || entry.table == "attempts" {
                     continue
+                } else if entry.table == "folders" || entry.table == "passages" {
+                    try await engine.pullRows(table: entry.table, cursorField: entry.cursorField) { rows in
+                        guard self.canSync else { throw SyncError.transport("Account changed during sync.") }
+                        try self.applyPulledHierarchy(table: entry.table, rows: rows)
+                    }
                 } else {
                     try await engine.pull(table: entry.table, cursorField: entry.cursorField) { [weak self] row in
                         guard let self, self.canSync else { throw SyncError.transport("Account changed during sync.") }
@@ -238,6 +257,37 @@ public final class SyncCoordinator {
             }
             engine.reportFailure(error)
         }
+    }
+
+    /// A first-login profile can refer to scores this device has not downloaded yet. Hydrate only
+    /// those prerequisites before committing the complete profile, retaining every selection and
+    /// privacy field. Authorization is rechecked after every suspension and before publication.
+    func prepareProfileDependencies(_ profile: Profile, validateAccount: () throws -> Void) async throws {
+        try validateAccount()
+        let pieceIDs = Set(store.state.pieces.map(\.id))
+        if !profile.currentlyWorkingOnPieceIDs.allSatisfy(pieceIDs.contains) {
+            let prerequisites: Set<String> = ["instruments", "tags", "folders", "pieces"]
+            for entry in Self.pullTables where prerequisites.contains(entry.table) {
+                try validateAccount()
+                if entry.table == "pieces" {
+                    try await engine.pullScoreSnapshot { rows in
+                        try validateAccount()
+                        try self.applyPulledScoreSnapshot(rows)
+                    }
+                } else if entry.table == "folders" {
+                    try await engine.pullRows(table: entry.table) { rows in
+                        try validateAccount()
+                        try self.applyPulledHierarchy(table: entry.table, rows: rows)
+                    }
+                } else {
+                    try await engine.pull(table: entry.table) { row in
+                        try validateAccount()
+                        try self.applyPulledRow(table: entry.table, row: row)
+                    }
+                }
+            }
+        }
+        try validateAccount()
     }
 
     private func pullPracticeSnapshot() async throws {
@@ -375,6 +425,53 @@ public final class SyncCoordinator {
             guard let row = try SyncJSON(encoding: value).objectValue else { throw SyncError.invalidRemoteRow("practice progress") }
             return row
         }
+        // Starting practice can beat the full-library debounce after capturing a photo or
+        // selecting a new passage. Persist its prerequisites in this same batch, even after
+        // the one-time legacy queue repair. Snapshot signatures avoid rewriting unchanged rows.
+        guard let piece = store.state.pieces.first(where: { $0.id == set.configuration.pieceID }) else {
+            throw SyncError.invalidRemoteRow("practice piece")
+        }
+        if let instrument = store.state.instruments.first(where: { $0.id == piece.instrumentID }) {
+            entries.append(.upsert(table: "instruments", row: try row(InstrumentSyncRow(instrument))))
+        }
+        for tag in store.state.tags where piece.tagIDs.contains(tag.id) {
+            entries.append(.upsert(table: "tags", row: try row(TagSyncRow(tag))))
+        }
+        var folders: Set<UUID> = [], folderPath: Set<UUID> = []
+        func includeFolder(_ id: UUID) throws {
+            guard !folders.contains(id) else { return }
+            guard folderPath.insert(id).inserted, let folder = store.state.folders.first(where: { $0.id == id }) else {
+                throw SyncError.invalidRemoteRow("practice folder ancestry")
+            }
+            if let parent = folder.parentFolderID { try includeFolder(parent) }
+            entries.append(.upsert(table: "folders", row: try row(FolderSyncRow(folder))))
+            folders.insert(id); folderPath.remove(id)
+        }
+        for id in piece.folderIDs { try includeFolder(id) }
+        entries.append(.upsert(table: "pieces", row: try row(PieceSyncRow(piece))))
+        var passageClosure: [UUID: Passage] = [:]
+        func collectPassage(_ id: UUID) throws {
+            guard passageClosure[id] == nil else { return }
+            guard let passage = store.state.passages.first(where: { $0.id == id && $0.pieceID == piece.id }) else {
+                throw SyncError.invalidRemoteRow("practice passage ancestry")
+            }
+            // Provenance may point back after splitting and merging into the original passage.
+            // Collect it once, but only the real parent FK determines upload order.
+            passageClosure[id] = passage
+            if let parent = passage.parentPassageID { try collectPassage(parent) }
+            for source in passage.joinedFromPassageIDs { try collectPassage(source) }
+        }
+        if let passageID = set.configuration.passageID { try collectPassage(passageID) }
+        var remainingPassages = Array(passageClosure.values), queuedPassages: Set<UUID> = []
+        while !remainingPassages.isEmpty {
+            let ready = remainingPassages.filter { $0.parentPassageID == nil || queuedPassages.contains($0.parentPassageID!) }
+            guard !ready.isEmpty else { throw SyncError.invalidRemoteRow("practice passage parent cycle") }
+            for passage in ready {
+                entries.append(.upsert(table: "passages", row: try row(PassageSyncRow(passage))))
+                queuedPassages.insert(passage.id)
+            }
+            remainingPassages.removeAll { queuedPassages.contains($0.id) }
+        }
         if let sessionDTO { entries.append(.upsert(table: "practice_sessions", row: try row(sessionDTO))) }
         entries.append(.upsert(table: "sets", row: try row(setDTO)))
         let alreadyPushed = min(pushedAttemptCounts[set.id] ?? 0, set.attempts.count)
@@ -414,7 +511,51 @@ public final class SyncCoordinator {
 
     private func applyAdoptedRow(table: String, row: [String: SyncJSON]) throws { try applyPulledRow(table: table, row: row) }
 
-    private func applyPulledRow(table: String, row: [String: SyncJSON]) throws {
+    func applyPulledScoreSnapshot(_ rows: [String: [[String: SyncJSON]]]) throws {
+        let pieces = try (rows["pieces"] ?? []).map { try SyncJSON.object($0).decoded(as: PieceSyncRow.self) }
+        let edits = try (rows["page_edits"] ?? []).map { try SyncJSON.object($0).decoded(as: PageEditSyncRow.self) }
+        let values = try pieces.map { dto in
+            guard let piece = dto.coreValue(preserving: store.state.pieces.first { $0.id == dto.id }) else {
+                throw SyncError.invalidRemoteRow("pieces")
+            }
+            return piece
+        }
+        let pageEdits = try edits.map { dto in
+            guard let edit = dto.coreValue else { throw SyncError.invalidRemoteRow("page_edits") }
+            return edit
+        }
+        try store.applySyncedScoreSnapshot(pieces: values, pageEdits: pageEdits)
+        for piece in pieces {
+            if let row = try SyncJSON(encoding: piece).objectValue { try engine.acknowledgePulledRow(table: "pieces", row: row) }
+        }
+        for edit in edits {
+            if let row = try SyncJSON(encoding: edit).objectValue { try engine.acknowledgePulledRow(table: "page_edits", row: row) }
+        }
+    }
+
+    /// A complete hierarchy is committed before its cursor or outbound signatures are acknowledged.
+    /// UUID pagination order is unrelated to parent/provenance dependencies.
+    func applyPulledHierarchy(table: String, rows: [[String: SyncJSON]]) throws {
+        var canonical: [[String: SyncJSON]] = []
+        switch table {
+        case "folders":
+            let values = try rows.map { try SyncJSON.object($0).decoded(as: FolderSyncRow.self) }
+            canonical = try values.map { try SyncJSON(encoding: $0).objectValue ?? [:] }
+            try store.applySyncedFolders(values.map(\.coreValue))
+        case "passages":
+            let values = try rows.map { try SyncJSON.object($0).decoded(as: PassageSyncRow.self) }
+            let passages = try values.map { value in
+                guard let passage = value.coreValue else { throw SyncError.invalidRemoteRow(table) }
+                return passage
+            }
+            canonical = try values.map { try SyncJSON(encoding: $0).objectValue ?? [:] }
+            try store.applySyncedPassages(passages)
+        default: throw SyncError.invalidRemoteRow(table)
+        }
+        for row in canonical { try engine.acknowledgePulledRow(table: table, row: row) }
+    }
+
+    func applyPulledRow(table: String, row: [String: SyncJSON]) throws {
         let wrapped = SyncJSON.object(row)
         var canonicalRow: [String: SyncJSON]?
         switch table {

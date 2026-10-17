@@ -512,6 +512,34 @@ import Observation
         if merged != existing { try updatePiece(merged) }
     }
 
+    /// Inserted pages can make a valid display bookmark exceed the PDF's source page count.
+    /// Commit score metadata with its reading-order rows so neither half is ever an orphan.
+    public func applySyncedScoreSnapshot(pieces: [Piece], pageEdits: [PageEdit]) throws {
+        guard !pieces.isEmpty || !pageEdits.isEmpty else { return }
+        try transaction { next in
+            for piece in pieces {
+                if let index = next.pieces.firstIndex(where: { $0.id == piece.id }) {
+                    let existing = next.pieces[index]
+                    var merged = piece.updatedAt > existing.updatedAt ? piece : existing
+                    if piece.lastPageUpdatedAt > existing.lastPageUpdatedAt {
+                        merged.lastPage = piece.lastPage; merged.lastPageUpdatedAt = piece.lastPageUpdatedAt
+                    } else {
+                        merged.lastPage = existing.lastPage; merged.lastPageUpdatedAt = existing.lastPageUpdatedAt
+                    }
+                    if existing.pdfFileName != merged.pdfFileName || existing.pageCount != merged.pageCount {
+                        try Self.requireReplaceableScore(pieceID: piece.id, in: next)
+                    }
+                    next.pieces[index] = merged
+                } else { next.pieces.append(piece) }
+            }
+            for edit in pageEdits {
+                if let index = next.pageEdits.firstIndex(where: { $0.id == edit.id }) {
+                    if edit.updatedAt > next.pageEdits[index].updatedAt { next.pageEdits[index] = edit }
+                } else { next.pageEdits.append(edit) }
+            }
+        }
+    }
+
     public func applySyncedInstrument(_ instrument: Instrument) throws { try transaction { next in
         if let index = next.instruments.firstIndex(where: { $0.id == instrument.id }) { next.instruments[index] = instrument }
         else { next.instruments.append(instrument) }
@@ -526,6 +554,28 @@ import Observation
     public func applySyncedFolder(_ folder: Folder) throws { try transaction { next in
         if let index = next.folders.firstIndex(where: { $0.id == folder.id }) { next.folders[index] = folder } else { next.folders.append(folder) }
     } }
+    /// Related rows can arrive in UUID order with a child before its parent. Merge the complete
+    /// table in one validated transaction; never publish an intermediate orphan or drop local edits.
+    public func applySyncedFolders(_ folders: [Folder]) throws {
+        guard !folders.isEmpty else { return }
+        try transaction { next in
+            for folder in folders {
+                if let index = next.folders.firstIndex(where: { $0.id == folder.id }) {
+                    if folder.updatedAt > next.folders[index].updatedAt { next.folders[index] = folder }
+                } else { next.folders.append(folder) }
+            }
+        }
+    }
+    public func applySyncedPassages(_ passages: [Passage]) throws {
+        guard !passages.isEmpty else { return }
+        try transaction { next in
+            for passage in passages {
+                if let index = next.passages.firstIndex(where: { $0.id == passage.id }) {
+                    if passage.updatedAt > next.passages[index].updatedAt { next.passages[index] = passage }
+                } else { next.passages.append(passage) }
+            }
+        }
+    }
     public func applySyncedSetlist(_ setlist: Setlist) throws { try transaction { next in
         if let index = next.setlists.firstIndex(where: { $0.id == setlist.id }) { next.setlists[index] = setlist } else { next.setlists.append(setlist) }
     } }

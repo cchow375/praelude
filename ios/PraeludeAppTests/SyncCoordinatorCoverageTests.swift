@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import PostgREST
 @testable import Praelude
 
 /// App-level proof for the new `SyncCoordinator` surface this pass adds (`PraeludeCoreTests/
@@ -28,6 +29,91 @@ private struct NeverCalledTransport: SyncTransport {
     }
     func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
         XCTFail("fetch(\(table)) must not be called while signed out"); throw SyncError.transport("unexpected call")
+    }
+}
+
+/// Exercises the real SDK-built requests without an account, credentials or a network connection.
+/// The fixture models the deployed primary keys and rejects the exact missing-column query that
+/// prevented account_preferences reads (and every subsequent private-file reconciliation).
+private actor SyncRequestProbe {
+    private(set) var requests: [URLRequest] = []
+    private let expectedOrder: String
+    private let row: [String: SyncJSON]?
+    init(expectedOrder: String, row: [String: SyncJSON]?) { self.expectedOrder = expectedOrder; self.row = row }
+    func respond(to request: URLRequest) throws -> (Data, URLResponse) {
+        requests.append(request)
+        let url = try XCTUnwrap(request.url)
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let order = items.first(where: { $0.name == "order" })?.value
+        guard order == expectedOrder else {
+            let body = Data(#"{"code":"42703","message":"requested order column does not exist"}"#.utf8)
+            return (body, try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 400, httpVersion: nil, headerFields: ["Content-Type": "application/json"])))
+        }
+        let rows = requests.count == 1 ? row.map { [$0] } ?? [] : []
+        return (try JSONEncoder().encode(rows), try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])))
+    }
+}
+
+final class PostgRESTSyncRequestTests: XCTestCase {
+    func testErrorMappingPreservesTypedNetworkFailuresAndExistingDiagnostics() {
+        for code in [URLError.notConnectedToInternet, .timedOut, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost] {
+            let mapped = PostgRESTSyncTransport.mappedTransportError(URLError(code))
+            XCTAssertEqual((mapped as? URLError)?.code, code)
+        }
+        let bridged = NSError(domain: NSURLErrorDomain, code: URLError.notConnectedToInternet.rawValue)
+        XCTAssertEqual((PostgRESTSyncTransport.mappedTransportError(bridged) as? URLError)?.code, .notConnectedToInternet)
+        let existing = SyncError.transport("Existing diagnostic")
+        XCTAssertEqual(PostgRESTSyncTransport.mappedTransportError(existing) as? SyncError, existing)
+        let backend = PostgrestError(details: "SYNTHETIC_PRIVATE_ROW", code: "42703", message: "column account_preferences.id does not exist")
+        let mappedBackend = PostgRESTSyncTransport.mappedTransportError(backend)
+        XCTAssertNil(mappedBackend as? URLError, "An online schema rejection is not an offline connection")
+        XCTAssertEqual(mappedBackend as? SyncError, .transport("column account_preferences.id does not exist (42703)"))
+    }
+
+    func testBackendDiagnosticKeepsCodeAndMessageWithoutPrivateRowDetails() {
+        let error = PostgrestError(details: "SYNTHETIC_PRIVATE_ROW", hint: "SYNTHETIC_PRIVATE_HINT", code: "42703",
+                                  message: "column account_preferences.id does not exist")
+        let presented = SyncError.transport(PostgRESTSyncTransport.backendErrorMessage(error)).localizedDescription
+        XCTAssertTrue(presented.contains("column account_preferences.id does not exist"))
+        XCTAssertTrue(presented.contains("42703"))
+        XCTAssertFalse(presented.contains("SYNTHETIC_PRIVATE_ROW"))
+        XCTAssertFalse(presented.contains("SYNTHETIC_PRIVATE_HINT"))
+    }
+
+    func testOwnerOnlyTablesUseActualOwnerKeyOnEverySDKRequestPage() async throws {
+        for table in ["account_preferences", "rule_settings", "rewards_state"] {
+            let row: [String: SyncJSON] = ["owner_id": .string("10000000-0000-4000-8000-000000000001")]
+            let probe = SyncRequestProbe(expectedOrder: "owner_id.asc.nullslast", row: row)
+            let client = PostgrestClient(url: try XCTUnwrap(URL(string: "https://example.invalid/rest/v1")), logger: nil,
+                                        fetch: { try await probe.respond(to: $0) }, retryEnabled: false)
+            let rows = try await PostgRESTSyncTransport.fetchRows(client: client, table: table, field: "updated_at", updatedSince: nil)
+            XCTAssertEqual(rows, [row], table)
+            let requests = await probe.requests
+            XCTAssertEqual(requests.count, 2, "A short first page must still prove exhaustion, including for \(table)")
+            for (index, request) in requests.enumerated() {
+                let url = try XCTUnwrap(request.url)
+                let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                XCTAssertEqual(request.httpMethod, "GET")
+                XCTAssertEqual(url.lastPathComponent, table)
+                XCTAssertEqual(items.first(where: { $0.name == "order" })?.value, "owner_id.asc.nullslast")
+                XCTAssertEqual(items.first(where: { $0.name == "offset" })?.value, String(index))
+                XCTAssertEqual(items.first(where: { $0.name == "limit" })?.value, "500")
+            }
+        }
+    }
+
+    func testEmptyPreferencesAndIDKeyedTablesBuildValidReadRequests() async throws {
+        for (table, expectedOrder) in [("account_preferences", "owner_id.asc.nullslast"), ("profiles", "id.asc.nullslast"),
+                                       ("pieces", "id.asc.nullslast"), ("passages", "id.asc.nullslast"), ("attempts", "id.asc.nullslast")] {
+            let probe = SyncRequestProbe(expectedOrder: expectedOrder, row: nil)
+            let client = PostgrestClient(url: try XCTUnwrap(URL(string: "https://example.invalid/rest/v1")), logger: nil,
+                                        fetch: { try await probe.respond(to: $0) }, retryEnabled: false)
+            let rows = try await PostgRESTSyncTransport.fetchRows(client: client, table: table, field: "updated_at", updatedSince: nil)
+            XCTAssertTrue(rows.isEmpty, table)
+            let requests = await probe.requests
+            XCTAssertEqual(requests.count, 1)
+            XCTAssertEqual(requests.first?.url?.lastPathComponent, table)
+        }
     }
 }
 
@@ -132,8 +218,8 @@ final class SyncCoordinatorCoverageTests: XCTestCase {
         XCTAssertEqual(queueWrites - previousQueueWrites, 1)
         XCTAssertEqual(stateWrites - previousStateWrites, 1)
         let saved = try SyncQueue(directory: path).entries
-        XCTAssertEqual(saved.map(\.table), ["practice_sessions", "sets", "attempts", "attempts", ""])
-        XCTAssertEqual(saved.map(\.kind), [.upsert, .upsert, .append, .append, .undoAttempt])
+        XCTAssertEqual(saved.map(\.table), ["pieces", "practice_sessions", "sets", "attempts", "attempts", ""])
+        XCTAssertEqual(saved.map(\.kind), [.upsert, .upsert, .upsert, .append, .append, .undoAttempt])
         XCTAssertEqual(saved.last?.attemptID, set.attempts.last?.id)
         let savedWrites = queueWrites
         try coordinator.enqueuePracticeProgress(set, session: session)

@@ -201,6 +201,71 @@ final class ProfileInitializationTests: XCTestCase {
         do { try await hydration.value; XCTFail("Expected account-generation rejection") } catch {}
         XCTAssertFalse(engine.hasHydratedProfile); XCTAssertNil(engine.state.accountOwnerID)
     }
+    func testAccountChangeDuringAsyncProfilePreparationCannotAcknowledgeStaleHydration() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID(), nextOwner = UUID(), remote = try cloudProfile(owner: owner)
+        let transport = ProfileInitializationTransport(profile: try row(remote, owner: owner))
+        let adoption = ProfileInitializationTransport(profile: nil, paused: true)
+        let engine = SyncEngine(transport: transport, directory: path)
+        var local = Profile(); local.ownerID = owner
+        try engine.bindAccount(owner)
+        let hydration = Task {
+            try await engine.initializeProfileIfNeeded(currentProfile: { local }, prepareProfile: { profile in
+                XCTAssertEqual(profile, remote.coreProfile(ownerID: owner))
+                _ = try await adoption.fetch(table: "profiles", field: "updated_at", updatedSince: nil)
+            }, applyProfile: { _ in XCTFail("A changed account cannot publish the prepared profile.") })
+        }
+        await adoption.waitForFetch()
+        XCTAssertFalse(engine.hasHydratedProfile, "Hydration is not acknowledged before asynchronous local adoption finishes.")
+        try engine.resetLocalAccountState()
+        try engine.bindAccount(nextOwner)
+        local.ownerID = nextOwner
+        await adoption.releaseFetch()
+        do { try await hydration.value; XCTFail("Expected account-generation rejection after adoption") } catch {}
+        XCTAssertEqual(engine.state.accountOwnerID, nextOwner)
+        XCTAssertFalse(engine.hasHydratedProfile)
+        XCTAssertNil(engine.state.profileKnownOwnerID)
+        XCTAssertFalse(engine.state.profileBackendFields.isPrivateAccount, "The old account's privacy receipt cannot reach the next account.")
+        let relaunched = SyncEngine(transport: transport, directory: path)
+        XCTAssertEqual(relaunched.state.accountOwnerID, nextOwner)
+        XCTAssertFalse(relaunched.hasHydratedProfile)
+    }
+    func testProfileEditDuringAsyncPreparationRetainsIntentWithoutPublishingStaleProfile() async throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let owner = UUID(), remote = try cloudProfile(owner: owner)
+        let transport = ProfileInitializationTransport(profile: try row(remote, owner: owner))
+        let preparation = ProfileInitializationTransport(profile: nil, paused: true)
+        let engine = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        var local = Profile(); local.ownerID = owner
+        try engine.bindAccount(owner)
+        let hydration = Task {
+            try await engine.initializeProfileIfNeeded(currentProfile: { local }, prepareProfile: { _ in
+                _ = try await preparation.fetch(table: "profiles", field: "updated_at", updatedSince: nil)
+            }, applyProfile: { _ in XCTFail("A newer saved edit must prevent stale profile publication.") })
+        }
+        await preparation.waitForFetch()
+        let baseline = local, baselineExtras = engine.state.profileBackendFields, source = UUID()
+        var draft = local; draft.displayName = "Edited during score download"
+        var extras = baselineExtras; extras.privacyPresence = .onlyMe
+        try engine.saveProfileEdit(draft, extras: extras, baselineProfile: baseline, baselineExtras: baselineExtras,
+                                   currentProfile: local, sourceID: source, persistProfile: { local = $0 })
+        let edited = local
+        await preparation.releaseFetch()
+        do { try await hydration.value; XCTFail("Expected changed-profile retry") } catch {}
+        XCTAssertEqual(local, edited)
+        XCTAssertFalse(engine.hasHydratedProfile)
+        XCTAssertEqual(engine.state.pendingProfileCoreFields?["display_name"], .string(draft.displayName))
+        XCTAssertEqual(engine.state.pendingProfileIntentSources?["core/display_name"], source.uuidString)
+        let relaunched = SyncEngine(transport: transport, directory: path, now: { self.editDate })
+        XCTAssertFalse(relaunched.hasHydratedProfile)
+        XCTAssertEqual(relaunched.state.pendingProfileBackendFields, engine.state.pendingProfileBackendFields)
+        try await relaunched.initializeProfileIfNeeded(currentProfile: { local }, applyProfile: { local = $0 })
+        XCTAssertEqual(local.displayName, draft.displayName)
+        XCTAssertEqual(local.username, remote.username)
+        XCTAssertEqual(relaunched.state.profileBackendFields.privacyPresence, .onlyMe)
+        XCTAssertTrue(relaunched.state.profileBackendFields.isPrivateAccount)
+        XCTAssertTrue(relaunched.hasHydratedProfile)
+    }
     func testHydrationReceiptSaveFailureRecoversQueuedExplicitEditAfterRelaunch() async throws {
         let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
         let owner = UUID(), remote = try cloudProfile(owner: owner)
@@ -388,23 +453,23 @@ final class ProfileInitializationTests: XCTestCase {
 struct FakeSyncTransport: SyncTransport {
     let server: FakeSyncServer
     func upsert(table: String, row: [String: SyncJSON]) async throws -> SyncRPCResult {
-        guard server.isReachable else { throw SyncError.transport("offline") }
+        guard server.isReachable else { throw URLError(.notConnectedToInternet) }
         return try server.upsert(table: table, row: row)
     }
     func append(table: String, row: [String: SyncJSON]) async throws -> SyncRPCResult {
-        guard server.isReachable else { throw SyncError.transport("offline") }
+        guard server.isReachable else { throw URLError(.notConnectedToInternet) }
         return try server.append(table: table, row: row)
     }
     func updateLastPage(pieceID: UUID, lastPage: Int, at: Date) async throws -> SyncRPCResult {
-        guard server.isReachable else { throw SyncError.transport("offline") }
+        guard server.isReachable else { throw URLError(.notConnectedToInternet) }
         return SyncRPCResult(applied: true, row: nil)
     }
     func undoAttempt(attemptID: UUID, undoneAt: Date) async throws -> SyncRPCResult {
-        guard server.isReachable else { throw SyncError.transport("offline") }
+        guard server.isReachable else { throw URLError(.notConnectedToInternet) }
         return SyncRPCResult(applied: true, row: nil)
     }
     func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
-        guard server.isReachable else { throw SyncError.transport("offline") }
+        guard server.isReachable else { throw URLError(.notConnectedToInternet) }
         return server.fetch(table: table, field: field, updatedSince: updatedSince)
     }
 }
@@ -439,6 +504,18 @@ final class SyncEngineTests: XCTestCase {
     }
 
     // MARK: Offline -> stuck, using an injected clock rather than a real sleep.
+
+    func testBackendAndNonConnectivityFailuresAreImmediatelyActionable() {
+        let engine = SyncEngine(transport: FakeSyncTransport(server: FakeSyncServer()), directory: directory())
+        engine.reportFailure(SyncError.transport("column account_preferences.id does not exist (42703)"))
+        guard case .stuck(let message) = engine.status else { return XCTFail("An online schema failure must not claim the network is offline") }
+        XCTAssertTrue(message.contains("42703"))
+        XCTAssertTrue(message.contains("remains saved"))
+        for code in [URLError.Code.badURL, .secureConnectionFailed, .userAuthenticationRequired] {
+            engine.reportFailure(URLError(code))
+            guard case .stuck = engine.status else { return XCTFail("\(code) is actionable, not an offline connection") }
+        }
+    }
 
     func testOfflineSurfacesAsOfflineThenStuckAfterThreshold() async throws {
         let server = FakeSyncServer(); server.isReachable = false

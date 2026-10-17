@@ -68,7 +68,7 @@ private struct OwnerScopedTransport: SyncTransport {
     }
 
     func testAllPullKindsRejectRowsAfterAccountReset() async throws {
-        for kind in 0..<3 {
+        for kind in 0..<4 {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("sync-pull-lifecycle-\(UUID())")
             defer { try? FileManager.default.removeItem(at: directory) }
             let transport = SuspendedPullTransport()
@@ -79,7 +79,8 @@ private struct OwnerScopedTransport: SyncTransport {
                 switch kind {
                 case 0: try await engine.pull(table: "pieces") { _ in applied = true }
                 case 1: try await engine.pullRows(table: "pieces") { _ in applied = true }
-                default: try await engine.pullPracticeSnapshot { _ in applied = true }
+                case 2: try await engine.pullPracticeSnapshot { _ in applied = true }
+                default: try await engine.pullScoreSnapshot { _ in applied = true }
                 }
             }
             await transport.waitForFetch()
@@ -91,6 +92,37 @@ private struct OwnerScopedTransport: SyncTransport {
             XCTAssertTrue(engine.state.cursors.isEmpty)
             XCTAssertNil(engine.state.accountOwnerID)
         }
+    }
+
+    func testScoreSnapshotAcknowledgesBothTablesOnlyAfterCompleteLocalCommit() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("sync-score-snapshot-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let server = FakeSyncServer()
+        let pieceDate = "2026-10-06T00:00:00Z", editDate = "2026-10-06T00:01:00Z"
+        _ = try server.upsert(table: "pieces", row: ["id": .string(UUID().uuidString), "updated_at": .string(pieceDate)])
+        _ = try server.upsert(table: "page_edits", row: ["id": .string(UUID().uuidString), "updated_at": .string(editDate)])
+        let engine = SyncEngine(transport: FakeSyncTransport(server: server), directory: directory)
+        do {
+            try await engine.pullScoreSnapshot { rows in
+                XCTAssertEqual(rows["pieces"]?.count, 1)
+                XCTAssertEqual(rows["page_edits"]?.count, 1)
+                throw SyncError.transport("Synthetic local commit failure")
+            }
+            XCTFail("A failed local score commit cannot advance either cursor.")
+        } catch {}
+        XCTAssertTrue(engine.state.cursors.isEmpty)
+        XCTAssertTrue(SyncEngine(transport: FakeSyncTransport(server: server), directory: directory).state.cursors.isEmpty)
+        var commits = 0
+        try await engine.pullScoreSnapshot { rows in
+            XCTAssertEqual(Set(rows.keys), ["pieces", "page_edits"])
+            XCTAssertEqual(rows["pieces"]?.count, 1)
+            XCTAssertEqual(rows["page_edits"]?.count, 1)
+            commits += 1
+        }
+        XCTAssertEqual(commits, 1)
+        let restored = SyncEngine(transport: FakeSyncTransport(server: server), directory: directory)
+        XCTAssertEqual(restored.state.cursors["pieces"], SyncCoding.parseDate(pieceDate))
+        XCTAssertEqual(restored.state.cursors["page_edits"], SyncCoding.parseDate(editDate))
     }
 
     func testCancelledPullDoesNotApplyRowsOrAdvanceCursor() async throws {

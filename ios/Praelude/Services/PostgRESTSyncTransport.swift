@@ -38,22 +38,28 @@ public struct PostgRESTSyncTransport: SyncTransport {
     public func fetch(table: String, field: String, updatedSince: Date?) async throws -> [[String: SyncJSON]] {
         do {
             let postgrest = try await services.postgrest(expectedOwnerID: expectedOwnerID)
-            // Hosted PostgREST caps responses at 1,000 rows. Read ordered pages until an
-            // empty response, including when a server cap is lower than our requested page size.
-            let orderColumn = table == "rule_settings" || table == "rewards_state" ? "owner_id" : "id"
-            return try await SyncPagination.collect { offset, pageSize in
-                var query = postgrest.from(table).select()
-                if let updatedSince { query = query.gt(field, value: SyncCoding.string(from: updatedSince)) }
-                let response: [SyncJSON] = try await query.order(orderColumn).range(from: offset, to: offset + pageSize - 1).execute().value
-                return try response.map { value -> [String: SyncJSON] in
-                    guard let row = value.objectValue else { throw SyncError.invalidRemoteRow(table) }
-                    return row
-                }
-            }
-        } catch let error as SyncError {
-            throw error
+            return try await Self.fetchRows(client: postgrest, table: table, field: field, updatedSince: updatedSince)
         } catch {
-            throw SyncError.transport(error.localizedDescription)
+            throw Self.mappedTransportError(error)
+        }
+    }
+
+    /// Shared by the authorized path and request-level tests using the SDK's intercepted HTTP
+    /// transport. Owner-keyed singleton tables have no `id` column, even when they are empty.
+    static func fetchRows(client: PostgrestClient, table: String, field: String,
+                          updatedSince: Date?) async throws -> [[String: SyncJSON]] {
+        let ownerKeyedTables: Set<String> = ["rule_settings", "rewards_state", "account_preferences"]
+        let orderColumn = ownerKeyedTables.contains(table) ? "owner_id" : "id"
+        // Hosted PostgREST caps responses at 1,000 rows. Read ordered pages until an empty
+        // response, including when a server cap is lower than our requested page size.
+        return try await SyncPagination.collect { offset, pageSize in
+            var query = client.from(table).select()
+            if let updatedSince { query = query.gt(field, value: SyncCoding.string(from: updatedSince)) }
+            let response: [SyncJSON] = try await query.order(orderColumn).range(from: offset, to: offset + pageSize - 1).execute().value
+            return try response.map { value -> [String: SyncJSON] in
+                guard let row = value.objectValue else { throw SyncError.invalidRemoteRow(table) }
+                return row
+            }
         }
     }
 
@@ -62,11 +68,29 @@ public struct PostgRESTSyncTransport: SyncTransport {
             let postgrest = try await services.postgrest(expectedOwnerID: expectedOwnerID)
             let response: RPCEnvelope = try await postgrest.rpc(name, params: params).execute().value
             return SyncRPCResult(applied: response.applied, row: response.row?.objectValue)
-        } catch let error as SyncError {
-            throw error
         } catch {
-            throw SyncError.transport(error.localizedDescription)
+            throw Self.mappedTransportError(error)
         }
+    }
+
+    /// Preserve typed connectivity failures so status can distinguish an offline connection from
+    /// an online backend/schema rejection. NSError values from NSURLErrorDomain bridge here too.
+    static func mappedTransportError(_ error: any Error) -> any Error {
+        if let error = error as? SyncError { return error }
+        if let error = error as? URLError { return error }
+        let foundationError = error as NSError
+        if foundationError.domain == NSURLErrorDomain {
+            return URLError(URLError.Code(rawValue: foundationError.code), userInfo: foundationError.userInfo)
+        }
+        if let error = error as? PostgrestError { return SyncError.transport(backendErrorMessage(error)) }
+        return SyncError.transport(error.localizedDescription)
+    }
+
+    /// Preserve the server code and concise message, without echoing optional row details, hints,
+    /// request bodies, authorization headers or client credentials into the sync status.
+    static func backendErrorMessage(_ error: PostgrestError) -> String {
+        guard let code = error.code, !code.isEmpty else { return error.message }
+        return "\(error.message) (\(code))"
     }
 }
 

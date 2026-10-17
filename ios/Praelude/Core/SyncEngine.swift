@@ -86,6 +86,10 @@ public struct SyncEngineState: Codable, Equatable, Sendable {
     public var pendingProfileIntentSources: [String: String]?
     /// Payloads already durably enqueued or received. Optional for older state-file compatibility.
     public var outboundSnapshots: [String: [String: SyncJSON]]?
+    /// An old offline queue can begin with a session whose piece was never uploaded. A current,
+    /// owner-scoped parent prefix repairs that FIFO once without discarding any original write.
+    public var prerequisiteBootstrapVersion: Int?
+    public var prerequisiteBootstrapOwnerID: UUID?
     public init() { outboundSnapshots = [:] }
 
 }
@@ -111,6 +115,7 @@ public final class SyncQueue {
     init(inMemory: Void) { fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("unused-sync-queue"); writeData = { _, _ in } }
     public func enqueue(_ entry: SyncQueueEntry) throws { try enqueue(contentsOf: [entry]) }
     public func enqueue(contentsOf values: [SyncQueueEntry]) throws { try replace(entries + values) }
+    func prepend(contentsOf values: [SyncQueueEntry]) throws { try replace(values + entries) }
     public func removeFirst(_ count: Int = 1) throws { guard !entries.isEmpty else { return }; try replace(Array(entries.dropFirst(count))) }
     public func removeAll() throws { try replace([]) }
     func removeUpserts(table: String) throws { try replace(entries.filter { $0.kind != .upsert || $0.table != table }) }
@@ -130,8 +135,8 @@ public final class SyncEngine {
         case idle
         case syncing
         /// A quiet, specific message for the UI (spec §4d: "quiet sync status indicator + stuck
-        /// message") — surfaced once the same failure has persisted past `stuckThreshold`, not on
-        /// the first transient error (a dropped request on a subway is not "stuck").
+        /// message"). Backend/schema failures are immediately actionable; transient connectivity
+        /// failures remain quiet until `stuckThreshold`.
         case stuck(String)
         case offline
     }
@@ -254,7 +259,9 @@ public final class SyncEngine {
     }
     /// Hydrate account identity/privacy before any pending profile write can reach the server.
     /// Save the resolved local profile first; a failed read/save retains all queued guest practice.
-    public func initializeProfileIfNeeded(currentProfile: () -> Profile, applyProfile: (Profile) throws -> Void) async throws {
+    public func initializeProfileIfNeeded(currentProfile: () -> Profile,
+                                          prepareProfile: ((Profile) async throws -> Void)? = nil,
+                                          applyProfile: (Profile) throws -> Void) async throws {
         guard !storageIsUnavailable else { throw SyncError.transport("Sync storage is unavailable.") }
         guard !hasHydratedProfile else { return }
         guard let ownerID = state.accountOwnerID else { throw SyncError.transport("Bind an account before reading its profile.") }
@@ -296,6 +303,19 @@ public final class SyncEngine {
         }
         if state.pendingProfileBackendFields?.isEmpty == false {
             resolved.updatedAt = max(now(), (remote?.updated_at ?? local.updatedAt).addingTimeInterval(0.001))
+        }
+        if let prepareProfile {
+            let pendingCore = state.pendingProfileCoreFields
+            let pendingBackend = state.pendingProfileBackendFields
+            let pendingSources = state.pendingProfileIntentSources
+            try await prepareProfile(resolved)
+            try Task.checkCancellation()
+            guard generation == accountGeneration, state.accountOwnerID == ownerID else { throw SyncError.transport("Account changed during profile sync.") }
+            guard currentProfile() == local, state.pendingProfileCoreFields == pendingCore,
+                  state.pendingProfileBackendFields == pendingBackend,
+                  state.pendingProfileIntentSources == pendingSources else {
+                throw SyncError.transport("The profile changed while downloading its scores. Sync will retry with the saved edit.")
+            }
         }
         try applyProfile(resolved)
         let previous = state
@@ -393,9 +413,13 @@ public final class SyncEngine {
     }
     public func reportFailure(_ error: Error) {
         if firstFailureAt == nil { firstFailureAt = now() }
-        status = now().timeIntervalSince(firstFailureAt!) >= stuckThreshold
-            ? .stuck("Some practice data hasn't synced yet. It remains saved on this device. \(error.localizedDescription)")
-            : .offline
+        let connectivityCodes: Set<URLError.Code> = [.notConnectedToInternet, .networkConnectionLost,
+            .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .timedOut,
+            .internationalRoamingOff, .dataNotAllowed, .callIsActive]
+        let isConnectivityFailure = (error as? URLError).map { connectivityCodes.contains($0.code) } ?? false
+        status = isConnectivityFailure && now().timeIntervalSince(firstFailureAt!) < stuckThreshold
+            ? .offline
+            : .stuck("Some practice data hasn't synced yet. It remains saved on this device. \(error.localizedDescription)")
     }
     public func blockAccountMismatch() {
         status = .stuck("This device's library belongs to another account. Sign back into that account to sync it safely.")
@@ -458,7 +482,9 @@ public final class SyncEngine {
     /// Reconciles offline/guest/imported data as well as edits from views that do not push explicitly.
     /// Dependencies precede child rows and every rep; signatures prevent unchanged history writes.
     public func enqueueLibrarySnapshot(_ library: LibraryState) throws {
-        try enqueueSnapshot(Self.librarySnapshotEntries(library, context: librarySnapshotContext()))
+        let entries = try Self.librarySnapshotEntries(library, context: librarySnapshotContext())
+        try bootstrapPrerequisites(entries: entries)
+        try enqueueSnapshot(entries)
     }
 
     /// A prepared value cannot cross accounts, queue resets or engine instances. Its fields are
@@ -494,10 +520,39 @@ public final class SyncEngine {
     }
 
     public func enqueuePreparedLibrarySnapshot(_ prepared: PreparedLibrarySnapshot) throws {
+        try bootstrapPrerequisites(using: prepared)
+        try enqueueSnapshot(prepared.entries)
+    }
+
+    /// Keeps every legacy operation, identifier, payload and clock in its original order. The
+    /// prefix is deliberately independent of outboundSnapshots: that cache proves an enqueue,
+    /// never server receipt. Its marker is saved only after the complete prefix is durable.
+    public func bootstrapPrerequisites(using prepared: PreparedLibrarySnapshot) throws {
         try Task.checkCancellation()
         guard prepared.engineID == snapshotEngineID, prepared.generation == accountGeneration,
               prepared.owner == state.accountOwnerID else { throw SyncError.transport("Account changed during snapshot preparation.") }
-        try enqueueSnapshot(prepared.entries)
+        try bootstrapPrerequisites(entries: prepared.entries)
+    }
+
+    private func bootstrapPrerequisites(entries: [SyncQueueEntry]) throws {
+        guard !storageIsUnavailable else { throw SyncError.transport("Sync storage is unavailable.") }
+        guard let ownerID = state.accountOwnerID, !queue.entries.isEmpty else { return }
+        let version = 1
+        guard state.prerequisiteBootstrapVersion != version || state.prerequisiteBootstrapOwnerID != ownerID else { return }
+        let parentTables: Set<String> = ["instruments", "tags", "folders", "pieces", "passages", "practice_sessions", "sets"]
+        let parents = entries.filter { $0.kind == .upsert && parentTables.contains($0.table) }
+        guard !parents.isEmpty else { return }
+        try queue.prepend(contentsOf: parents)
+        let previous = state
+        state.prerequisiteBootstrapVersion = version
+        state.prerequisiteBootstrapOwnerID = ownerID
+        do { try persistState() }
+        catch {
+            // Queue publication already succeeded. Retain that prefix and all originals; a
+            // subsequent retry may safely repeat idempotent parent upserts, never lose a write.
+            state = previous
+            throw error
+        }
     }
 
     public func enqueueLibrarySnapshotAsync(_ library: LibraryState) async throws {
@@ -518,6 +573,15 @@ public final class SyncEngine {
             entries.append(.append(table: table, row: row, enqueuedAt: context.at))
         }
         for value in library.instruments { try upsert("instruments", InstrumentSyncRow(value)) }
+        for value in library.tags { try upsert("tags", TagSyncRow(value)) }
+        var remainingFolders = library.folders
+        var queuedFolderIDs: Set<UUID> = []
+        while !remainingFolders.isEmpty {
+            let ready = remainingFolders.filter { $0.parentFolderID == nil || queuedFolderIDs.contains($0.parentFolderID!) }
+            guard !ready.isEmpty else { throw SyncError.invalidRemoteRow("Missing or cyclic parent folder.") }
+            for value in ready { try upsert("folders", FolderSyncRow(value)); queuedFolderIDs.insert(value.id) }
+            remainingFolders.removeAll { queuedFolderIDs.contains($0.id) }
+        }
         for value in library.pieces { try upsert("pieces", PieceSyncRow(value)) }
         var remainingPassages = library.passages
         let allPassageIDs = Set(library.passages.map(\.id))
@@ -534,8 +598,6 @@ public final class SyncEngine {
             remainingPassages.removeAll { queuedPassageIDs.contains($0.id) }
         }
         for value in library.inkStrokes { if let dto = InkStrokeSyncRow(value) { try upsert("ink_strokes", dto) } }
-        for value in library.tags { try upsert("tags", TagSyncRow(value)) }
-        for value in library.folders { try upsert("folders", FolderSyncRow(value)) }
         for value in library.setlists { try upsert("setlists", SetlistSyncRow(value)) }
         for value in library.bookmarks { try upsert("bookmarks", BookmarkSyncRow(value)) }
         for value in library.pageEdits { try upsert("page_edits", PageEditSyncRow(value)) }
@@ -749,6 +811,26 @@ public final class SyncEngine {
             if let value = row[cursorField]?.stringValue.flatMap(SyncCoding.parseDate), latest == nil || value > latest! { latest = value }
         }
         if let latest { state.cursors[cursorKey] = latest }
+        try persistState()
+    }
+
+    /// A piece's displayed page can refer to inserted pages described by page edits. Fetch both
+    /// tables before one validated local commit, and acknowledge neither if that commit fails.
+    public func pullScoreSnapshot(applyRows: ([String: [[String: SyncJSON]]]) throws -> Void) async throws {
+        let generation = accountGeneration
+        try requireCurrentPull(generation)
+        let tables = ["pieces", "page_edits"]
+        var rows: [String: [[String: SyncJSON]]] = [:]
+        for table in tables {
+            rows[table] = try await transport.fetch(table: table, field: "updated_at", updatedSince: nil)
+            try requireCurrentPull(generation)
+        }
+        try applyRows(rows)
+        try requireCurrentPull(generation)
+        for table in tables {
+            let dates = (rows[table] ?? []).compactMap { $0["updated_at"]?.stringValue.flatMap(SyncCoding.parseDate) }
+            if let latest = dates.max(), state.cursors[table] == nil || latest > state.cursors[table]! { state.cursors[table] = latest }
+        }
         try persistState()
     }
 
