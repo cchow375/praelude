@@ -1,6 +1,8 @@
 # Praelude — portable project summary
 
-Last updated: 2026-10-16. Build20 sync repair in verification; installed boundaries: personal iPhone: native 2.0.0/build19/schema5 installed, user-opened, running and readback verified. Personal iPad: last verified Build18/schema5. Friend iPad: Build12, held. Mac: v11.1.0/schema21, unchanged.
+Last updated: 2026-10-16. Personal iPad: native 2.0.0/build20 installed/version verified; post-install full-file comparison and opening held pending readback. Phone: Build19. Friend iPad Build12 held; Mac11.1.0/schema21 unchanged.
+
+Build20 delivery checkpoint: iPad installation succeeds with a complete 13-file pre-backup; post-install folder copy and read-only retry fail with transport/permission errors, so no preservation or launch pass is claimed. Actual signed package37/37 and private archive pass. Phone update stops safely before installation during its pre-copy. Both devices were requested unlocked/connected for verification; no destructive workaround or queue edit occurs. Real account sync is not yet accepted.
 
 Praelude is a piano practice and repertoire tracker. **The user is the sensor; the app is the memory.** The pianist supplies every verdict; the app counts repetitions, tracks focused time, remembers goals/passages, runs a deterministic offline metronome, and organizes scores. It never interprets piano audio to judge playing. Christian, an NEC-prep pianist using a Steinway acoustic baby grand, remains the design authority; a blank installation contains no personal repertoire. It succeeds the abandoned PianoCoach in mission and lessons, with no shared code or UI. The broad AI Practice Operator remains OFF and ON HOLD.
 

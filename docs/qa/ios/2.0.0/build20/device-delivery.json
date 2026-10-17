@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-16",
+  "source_commit": "e914677",
+  "source_tag": "ios-v2.0.0-build20-candidate",
+  "status": "IPAD_INSTALLED_PRESERVATION_READBACK_HELD_PHONE_PRECOPY_STOP",
+  "ipad": {
+    "installed_version": "2.0.0",
+    "installed_build": 20,
+    "helper_exit_code": 1,
+    "installation": "PASS version readback",
+    "pre_backup": "releases/ios-device-backups/20261017T001356Z-4aa039b1",
+    "pre_backup_files": 13,
+    "pre_backup_bytes": 29081951,
+    "pre_backup_independent_rehash": "PASS",
+    "post_copy": "INCOMPLETE; no verified manifest",
+    "first_incomplete_post_copy": "releases/ios-device-backups/20261017T004949Z-a0478329",
+    "read_only_retry": "FAILED copy before complete manifest",
+    "error_domains_codes": [
+      [
+        "com.apple.dt.CoreDeviceError",
+        7000
+      ],
+      [
+        "com.apple.dt.remoteservices.error",
+        11001
+      ],
+      [
+        "NSPOSIXErrorDomain",
+        1
+      ]
+    ],
+    "preservation": "NOT_VERIFIED; no complete post-copy to compare",
+    "launch": "NOT_REQUESTED; held for preservation review",
+    "schema_migration": "No source migration; after-install schema not yet read back",
+    "alternative_read_only_retry": {
+      "method": "individual file copy without folder-copy transport",
+      "complete": false,
+      "completed_files": 0,
+      "retained_copy": "releases/ios-device-backups/20261017T005219Z-f8925376-individual-readback",
+      "result": "Same copy permission failure; no device mutation or launch"
+    }
+  },
+  "phone": {
+    "last_read_version": "2.0.0",
+    "last_read_build": 19,
+    "helper_exit_code": 1,
+    "installation": "NOT_ATTEMPTED; pre-install data copy failed",
+    "earlier_complete_backup": "releases/ios-device-backups/20261017T000412Z-2ad339c0",
+    "earlier_backup_files": 3,
+    "earlier_backup_bytes": 109341
+  },
+  "signed_artifact": "device-package-review.json; actual iPad helper37/37 and complete archive PASS",
+  "user_action_pending": "Unlock both connected devices; leave Praelude unopened until iPad full-file check completes. No lock-state cause asserted from transport error.",
+  "safety": "No uninstall/reset/restore-over/physical termination/queue alteration or personal backend write",
+  "account_convergence": "NOT_ACCEPTED; no new user library rows reached hosted backend before device delivery",
+  "other_devices": "Friend held Build12; installed Mac unchanged",
+  "documentation": {
+    "docs_sync": "PASS",
+    "docs_check": "PASS",
+    "diff_check": "PASS"
+  }
+}

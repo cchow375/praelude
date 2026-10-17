@@ -1,5 +1,14 @@
 # Developing Praelude Mobile
 
+## October 16 — Build20 installed on iPad; preservation readback and phone delivery held
+
+**Last updated: 2026-10-16. Personal iPad reads back native 2.0.0/build20; post-install preservation and launch are not yet verified. Phone remains Build19.** The guarded iPad helper creates a complete independently rehashed 13-file/29,081,951-byte backup at schema5/revision4265, builds/signs and installs over the same stable bundle, and confirms Build20. Its post-install full-folder copy stops incomplete; a read-only retry also fails with CoreDevice7000/remoteservices11001/POSIX1. These transport failures do not establish data loss or device lock state. Partial copies are retained without verified manifests; no preservation pass is claimed. No launch is requested.
+
+The actual iPad helper artifact passes independent 37/37 signing/profile/device/resource/source checks and complete private app+dSYM archive readback. Phone refresh stops during its pre-install copy, before build or installation; its earlier complete 3-file/109,341-byte backup is retained. Christian is asked to unlock both devices, keep the cable connections and leave Praelude unopened until iPad preservation review completes. No uninstall/reset/restore-over/physical termination or manual queue alteration occurs. Source fix/native acceptance remains as recorded below; actual upload/download convergence remains open. Friend iPad and installed Mac remain unchanged. Evidence: `docs/qa/ios/2.0.0/build20/device-delivery.json` and `device-package-review.json`.
+
+**Next steps:** after device readiness, perform read-only iPad complete-copy comparison against the verified pre-install snapshot, then open/read back schema and sync progress. Complete guarded phone refresh, verify its preservation and opening, and compare real account metadata/assets/history across devices. B173 remains open for this physical sync boundary.
+
+
 ## October 16 — Build20 sync repair; device verification in progress
 
 **Last updated: 2026-10-16. Source native 2.0.0/build20/schema5; personal iPad remains Build18 and phone Build19 until guarded delivery.** Christian requests the iPad update and reports connected iPad showing Offline plus phone Sync error 0. Fresh complete iPad backup has 13 files/29,081,951 bytes at schema5/revision4265: 6 pieces, 129 passages, 93 history sets, 57 sessions and 598 attempts, no active set. The phone backup has 3 files/109,341 bytes and no scores/practice records. Local profile ownership agrees across both devices and each sync state; this does not establish credential validity. Read-only hosted counts for that library are zero.
