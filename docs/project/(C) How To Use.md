@@ -1,5 +1,14 @@
 # Praelude — How To Use
 
+## October 18 — Build21 inbound sync repair; device signing refresh in progress
+
+**Last updated: 2026-10-18. Phone Build20 refreshed, full-file preservation verified, user-opened and running; personal iPad remains Build20 pending clean rebuild.** The phone refresh preserves all 3 files/3,935,148 bytes exactly. New signing expires October 25 at 11:47:25 AM EDT. Its complete postlaunch readback is schema5/revision1710. The iPad's fresh 13-file/10,303,446-byte backup at schema5/revision6888 is verified; its candidate fails strict signature before installation with stale seals for Assets.car and embedded.mobileprovision. Invalid package and failed attempt are archived; no invalid install or identity change occurs.
+
+The user confirms the phone error: “A practice set references a missing passage.” Phone has 129 passages/604 attempts while the iPad/hosted library has 130/653; a read-only hosted query confirms one set refers to a passage missing on the phone. Stale outbound practice adoption happens before ordinary metadata pull, so retries preserve the queue but never fetch the missing passage or score files. Build21 prepares validated score/passage dependencies before atomic practice adoption and before acknowledging queue entries or practice cursors, with account/cancellation checks across awaits. No schema/backend migration or missing-reference stripping. Independent source review passes. Final core verification passes 556 tests/1 optional private-library timing skip/0 failures; hosted native passes 375 tests/1 optional live-account skip/0 failures in 18.557 seconds. Four core and four native regressions cover dependency ordering, failure/retry, account changes, cancellation and concurrent local practice/Undo.
+
+**Next steps:** guarded Build21 refresh on both devices, exact file preservation, open/version/schema readback, then verify actual metadata/history and private score-file catch-up. Friend iPad and installed Mac stay unchanged. Physical camera/audio/gesture acceptance remains separate.
+
+
 ## October 16 — Build20 installed on iPad; preservation readback and phone delivery held
 
 **Matches: iPad native2.0.0/build20 installed, opening/readback held; phone native2.0.0/build19; friend Build12; Mac11.1.0/schema21.** Build20 keeps the Build19 Counter/photo controls and supplies the sync corrections described below.

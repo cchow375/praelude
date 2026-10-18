@@ -291,35 +291,92 @@ public final class SyncCoordinator {
     }
 
     private func pullPracticeSnapshot() async throws {
-        try await engine.pullPracticeSnapshot { [weak self] rows in
-            guard let self, self.canSync else { throw SyncError.transport("Account changed during sync.") }
-            let sessions = try (rows["practice_sessions"] ?? []).map { try SyncJSON.object($0).decoded(as: PracticeSessionSyncRow.self) }
-            let sets = try (rows["sets"] ?? []).map { try SyncJSON.object($0).decoded(as: SetSyncRow.self) }
-            let attempts = try (rows["attempts"] ?? []).map { try SyncJSON.object($0).decoded(as: AttemptSyncRow.self) }
-            let acceptedSessions = sessions.filter { self.shouldApply($0.updated_at, currentUpdatedAt: self.lastKnownSessionUpdatedAt[$0.id]) }
-            let acceptedSets = sets.filter { self.shouldApply($0.updated_at, currentUpdatedAt: self.lastKnownSetUpdatedAt[$0.id]) }
-            let coreSets = try acceptedSets.map { dto -> ActiveSet in
-                guard let set = dto.coreValue else { throw SyncError.invalidRemoteRow("sets") }; return set
+        guard canSync, let ownerID = store.state.profile.ownerID else { throw SyncError.transport("Account changed during sync.") }
+        let validateAccount = { [self] in
+            guard canSync, store.state.profile.ownerID == ownerID else { throw SyncError.transport("Account changed during sync.") }
+        }
+        try await engine.pullPracticeSnapshot(prepareRows: { [self] rows in
+            try await preparePracticeDependencies(rows, validateAccount: validateAccount)
+        }) { [self] rows in
+            try validateAccount()
+            try applyPulledPracticeSnapshot(rows)
+        }
+    }
+
+    /// A stale queued practice write can require graph adoption before the ordinary metadata
+    /// pull. Fetch missing library parents first, so a new remote passage cannot trap that queue
+    /// ahead of the very passage download needed to validate it. Existing validated merges retain
+    /// newer local edits and keep score/page-edit and passage hierarchies atomic.
+    func preparePracticeDependencies(_ rows: [String: [[String: SyncJSON]]], validateAccount: () throws -> Void) async throws {
+        try validateAccount()
+        let sessions = try (rows["practice_sessions"] ?? []).map { try SyncJSON.object($0).decoded(as: PracticeSessionSyncRow.self) }
+        let sets = try (rows["sets"] ?? []).map { try SyncJSON.object($0).decoded(as: SetSyncRow.self) }
+        let pieces = Dictionary(uniqueKeysWithValues: store.state.pieces.map { ($0.id, $0) })
+        let pieceIDs = Set(pieces.keys)
+        let passageIDs = Set(store.state.passages.map(\.id))
+        let neededPieces = Set(sessions.map(\.piece_id) + sets.map(\.piece_id))
+        var neededPassages = Set(sets.compactMap(\.passage_id))
+        var needsScoreMetadata = false
+        for snapshot in sets.compactMap(\.passage_snapshot) {
+            if let parent = snapshot.parentPassageID { neededPassages.insert(parent) }
+            neededPassages.formUnion(snapshot.joinedFromPassageIDs)
+            if let piece = pieces[snapshot.pieceID],
+               snapshot.page > max(1, piece.pageCount) || snapshot.regions.contains(where: { piece.pdfFileName == nil || $0.page > piece.pageCount }) {
+                needsScoreMetadata = true
             }
-            let coreAttempts = try attempts.map { dto -> (attempt: Attempt, setID: UUID) in
-                guard let attempt = dto.coreValue else { throw SyncError.invalidRemoteRow("attempts") }; return (attempt, dto.set_id)
+        }
+        guard needsScoreMetadata || !neededPieces.isSubset(of: pieceIDs) || !neededPassages.isSubset(of: passageIDs) else { return }
+        let prerequisites: Set<String> = ["instruments", "tags", "folders", "pieces", "passages"]
+        for entry in Self.pullTables where prerequisites.contains(entry.table) {
+            try validateAccount()
+            if entry.table == "pieces" {
+                try await engine.pullScoreSnapshot { rows in
+                    try validateAccount()
+                    try self.applyPulledScoreSnapshot(rows)
+                }
+            } else if entry.table == "folders" || entry.table == "passages" {
+                try await engine.pullRows(table: entry.table) { rows in
+                    try validateAccount()
+                    try self.applyPulledHierarchy(table: entry.table, rows: rows)
+                }
+            } else {
+                try await engine.pull(table: entry.table) { row in
+                    try validateAccount()
+                    try self.applyPulledRow(table: entry.table, row: row)
+                }
             }
-            try self.store.applySyncedPracticeSnapshot(sessions: acceptedSessions.map(\.coreValue), sets: coreSets, attempts: coreAttempts)
-            // Save the receipt/clock only after the whole practice graph is durable.
-            for dto in acceptedSessions { self.lastKnownSessionUpdatedAt[dto.id] = dto.updated_at }
-            for dto in acceptedSets { self.lastKnownSetUpdatedAt[dto.id] = dto.updated_at }
-            for dto in sessions {
-                guard let row = try SyncJSON(encoding: dto).objectValue else { throw SyncError.invalidRemoteRow("practice_sessions") }
-                try self.engine.acknowledgePulledRow(table: "practice_sessions", row: row)
-            }
-            for dto in sets {
-                guard let row = try SyncJSON(encoding: dto).objectValue else { throw SyncError.invalidRemoteRow("sets") }
-                try self.engine.acknowledgePulledRow(table: "sets", row: row)
-            }
-            for dto in attempts {
-                guard let row = try SyncJSON(encoding: dto).objectValue else { throw SyncError.invalidRemoteRow("attempts") }
-                try self.engine.acknowledgePulledRow(table: "attempts", row: row)
-            }
+            try validateAccount()
+        }
+    }
+
+    /// Shared by ordinary pulls and stale-write adoption; receipt clocks advance only after the
+    /// complete, dependency-ready practice graph is durable.
+    func applyPulledPracticeSnapshot(_ rows: [String: [[String: SyncJSON]]]) throws {
+        let sessions = try (rows["practice_sessions"] ?? []).map { try SyncJSON.object($0).decoded(as: PracticeSessionSyncRow.self) }
+        let sets = try (rows["sets"] ?? []).map { try SyncJSON.object($0).decoded(as: SetSyncRow.self) }
+        let attempts = try (rows["attempts"] ?? []).map { try SyncJSON.object($0).decoded(as: AttemptSyncRow.self) }
+        let acceptedSessions = sessions.filter { self.shouldApply($0.updated_at, currentUpdatedAt: self.lastKnownSessionUpdatedAt[$0.id]) }
+        let acceptedSets = sets.filter { self.shouldApply($0.updated_at, currentUpdatedAt: self.lastKnownSetUpdatedAt[$0.id]) }
+        let coreSets = try acceptedSets.map { dto -> ActiveSet in
+            guard let set = dto.coreValue else { throw SyncError.invalidRemoteRow("sets") }; return set
+        }
+        let coreAttempts = try attempts.map { dto -> (attempt: Attempt, setID: UUID) in
+            guard let attempt = dto.coreValue else { throw SyncError.invalidRemoteRow("attempts") }; return (attempt, dto.set_id)
+        }
+        try self.store.applySyncedPracticeSnapshot(sessions: acceptedSessions.map(\.coreValue), sets: coreSets, attempts: coreAttempts)
+        for dto in acceptedSessions { self.lastKnownSessionUpdatedAt[dto.id] = dto.updated_at }
+        for dto in acceptedSets { self.lastKnownSetUpdatedAt[dto.id] = dto.updated_at }
+        for dto in sessions {
+            guard let row = try SyncJSON(encoding: dto).objectValue else { throw SyncError.invalidRemoteRow("practice_sessions") }
+            try engine.acknowledgePulledRow(table: "practice_sessions", row: row)
+        }
+        for dto in sets {
+            guard let row = try SyncJSON(encoding: dto).objectValue else { throw SyncError.invalidRemoteRow("sets") }
+            try engine.acknowledgePulledRow(table: "sets", row: row)
+        }
+        for dto in attempts {
+            guard let row = try SyncJSON(encoding: dto).objectValue else { throw SyncError.invalidRemoteRow("attempts") }
+            try engine.acknowledgePulledRow(table: "attempts", row: row)
         }
     }
 

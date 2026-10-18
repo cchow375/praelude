@@ -1,0 +1,263 @@
+{
+  "preinstall_backup_audits": {
+    "phone": {
+      "status": "PASS",
+      "scope": "Independent rehash of fresh phone helper pre-install snapshot only; not yet a pre/post preservation pass",
+      "local_backup": "/Users/c3/praelude/releases/ios-device-backups/20261018T154718Z-0cd2ee6b",
+      "file_count": 3,
+      "bytes": 3935148,
+      "schema": 5,
+      "revision": 1703,
+      "counts": {
+        "pieces": 6,
+        "passages": 129,
+        "history": 94,
+        "sessions": 58,
+        "inkStrokes": 1088,
+        "stampAnnotations": 20,
+        "textAnnotations": 6
+      },
+      "checks": {
+        "actual_filename_size_sha256_matches_manifest": true,
+        "no_symlinks": true,
+        "schema5": true,
+        "no_active_set": true
+      }
+    },
+    "ipad_attempt1": {
+      "status": "PASS",
+      "scope": "Independent rehash of fresh iPad helper pre-install snapshot only; not yet a pre/post preservation pass",
+      "local_backup": "/Users/c3/praelude/releases/ios-device-backups/20261018T154942Z-b70fc440",
+      "file_count": 13,
+      "bytes": 10303446,
+      "schema": 5,
+      "revision": 6888,
+      "counts": {
+        "pieces": 6,
+        "passages": 130,
+        "history": 95,
+        "sessions": 59,
+        "inkStrokes": 1157,
+        "stampAnnotations": 20,
+        "textAnnotations": 6
+      },
+      "checks": {
+        "actual_filename_size_sha256_matches_manifest": true,
+        "no_symlinks": true,
+        "schema5": true,
+        "no_active_set": true
+      }
+    }
+  },
+  "scope": "October 18 signing refresh: independent completed package and backup-copy audits only; absent target/scope entries are untested.",
+  "package_audits": {
+    "phone": {
+      "date_utc": "2026-10-18T15:48:27.439581+00:00",
+      "scope": "Independent read-only audit of actual device-helper Build20 signed Release artifact for exact selected refresh target",
+      "target_form_factor": "phone",
+      "current_preflight_local": "/tmp/praelude-refresh-20261018/phone-preflight-private.json",
+      "current_preflight_prior_version": "2.0.0",
+      "current_preflight_prior_build": "19",
+      "status": "PASS",
+      "checks": {
+        "one_expected_local_signing_team": true,
+        "current_preflight_has_existing_stable_bundle": true,
+        "current_preflight_has_prior_version_readback": true,
+        "current_preflight_developer_services_ready": true,
+        "expected_target_is_requested_physical_form_factor": true,
+        "stable_bundle_identifier": true,
+        "marketing_version_2_0_0": true,
+        "build_20": true,
+        "built_for_iphoneos": true,
+        "phone_and_tablet_families": true,
+        "photo_camera_usage_description": true,
+        "speech_and_microphone_usage_descriptions": true,
+        "deep_strict_signature": true,
+        "signature_team_matches_local_team": true,
+        "signature_identifier_matches_bundle": true,
+        "signature_not_adhoc": true,
+        "entitlement_team_matches_local_team": true,
+        "entitlement_app_identifier": true,
+        "development_device_entitlement": true,
+        "profile_team_matches_local_team": true,
+        "profile_app_identifier": true,
+        "profile_exact_selected_target_included": true,
+        "profile_development_entitlement": true,
+        "profile_and_binary_application_entitlements_agree": true,
+        "profile_unexpired_at_audit": true,
+        "signer_certificate_extracted": true,
+        "signer_is_authorized_by_profile": true,
+        "signer_codesigning_trust": true,
+        "signer_has_valid_local_signing_identity": true,
+        "arm64_only": true,
+        "matching_arm64_dsym": true,
+        "no_debug_fixture_markers": true,
+        "only_expected_release_and_signing_resources": true,
+        "no_symlinks": true,
+        "no_test_plugins": true,
+        "no_personal_library_score_or_recording_files": true,
+        "current_source_matches_candidate_manifest": true,
+        "binary_and_dsym_unchanged_during_readonly_audit": true
+      },
+      "checks_passed": 38,
+      "checks_total": 38,
+      "binary_sha256": "fa55ec63d506d1f08ab3ece8adcc5aa0946c0987ea4a3c9f4f3cbb2c69df6035",
+      "binary_bytes": 37766624,
+      "architecture": "arm64",
+      "binary_and_dsym_uuid": [
+        [
+          "45663E3A-E760-3DF2-988B-01B44447B063",
+          "arm64"
+        ]
+      ],
+      "dsym_sha256": "219d6d4274a32adcf62dff1c1151d6e29c0731a980610a3f597dec60907207e7",
+      "profile_expiration_utc": "2026-10-25T15:47:25+00:00",
+      "debug_markers_checked": 22,
+      "debug_markers_present": [],
+      "resource_file_count": 13,
+      "resource_paths": [
+        "AppIcon60x60@2x.png",
+        "AppIcon76x76@2x~ipad.png",
+        "Assets.car",
+        "BodoniModa.ttf",
+        "Bravura.otf",
+        "Info.plist",
+        "PkgInfo",
+        "Praelude",
+        "PrivacyInfo.xcprivacy",
+        "_CodeSignature/CodeResources",
+        "embedded.mobileprovision",
+        "swift-crypto_Crypto.bundle/Info.plist",
+        "swift-crypto_Crypto.bundle/PrivacyInfo.xcprivacy"
+      ],
+      "unexpected_resource_count": 0,
+      "artifact_local": "/Users/c3/praelude/ios/DeviceDerivedData/Build/Products/Release-iphoneos/Praelude.app",
+      "dsym_local": "/Users/c3/praelude/ios/DeviceDerivedData/Build/Products/Release-iphoneos/Praelude.app.dSYM/Contents/Resources/DWARF/Praelude",
+      "raw_audit_local": "/tmp/praelude-refresh-2026-10-18-audit/phone",
+      "source_manifest_local": "/Users/c3/praelude/docs/qa/ios/2.0.0/build20/source-sha256.json",
+      "source_files_checked": 309,
+      "boundaries": "Artifact evidence only. Installation, launch, schema and library preservation, same-account convergence and physical features are separate acceptance records. No device or backend call is made. Device, team, certificate and profile identities remain private.",
+      "private_archive": {
+        "status": "PASS",
+        "archive_local": "/Users/c3/praelude/releases/ios-personal/refresh-2026-10-18-phone-20261018T154839Z/signed-app-and-dsym.zip",
+        "copied_app_local": "/Users/c3/praelude/releases/ios-personal/refresh-2026-10-18-phone-20261018T154839Z/Praelude.app",
+        "copied_dsym_local": "/Users/c3/praelude/releases/ios-personal/refresh-2026-10-18-phone-20261018T154839Z/Praelude.app.dSYM",
+        "file_count": 16,
+        "uncompressed_bytes": 111867699,
+        "archive_bytes": 25256881,
+        "archive_sha256": "76fc933f6ab13679e7ff392693e585b6fcb9dcf17ad5b16a8f7d3c3bd10953a0",
+        "full_original_artifact_filename_size_sha256_copy_exact": true,
+        "original_artifact_unchanged_during_copy": true,
+        "full_filename_size_sha256_archive_readback_exact": true,
+        "no_symlinks": true,
+        "directories_mode_700_files_mode_600": true
+      }
+    }
+  },
+  "status": "PHONE_AUDIT_PASS_IPAD_PACKAGE_INVALID",
+  "backup_preservation": {
+    "phone": {
+      "audited_utc": "2026-10-18T15:48:29.745458+00:00",
+      "status": "PASS",
+      "checks": {
+        "before_manifest_independently_valid": true,
+        "after_manifest_independently_valid": true,
+        "no_symlinks_in_either_snapshot": true,
+        "every_filename_size_sha256_exact_across_install": true,
+        "full_library_json_exact_across_install": true,
+        "schema5_before_and_after": true
+      },
+      "before": {
+        "local_backup": "/Users/c3/praelude/releases/ios-device-backups/20261018T154718Z-0cd2ee6b",
+        "file_count": 3,
+        "bytes": 3935148,
+        "recomputed_actual_files_match_manifest": true,
+        "no_symlinks": true,
+        "schema": 5,
+        "revision": 1703,
+        "active_set_present": false,
+        "counts": {
+          "pieces": 6,
+          "passages": 129,
+          "history": 94,
+          "sessions": 58,
+          "inkStrokes": 1088,
+          "stampAnnotations": 20,
+          "textAnnotations": 6,
+          "folders": 0,
+          "tags": 0,
+          "pageEdits": 0,
+          "scoreLinks": 0
+        }
+      },
+      "after": {
+        "local_backup": "/Users/c3/praelude/releases/ios-device-backups/20261018T154742Z-d38028ad",
+        "file_count": 3,
+        "bytes": 3935148,
+        "recomputed_actual_files_match_manifest": true,
+        "no_symlinks": true,
+        "schema": 5,
+        "revision": 1703,
+        "active_set_present": false,
+        "counts": {
+          "pieces": 6,
+          "passages": 129,
+          "history": 94,
+          "sessions": 58,
+          "inkStrokes": 1088,
+          "stampAnnotations": 20,
+          "textAnnotations": 6,
+          "folders": 0,
+          "tags": 0,
+          "pageEdits": 0,
+          "scoreLinks": 0
+        }
+      },
+      "boundaries": "Independent rehash of retained private helper copies. Device installation/version/process and later sync changes require separate records. No device or backend call made."
+    }
+  },
+  "privacy_review": {
+    "status": "PASS",
+    "checks": {
+      "device_identifier_absent": true,
+      "hardware_udid_absent": true,
+      "serial_number_absent": true,
+      "profile_uuid_absent": true,
+      "profile_name_absent": true,
+      "team_identifier_absent": true
+    },
+    "boundary": "Only sanitized outcomes are retained; identity values remain in private local evidence."
+  },
+  "retained_invalid_package_attempts": [
+    {
+      "target": "ipad",
+      "status": "INVALID_NOT_INSTALLED",
+      "reason": "Deep strict signature fails: sealed resource SHA-256 mismatch for Assets.car and embedded.mobileprovision. No sealed files missing.",
+      "build": "20",
+      "diagnosis": {
+        "strict_verification_returncode": 1,
+        "reported_sealed_resource_invalid": true,
+        "build": "20",
+        "resource_digest_entries_checked": 9,
+        "mismatching_sealed_resources": [
+          {
+            "path": "Assets.car",
+            "digest": "hash2"
+          },
+          {
+            "path": "embedded.mobileprovision",
+            "digest": "hash2"
+          }
+        ],
+        "missing_sealed_resources": [],
+        "raw_evidence_local": "/tmp/praelude-refresh-2026-10-18-audit/invalid-ipad-attempt1"
+      },
+      "invalid_archive_local": "/Users/c3/praelude/releases/ios-personal/INVALID-refresh-2026-10-18-ipad-20261018T155038Z/INVALID-signed-app-and-dsym.zip",
+      "archive_file_count": 16,
+      "archive_uncompressed_bytes": 111867780,
+      "archive_sha256": "f3b9d75eafec314ba019297464f6a8e7435b8afde5adb491b82d18d0f3e65fc6",
+      "invalid_artifact_copy_and_zip_readback_exact": true,
+      "boundary": "Archive preserves a rejected artifact for diagnosis; copy/readback exactness does not validate its signature or authorize installation. Root reports the helper stopped before installation."
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-18",
+  "version": "2.0.0",
+  "build": "21",
+  "schema": 5,
+  "status": "BOUNDED_SOURCE_REVIEW_PASS_NATIVE_EXECUTION_PENDING",
+  "verdict": "No actionable durable-data, concurrency or account-safety finding was identified in the frozen minimal repair and its authored native regressions. This is source review only.",
+  "reviewed_files_sha256": {
+    "ios/Praelude/Core/SyncEngine.swift": "033576072a58958665caeeaf3c5ba20bd41f7d205892bc81a37f1ddac4bc22d3",
+    "ios/Praelude/Services/SyncCoordinator.swift": "11a40d476dec546445f4d1d594b8836fd25b64979fff871586466c5e7c2c7a7a",
+    "ios/PraeludeAppTests/SyncPracticeDependencyTests.swift": "9e42a621b42502b7dbbd2059792e3d2b27c8cd5396db8552c4d6df16b3202c5e"
+  },
+  "reported_physical_error": "A practice set references a missing passage.",
+  "cause_trace": [
+    "Queue draining receives a stale sets or practice_sessions upsert rejection and requests adoption of the complete remote practice ledger.",
+    "That adoption happens before syncAll reaches its ordinary metadata pull.",
+    "A remote practice set can therefore reference a new passage absent from the local library.",
+    "PracticeStore validation correctly rejects the incomplete ledger; drain retains the stale queued write and cannot reach the later metadata pull needed to resolve it."
+  ],
+  "repair_review": [
+    "SyncEngine.pullPracticeSnapshot fetches sessions, sets and attempts, then awaits optional dependency preparation before synchronous practice publication or practice cursor acknowledgement.",
+    "After preparation, engine generation and cancellation are checked before publication. Coordinator callbacks also check the captured account owner before and after awaited metadata work.",
+    "Missing score/passage dependencies, historical snapshot ancestry and insufficient score metadata trigger instruments, tags, atomic folders, atomic pieces/page_edits and atomic passages in that order.",
+    "Existing validated LWW merges and score-replacement safeguards are reused; validation is not weakened and missing references are not dropped.",
+    "Practice LWW decisions use current local clocks after dependency preparation; the existing practice merge unions attempts and retains local Undo.",
+    "Drain acknowledges its captured queue prefix only after successful practice adoption, leaving concurrently appended local progress pending."
+  ],
+  "authored_regressions_reviewed": [
+    {
+      "test": "testStaleSetDrainHydratesNewPassageBeforeAdoptionAndAcknowledgesOriginalQueue",
+      "assertions": "Control reproduces the exact prior error; repaired path adopts the missing passage and remote history, acknowledges the original queued write, retains local active state and Undo, and preserves newer local score/passage edits."
+    },
+    {
+      "test": "testFailedMetadataHydrationKeepsQueueAndPracticeReceiptsForRetry",
+      "assertions": "Metadata failure retains original queue bytes, practice cursors and local practice state; a later retry can recover."
+    },
+    {
+      "test": "testAccountChangeDuringMetadataFetchCannotAdoptOrAcknowledgePractice",
+      "assertions": "Account invalidation during a suspended passage fetch prevents practice adoption and acknowledgement while retaining queued writes."
+    },
+    {
+      "test": "testRepAndUndoDuringSuspendedHydrationKeepNewProgressAndQueueTail",
+      "assertions": "New local repetition and Undo survive suspended hydration; only the original captured queue prefix is acknowledged and the appended progress tail remains exact."
+    }
+  ],
+  "verification_performed": [
+    "Read the changed product source, authored native tests and relevant unchanged queue/store/LWW validation paths.",
+    "Inspected the full three-file patch and computed SHA-256 from the reviewed files.",
+    "git diff --check passed for the three reviewed files."
+  ],
+  "boundaries": [
+    "No product or test source was modified by this reviewer for this task.",
+    "No build, test execution, device command, simulator interaction or backend operation was performed by this reviewer.",
+    "No personal row contents, credentials, device identifiers, account identifiers or signing identities were inspected or included.",
+    "The focused regression cases above were reviewed as source assertions; this record does not claim they have executed successfully.",
+    "The parent final native test run was underway when this record was written; its result is separate.",
+    "This review does not establish installation, byte preservation, launch, real-account catch-up, two-device/offline convergence or physical-feature acceptance."
+  ]
+}

@@ -835,14 +835,20 @@ public final class SyncEngine {
     }
 
     /// Fetch parent sessions, set metadata, and their rep log before acknowledging any of them.
-    /// The callback commits one validated practice snapshot; failure leaves every cursor unchanged.
-    public func pullPracticeSnapshot(applyRows: ([String: [[String: SyncJSON]]]) throws -> Void) async throws {
+    /// Optional preparation hydrates missing library parents for this same fetched graph before
+    /// synchronous publication. A failed preparation/adoption leaves practice cursors unchanged.
+    public func pullPracticeSnapshot(prepareRows: (([String: [[String: SyncJSON]]]) async throws -> Void)? = nil,
+                                     applyRows: ([String: [[String: SyncJSON]]]) throws -> Void) async throws {
         let generation = accountGeneration
         try requireCurrentPull(generation)
         let tables = [("practice_sessions", "updated_at"), ("sets", "updated_at"), ("attempts", "date")]
         var rows: [String: [[String: SyncJSON]]] = [:]
         for (table, field) in tables {
             rows[table] = try await transport.fetch(table: table, field: field, updatedSince: nil)
+            try requireCurrentPull(generation)
+        }
+        if let prepareRows {
+            try await prepareRows(rows)
             try requireCurrentPull(generation)
         }
         try applyRows(rows)
