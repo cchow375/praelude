@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "build": 21,
   "schema": 5,
-  "status": "SOURCE_REVIEW_CORE_NATIVE_PASS_DELIVERY_PENDING",
+  "status": "PHONE_INSTALLED_PRESERVED_OPEN_SYNC_PENDING_IPAD_HELD_ACTIVE_SET",
   "confirmed_user_error": "A practice set references a missing passage.",
   "phone_before_repair": {
     "target": "phone",
@@ -79,5 +79,7 @@
     "independent_source_review": "source-review.json",
     "schema_migration": false,
     "physical_catchup": "pending"
-  }
+  },
+  "candidate_commit": "357fda3",
+  "delivery_report": "refresh-2026-10-18-package-review.json"
 }

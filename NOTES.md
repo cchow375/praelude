@@ -1,5 +1,7 @@
 # NOTES
 
+- **2026-10-18 Build21 phone refresh / active iPad hold:** actual phone helper preserves3files/3,939,591bytes and schema5/revision1780 exactly; independent38/38 package,311source and6/6 preservation checks pass. Automatic launch is declined, so real opening/catch-up remains separate. After Release clean, iPad pre-copy stops on size mismatch before build/install; retained partial131passages/revision7205 contains an active set. Do not retry until explicit paused/idle readiness. No destructive workaround or queue rewrite.
+
 ## October 12 — Build16 physical finding and Build17 response work
 
 User confirms preview toggle responsiveness, but rejects recognition quality (~10% estimate) and localizes ~1second freeze to score page/rep actions. Landmark-only synthetic passes did not establish real recognition. The current personal iPad is ARFaceTrackingConfiguration-capable; use its runtime capability gate rather than device-name logic. ARKit and AVFoundation must never own the same camera simultaneously. Pose/mesh/display orientation, capture timestamps, bilateral grin coefficients and cancellation need independent checks. Synchronous PracticeStore JSON preparation and downstream reward/rule writes are actual hot paths; move preparation offMainActor while preserving context/revision CAS and write-before-publication. Do not claim exact device latency/accuracy improvements until physical feedback.

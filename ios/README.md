@@ -1,5 +1,16 @@
 # Praelude Mobile
 
+## October 18 — Build21 phone installed; iPad update held for active practice
+
+**Last updated: 2026-10-18. Phone native2.0.0/build21/schema5 installed with exact preservation; manual opening and real sync readback pending. Personal iPad remains Build20; current active practice prevents a safe refresh.** The guarded phone update preserves all 3 files/3,939,591 bytes and the full schema5/revision1780 library exactly by filename/bytes/SHA-256. Independent actual-package review passes38/38, source311/311 and preservation6/6; the complete signed app/dSYM archive is verified. Phone provisioning expires October25 at11:49:49 AM EDT. Automatic launch is declined; the user is asked to open Build21 and leave Settings → Account visible for real catch-up verification.
+
+Before the iPad attempt, DeviceDerivedData is cleaned after archiving the verified phone package. Its fresh backup stops on a copied-file size mismatch before any build or installation. The retained 13-file/10,694,822-byte partial copy has no verified manifest and earns no preservation pass. It shows new practice at schema5/revision7205,131passages and an active set, differing from the earlier idle checkpoint. The user is asked to pause and leave Praelude open/idle; no retry occurs while active readiness is unresolved. No uninstall, reset, restore-over, app-termination workaround or queue edit occurs. Earlier invalid Build20 signing and transport evidence remain retained.
+
+Build21 fixes the confirmed missing-passage adoption ordering with source review and final Core556/1skip/0fail and native375/1skip/0fail passes. These prove bounded behavior; actual phone catch-up, private PDFs and two-device convergence remain unverified. Friend iPad held at12; Mac11.1.0/schema21 unchanged.
+
+**Next steps:** manual phone opening/readback; after explicit iPad paused-idle readiness, guarded iPad21 refresh, exact preservation, independent actual-package audit, manual opening/readback, then compare current real-account supported graphs and private score bytes. Offline edits and physical camera/audio/gesture/latency remain separate acceptance gates.
+
+
 ## October 18 — Build21 inbound sync repair; device signing refresh in progress
 
 **Last updated: 2026-10-18. Phone Build20 refreshed, full-file preservation verified, user-opened and running; personal iPad remains Build20 pending clean rebuild.** The phone refresh preserves all 3 files/3,935,148 bytes exactly. New signing expires October 25 at 11:47:25 AM EDT. Its complete postlaunch readback is schema5/revision1710. The iPad's fresh 13-file/10,303,446-byte backup at schema5/revision6888 is verified; its candidate fails strict signature before installation with stale seals for Assets.car and embedded.mobileprovision. Invalid package and failed attempt are archived; no invalid install or identity change occurs.
