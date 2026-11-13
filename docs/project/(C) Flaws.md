@@ -1,5 +1,20 @@
 # Praelude — Flaws, Risks & Honest Limits
 
+## B174 — Fresh iOS Debug checkout cannot link package internals
+
+**Source repair, 2026-11-13:** the source-handoff commit updates
+`ios/scripts/generate-project.py` and its generated Xcode project. A stale manual
+`-framework Helpers` flag expects a framework absent from a clean checkout. Removing it alone
+still leaves undefined Helpers symbols when Xcode dynamically wraps package products shared by
+the app and hosted tests. The repair also removes the hosted test target's duplicate package
+links; `TEST_HOST`/`BUNDLE_LOADER` resolve them through the app. App package products and pins do
+not change. Standard no-override simulator `build-for-testing` passes in the separate checkout.
+Independent runtime verification and publication identity are recorded in
+`docs/qa/ios/source-handoff-2026-11-13.md`. No installed app or physical-feature verdict changes.
+
+**Next steps:** verify the second Mac's checkout independently; retain the original failed builds
+and the separate initial heartbeat timing failure. Device acceptance remains separate.
+
 ## October 18 — Build21 phone installed; iPad update held for active practice
 
 **Last updated: 2026-10-18. Phone native2.0.0/build21/schema5 installed with exact preservation; manual opening and real sync readback pending. Personal iPad remains Build20; current active practice prevents a safe refresh.** The guarded phone update preserves all 3 files/3,939,591 bytes and the full schema5/revision1780 library exactly by filename/bytes/SHA-256. Independent actual-package review passes38/38, source311/311 and preservation6/6; the complete signed app/dSYM archive is verified. Phone provisioning expires October25 at11:49:49 AM EDT. Automatic launch is declined; the user is asked to open Build21 and leave Settings → Account visible for real catch-up verification.
@@ -1495,6 +1510,13 @@ Keep C2 open until a clean recipient Mac/account completes the install and first
   `NOTES.md`) are included in the backup. **Scope limit, stated plainly:** this backs up the
   git repo only — the Obsidian vault itself (these markdown files, which live outside the git
   repo) and untracked build artifacts are still NOT backed up anywhere off-disk.
+
+  **2026-11-13 correction:** GitHub reports this repository is public; Christian explicitly
+  chooses to keep it public for the complete iOS source handoff. The local `main` initially has
+  177 unpushed commits, so local source availability alone does not prove a current off-disk
+  copy. Publish the full branch after clean-clone checks. The approved Markdown manual is now
+  mirrored under `docs/project/`; the complete vault, private files and build/backup artifacts
+  remain outside this source backup. Older private-remote wording above records August's state.
 
 - **B76 — Score toolbar top row overlaps at real window widths (v6.0.0, reported from real use
   2026-08-20) — RESOLVED (installed), 2026-08-21, v6.0.1 (commits `b05b0db`, `c3cc6e4`,

@@ -1,5 +1,23 @@
 # NOTES
 
+- **2026-11-13 iOS source handoff:** all 303 Swift files and complete native project/test/assets/
+  dependency inputs are tracked in the existing repository. `origin/main` initially lags local
+  `main` by 177 commits; committing locally is not a current GitHub backup. GitHub visibility is
+  public despite older manual wording; Christian explicitly chooses to retain public visibility
+  and push there. Keep `ios/` in this repository alongside backend migrations and the manual.
+  `ios/docs/NEW_MAC_SETUP.md` covers iOS-only cloning/Xcode setup without Node/Rust. Signing and
+  private practice files remain excluded. Clean-clone verification is recorded with this handoff;
+  it does not install or accept any physical-device feature.
+
+- **2026-11-13 clean Debug linker repair (B174):** `-framework Helpers` depends on stale package
+  artifacts and fails with a fresh DerivedData directory. Removing only that flag still fails
+  hosted test linkage because app/test duplicate package products become separate dynamic
+  wrappers. Keep the app's original four pinned products; hosted tests resolve their package
+  symbols through TEST_HOST/BUNDLE_LOADER instead of linking duplicate products. Regenerate the
+  project. Do not add package-internal object paths, cache detection or linker overrides. Standard
+  `build-for-testing` passes; full core serial rerun passes after the initial heartbeat timing
+  failure. Preserve each run's scope in `docs/qa/ios/source-handoff-2026-11-13.md`.
+
 - **2026-10-18 Build21 phone refresh / active iPad hold:** actual phone helper preserves3files/3,939,591bytes and schema5/revision1780 exactly; independent38/38 package,311source and6/6 preservation checks pass. Automatic launch is declined, so real opening/catch-up remains separate. After Release clean, iPad pre-copy stops on size mismatch before build/install; retained partial131passages/revision7205 contains an active set. Do not retry until explicit paused/idle readiness. No destructive workaround or queue rewrite.
 
 ## October 12 — Build16 physical finding and Build17 response work

@@ -3,10 +3,13 @@
 This guide covers a development checkout. It does not migrate the installed app or Christian's
 personal practice library by default.
 
+For **iPhone/iPad-only development**, follow the [native iOS setup guide](../ios/docs/NEW_MAC_SETUP.md).
+It skips the desktop Node/Rust bootstrap and opens the same repository's Xcode project directly.
+
 ## 1. Get access and clone
 
-Sign in to the GitHub account that can read the private repository. Use either HTTPS with a
-credential helper or an SSH key registered with GitHub, then clone:
+The repository is public by Christian's explicit November 13, 2026 choice. Clone over HTTPS;
+sign in with a credential helper or a registered SSH key when you need to push:
 
 ```bash
 git clone https://github.com/cchow375/praelude.git
@@ -57,7 +60,7 @@ Open the focused [Praelude Mobile workspace](../ios/Praelude%20Mobile.code-works
 [Xcode project](../ios/Praelude.xcodeproj), inside this same Git repository. Follow the
 [current mobile guide](../ios/README.md) and [module/check guide](../ios/docs/DEVELOPMENT.md)
 for generation, native tests and simulator work. No workspace task runs automatically. The target
-supports iOS/iPadOS17+ and uses an independent schema2 sandbox library; this handoff does not
+supports iOS/iPadOS17+ and uses an independent schema5 sandbox library; this handoff does not
 migrate installed Mac practice data.
 
 A paid Developer Program membership is not required for personal cable testing. The dedicated
@@ -71,7 +74,7 @@ The generated project reads `ios/Signing.xcconfig`, which optionally includes ig
 `ios/Signing.local.xcconfig`. Keep your own `DEVELOPMENT_TEAM` only in that local file; it is not
 needed for simulator/unsigned work and survives generation. Do not transfer another Mac's
 credentials, certificates, profiles or device identifiers through Git. Signed artifacts and
-private backups are excluded from a clone. See the [current native QA](qa/ios/1.1.0/README.md)
+private backups are excluded from a clone. See the [current native QA](qa/ios/README.md)
 for signed-snapshot, installed-version and device-backup boundaries; a signed build is not physical
 feature acceptance.
 

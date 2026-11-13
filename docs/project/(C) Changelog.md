@@ -1,5 +1,39 @@
 # 📜 Praelude — Changelog
 
+## November 13 — iOS development handoff in the existing public repository
+
+**Last updated: 2026-11-13.** Christian requests the complete iPhone/iPad source on GitHub to
+continue development on another computer. The canonical repository remains
+https://github.com/cchow375/praelude, with native source under `ios/` and backend contracts and
+migrations under `supabase/`. All 303 Swift files, tests, assets, generated project, generator and
+dependency locks are already committed locally; the initial remote check finds `main` 177 commits
+behind. The GitHub repository is public, contrary to older private-repository wording. Christian
+explicitly chooses to keep it public and publish there. No separate mobile repository is created.
+
+The iOS-only handoff guide is `ios/docs/NEW_MAC_SETUP.md`: clone, open
+`ios/Praelude.xcodeproj`, choose the Praelude scheme and a simulator, then run native checks.
+Full Xcode, its iOS SDK/runtime, Git and Python 3 are required; desktop Node/Rust setup is optional
+for mobile work. Signing/account sessions, personal practice files and backups stay outside Git.
+This changes development setup and Xcode linkage only; application logic is unchanged. Native source remains 2.0.0/build21/schema5;
+October device-install/readback records remain historical, and no device or installed Mac app is
+operated by this handoff. No new physical-feature or real-account convergence acceptance is claimed.
+
+The clean checkout exposed B174: an old explicit `Helpers.framework` flag fails without cached
+artifacts, while linking the same package products into both app and hosted tests hides shared
+symbols during test builds. Remove the stale flag and duplicate test-target product links; tests
+load the app's package symbols through `TEST_HOST`/`BUNDLE_LOADER`. The app's four package products,
+locked dependency versions, architecture settings and signing behavior remain unchanged.
+
+**Verification:** clean-checkout simulator app/test build passes with standard settings and no
+linker override. Serial core: 556 cases, one optional skip, zero failures; deterministic services:
+2,340 assertions; device helper: 57 cases. Initial linker failures and one initial heartbeat timing
+failure remain recorded in `docs/qa/ios/source-handoff-2026-11-13.md`; independent hosted runtime
+verification and final GitHub readback follow before completion.
+
+**Next steps:** clone or pull `main` on the second Mac, run the simulator checks and continue
+coding. Commit/push on the working computer and pull before switching computers. Existing device
+refresh and actual feature/sync acceptance gates remain separate.
+
 ## October 18 — Build21 phone installed; iPad update held for active practice
 
 **Last updated: 2026-10-18. Phone native2.0.0/build21/schema5 installed with exact preservation; manual opening and real sync readback pending. Personal iPad remains Build20; current active practice prevents a safe refresh.** The guarded phone update preserves all 3 files/3,939,591 bytes and the full schema5/revision1780 library exactly by filename/bytes/SHA-256. Independent actual-package review passes38/38, source311/311 and preservation6/6; the complete signed app/dSYM archive is verified. Phone provisioning expires October25 at11:49:49 AM EDT. Automatic launch is declined; the user is asked to open Build21 and leave Settings → Account visible for real catch-up verification.

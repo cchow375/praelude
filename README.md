@@ -1,5 +1,10 @@
 # Praelude
 
+For native iPhone/iPad development on another computer, start with the
+[iOS clone and Xcode setup guide](ios/docs/NEW_MAC_SETUP.md). All mobile source, tests, assets,
+project files and backend migrations live in this same repository. Building iOS requires a Mac
+with full Xcode. The GitHub repository remains public by Christian's November 13, 2026 choice.
+
 ## October 10 — build10 installed; physical selection comparison pending
 
 **Installed iPad: native2.0.0/build10/schema5, source `b22d4bf`. Scoped native/UI checks and guarded installation pass; physical cross-score acceptance is pending. Macv11.1.0/schema21 is unchanged.** After accepting the earlier named interactions, the user reports that Prokofiev passage creation has no visible corner dots and lags badly, while Beethoven handles are smooth. That earlier acceptance does not establish consistency across scores. This new defect is B146.
@@ -52,7 +57,7 @@ Requirements:
 - Node.js `^20.19`, `^22.12` or `>=24` and npm 10+ (`.node-version` pins the known-good
   Node 26.4.0 checkout toolchain);
 - Rust and Cargo (verified here with Rust 1.96.1); and
-- access to the private `cchow375/praelude` GitHub repository.
+- access to the `cchow375/praelude` GitHub repository (public to clone; permission required to push).
 
 ```bash
 git clone https://github.com/cchow375/praelude.git

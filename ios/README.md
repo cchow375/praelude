@@ -1,5 +1,12 @@
 # Praelude Mobile
 
+## Work on another Mac
+
+The complete iPhone/iPad source is in this repository's `ios/` directory. Follow
+[the iOS clone and setup guide](docs/NEW_MAC_SETUP.md) to open it in Xcode, run simulator checks,
+and continue development. No separate repository, Node install or Rust toolchain is needed for
+iOS-only work. Current source is native 2.0.0/build21/schema5; device evidence below is historical.
+
 ## October 18 — Build21 phone installed; iPad update held for active practice
 
 **Last updated: 2026-10-18. Phone native2.0.0/build21/schema5 installed with exact preservation; manual opening and real sync readback pending. Personal iPad remains Build20; current active practice prevents a safe refresh.** The guarded phone update preserves all 3 files/3,939,591 bytes and the full schema5/revision1780 library exactly by filename/bytes/SHA-256. Independent actual-package review passes38/38, source311/311 and preservation6/6; the complete signed app/dSYM archive is verified. Phone provisioning expires October25 at11:49:49 AM EDT. Automatic launch is declined; the user is asked to open Build21 and leave Settings → Account visible for real catch-up verification.

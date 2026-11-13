@@ -171,8 +171,8 @@ Every version record and every roadmap phase MUST end with a clear "Next steps" 
 - **The broad Practice Operator is not built and is ON HOLD.** Page-only targeting,
   Goals/Calendar/session-plan voice actions, durable unfinished drafts, and the complete
   capability/audit registry remain, but Assistant work does not resume without Christian's word.
-- **Off-disk backup — RESOLVED 2026-08-23.** A private GitHub remote exists at
-  https://github.com/cchow375/praelude ([[(C) Flaws]] B54/C1, the project's oldest unfixed
+- **Off-disk backup — RESOLVED 2026-08-23.** A GitHub remote exists at
+  https://github.com/cchow375/praelude (public, explicitly retained on 2026-11-13) ([[(C) Flaws]] B54/C1, the project's oldest unfixed
   risk, now resolved). Scope limit: this backs up the git repo only — the Obsidian vault itself
   is still not backed up off-disk.
 - **Windows v9.1 is packaged but not native-accepted.** The exact unsigned x64 NSIS installer,
@@ -181,6 +181,40 @@ Every version record and every roadmap phase MUST end with a clear "Next steps" 
   friction is expected; voice, Listen Back, system TTS and volume boost are unavailable.
 
 ## Status
+
+## November 13 — iOS development handoff in the existing public repository
+
+**Last updated: 2026-11-13.** Christian requests the complete iPhone/iPad source on GitHub to
+continue development on another computer. The canonical repository remains
+https://github.com/cchow375/praelude, with native source under `ios/` and backend contracts and
+migrations under `supabase/`. All 303 Swift files, tests, assets, generated project, generator and
+dependency locks are already committed locally; the initial remote check finds `main` 177 commits
+behind. The GitHub repository is public, contrary to older private-repository wording. Christian
+explicitly chooses to keep it public and publish there. No separate mobile repository is created.
+
+The iOS-only handoff guide is `ios/docs/NEW_MAC_SETUP.md`: clone, open
+`ios/Praelude.xcodeproj`, choose the Praelude scheme and a simulator, then run native checks.
+Full Xcode, its iOS SDK/runtime, Git and Python 3 are required; desktop Node/Rust setup is optional
+for mobile work. Signing/account sessions, personal practice files and backups stay outside Git.
+This changes development setup and Xcode linkage only; application logic is unchanged. Native source remains 2.0.0/build21/schema5;
+October device-install/readback records remain historical, and no device or installed Mac app is
+operated by this handoff. No new physical-feature or real-account convergence acceptance is claimed.
+
+The clean checkout exposed B174: an old explicit `Helpers.framework` flag fails without cached
+artifacts, while linking the same package products into both app and hosted tests hides shared
+symbols during test builds. Remove the stale flag and duplicate test-target product links; tests
+load the app's package symbols through `TEST_HOST`/`BUNDLE_LOADER`. The app's four package products,
+locked dependency versions, architecture settings and signing behavior remain unchanged.
+
+**Verification:** clean-checkout simulator app/test build passes with standard settings and no
+linker override. Serial core: 556 cases, one optional skip, zero failures; deterministic services:
+2,340 assertions; device helper: 57 cases. Initial linker failures and one initial heartbeat timing
+failure remain recorded in `docs/qa/ios/source-handoff-2026-11-13.md`; independent hosted runtime
+verification and final GitHub readback follow before completion.
+
+**Next steps:** clone or pull `main` on the second Mac, run the simulator checks and continue
+coding. Commit/push on the working computer and pull before switching computers. Existing device
+refresh and actual feature/sync acceptance gates remain separate.
 
 ## October 18 — Build21 phone installed; iPad update held for active practice
 

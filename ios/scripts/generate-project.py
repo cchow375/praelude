@@ -61,12 +61,6 @@ def configs(prefix, settings, base_config=None):
                 ),
             }
         )
-        # Release links supabase-swift's internal `Helpers` target statically (Products/Helpers.o,
-        # no PackageFrameworks/Helpers.framework), so the Debug-only `-framework Helpers` workaround
-        # documented on OTHER_LDFLAGS below would fail the device Release link with
-        # "framework 'Helpers' not found". Keep it for Debug only.
-        if mode == "Release" and "OTHER_LDFLAGS" in options:
-            options["OTHER_LDFLAGS"] = options["OTHER_LDFLAGS"].replace(" -framework Helpers", "")
         base = (
             "baseConfigurationReference = " + base_config + "; " if base_config else ""
         )
@@ -296,18 +290,8 @@ common = {
     # it is a different link phase. Turning the debug-dylib optimization off makes `test` link the
     # ordinary way, matching plain `build`.
     "ENABLE_DEBUG_DYLIB": "NO",
-    # supabase-swift's `Helpers` target (PostgrestError, ObservationToken, AnyJSON, ...) is an
-    # internal dependency of Auth/PostgREST/Storage/Realtime, never one of the package's own
-    # declared library products (only Auth/Functions/PostgREST/Realtime/Storage/Supabase are, per
-    # its Package.swift) — so unlike those four, it cannot be added as a `packageProductDependencies`
-    # entry. Xcode still builds it as its own `PackageFrameworks/Helpers.framework` (each package
-    # target gets its own framework under Xcode's SPM integration), and the app binary's own final
-    # link needs its symbols resolved directly, not merely by the four products that import it —
-    # verified with an actual `xcodebuild test` full app-binary link, which surfaced this even though
-    # `scripts/check.sh`'s own generic-destination `build` action does not exercise the same link
-    # step. `FRAMEWORK_SEARCH_PATHS` already includes `PackageFrameworks` (Xcode adds it once any
-    # package product is linked), so this only needs to ask the linker to actually use it.
-    "OTHER_LDFLAGS": "$(inherited) -framework Helpers",
+    # Xcode links transitive Swift package targets, including Supabase's internal Helpers.o.
+    # Do not require a Helpers.framework: fresh Debug builds produce no such framework.
 }
 project_configs = configs("project", common, signing_config)
 app_config = configs(
@@ -379,7 +363,9 @@ test_target = obj(
 )
 unit_phases = [
     phase("unitSources", "PBXSourcesBuildPhase", unit_sources),
-    phase("unitFrameworks", "PBXFrameworksBuildPhase", package_build_files("unitTest")),
+    # Hosted tests load the app's package symbols through TEST_HOST/BUNDLE_LOADER. Linking the
+    # same products again makes Xcode split shared package internals across dynamic wrappers.
+    phase("unitFrameworks", "PBXFrameworksBuildPhase", []),
     phase("unitResources", "PBXResourcesBuildPhase", []),
 ]
 unit_config = configs(
@@ -404,8 +390,6 @@ unit_target = obj(
     + array(unit_phases)
     + "; buildRules = (); dependencies = "
     + array([dep])
-    + "; packageProductDependencies = "
-    + array(list(supabase_products.values()))
     + ";",
 )
 project = obj(

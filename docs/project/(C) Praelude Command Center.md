@@ -1,5 +1,39 @@
 # Praelude — Command Center
 
+## November 13 — iOS development handoff in the existing public repository
+
+**Last updated: 2026-11-13.** Christian requests the complete iPhone/iPad source on GitHub to
+continue development on another computer. The canonical repository remains
+https://github.com/cchow375/praelude, with native source under `ios/` and backend contracts and
+migrations under `supabase/`. All 303 Swift files, tests, assets, generated project, generator and
+dependency locks are already committed locally; the initial remote check finds `main` 177 commits
+behind. The GitHub repository is public, contrary to older private-repository wording. Christian
+explicitly chooses to keep it public and publish there. No separate mobile repository is created.
+
+The iOS-only handoff guide is `ios/docs/NEW_MAC_SETUP.md`: clone, open
+`ios/Praelude.xcodeproj`, choose the Praelude scheme and a simulator, then run native checks.
+Full Xcode, its iOS SDK/runtime, Git and Python 3 are required; desktop Node/Rust setup is optional
+for mobile work. Signing/account sessions, personal practice files and backups stay outside Git.
+This changes development setup and Xcode linkage only; application logic is unchanged. Native source remains 2.0.0/build21/schema5;
+October device-install/readback records remain historical, and no device or installed Mac app is
+operated by this handoff. No new physical-feature or real-account convergence acceptance is claimed.
+
+The clean checkout exposed B174: an old explicit `Helpers.framework` flag fails without cached
+artifacts, while linking the same package products into both app and hosted tests hides shared
+symbols during test builds. Remove the stale flag and duplicate test-target product links; tests
+load the app's package symbols through `TEST_HOST`/`BUNDLE_LOADER`. The app's four package products,
+locked dependency versions, architecture settings and signing behavior remain unchanged.
+
+**Verification:** clean-checkout simulator app/test build passes with standard settings and no
+linker override. Serial core: 556 cases, one optional skip, zero failures; deterministic services:
+2,340 assertions; device helper: 57 cases. Initial linker failures and one initial heartbeat timing
+failure remain recorded in `docs/qa/ios/source-handoff-2026-11-13.md`; independent hosted runtime
+verification and final GitHub readback follow before completion.
+
+**Next steps:** clone or pull `main` on the second Mac, run the simulator checks and continue
+coding. Commit/push on the working computer and pull before switching computers. Existing device
+refresh and actual feature/sync acceptance gates remain separate.
+
 ## October 18 — Build21 phone installed; iPad update held for active practice
 
 **Last updated: 2026-10-18. Phone native2.0.0/build21/schema5 installed with exact preservation; manual opening and real sync readback pending. Personal iPad remains Build20; current active practice prevents a safe refresh.** The guarded phone update preserves all 3 files/3,939,591 bytes and the full schema5/revision1780 library exactly by filename/bytes/SHA-256. Independent actual-package review passes38/38, source311/311 and preservation6/6; the complete signed app/dSYM archive is verified. Phone provisioning expires October25 at11:49:49 AM EDT. Automatic launch is declined; the user is asked to open Build21 and leave Settings → Account visible for real catch-up verification.
@@ -439,7 +473,7 @@ This is the live entry map. Historical release detail belongs in [[(C) Changelog
 
 **Next steps:** use the installed build6 to verify Pencil, black ink, sustained annotation during practice, reviewed movement/measure mapping and actual second-device continuity. Continuous desktop sync needs its separate adapter; Assistant remains on hold.
 
-Project portability is now part of the canonical private repository. `docs/project/` mirrors the
+Project portability is now part of the canonical repository. `docs/project/` mirrors the
 living manual and every Markdown version record; `docs/NEW_MAC_SETUP.md` separates a safe developer
 clone from an unverified transfer of personal practice state; `npm run doctor` checks prerequisites,
 `npm run setup:mac` performs lockfile-exact JavaScript setup, and `npm run docs:check` prevents the
@@ -455,6 +489,7 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 
 ## Open threads
 
+- [ ] Open the complete iOS source on the second Mac using `ios/docs/NEW_MAC_SETUP.md`; local clean-clone verification does not prove second-machine acceptance.
 - [x] Build8–10 implementation, guarded updates and preserved failure history; build9 named interactions accepted and build10 receives qualified comparison improvement.
 - [ ] Build11/B148: both devices have11. Friend launch is user-confirmed; initial-library/physical acceptance remains unverified. Personal same-bundle refresh has independently verified13 files/13,568,473 bytes and paused-set preservation; personal launch/post-launch readback remains pending.
 - [ ] Measure remaining synchronous transition-save/atomic-write/import/backup/export latency on the actual library; the new idle-save preparation path does not make all persistence asynchronous.
@@ -505,7 +540,7 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 | Current plan and historic phases | [[(C) Roadmap]] |
 | Open and resolved problems | [[(C) Flaws]] |
 | Chronology and exact release facts | [[(C) Changelog]] and `versions/` |
-| Code, tests, engineering facts | private GitHub `cchow375/praelude`, especially `AGENTS.md`, `docs/NEW_MAC_SETUP.md` and `NOTES.md` |
+| Code, tests, engineering facts | public GitHub `cchow375/praelude`, especially `AGENTS.md`, `docs/NEW_MAC_SETUP.md` and `NOTES.md` |
 | Current v11.1 spec and QA | repo `docs/superpowers/specs/2026-09-08-practice-resonance.md`, `docs/qa/v11.1.0/` |
 
 ## Next steps

@@ -11,7 +11,9 @@ project operating manual mirrored from the editable Obsidian vault. Then read:
 - [`ios/README.md`](ios/README.md) for the separate iPhone/iPad development candidate, full Xcode
   and iOS SDK/runtime requirements, build/tests and signing; Mac bootstrap does not install iOS runtimes
 
-This private repository is the complete development handoff. On the original Mac, the editable
+This repository is the complete development handoff. It is public by Christian's explicit
+November 13, 2026 choice; never assume it is private. For iOS-only setup on another Mac, use
+[`ios/docs/NEW_MAC_SETUP.md`](ios/docs/NEW_MAC_SETUP.md). On the original Mac, the editable
 vault is `~/Desktop/christian's universe/Piano Practice/Praelude`; after every required vault
 update, run `npm run docs:sync` and `npm run docs:check` and commit the mirror. On a Mac without
 that vault, the checked-in mirror is the binding fallback. Reconcile any mirror edits back to the

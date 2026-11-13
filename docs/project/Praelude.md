@@ -1,5 +1,39 @@
 # Praelude — portable project summary
 
+## November 13 — iOS development handoff in the existing public repository
+
+**Last updated: 2026-11-13.** Christian requests the complete iPhone/iPad source on GitHub to
+continue development on another computer. The canonical repository remains
+https://github.com/cchow375/praelude, with native source under `ios/` and backend contracts and
+migrations under `supabase/`. All 303 Swift files, tests, assets, generated project, generator and
+dependency locks are already committed locally; the initial remote check finds `main` 177 commits
+behind. The GitHub repository is public, contrary to older private-repository wording. Christian
+explicitly chooses to keep it public and publish there. No separate mobile repository is created.
+
+The iOS-only handoff guide is `ios/docs/NEW_MAC_SETUP.md`: clone, open
+`ios/Praelude.xcodeproj`, choose the Praelude scheme and a simulator, then run native checks.
+Full Xcode, its iOS SDK/runtime, Git and Python 3 are required; desktop Node/Rust setup is optional
+for mobile work. Signing/account sessions, personal practice files and backups stay outside Git.
+This changes development setup and Xcode linkage only; application logic is unchanged. Native source remains 2.0.0/build21/schema5;
+October device-install/readback records remain historical, and no device or installed Mac app is
+operated by this handoff. No new physical-feature or real-account convergence acceptance is claimed.
+
+The clean checkout exposed B174: an old explicit `Helpers.framework` flag fails without cached
+artifacts, while linking the same package products into both app and hosted tests hides shared
+symbols during test builds. Remove the stale flag and duplicate test-target product links; tests
+load the app's package symbols through `TEST_HOST`/`BUNDLE_LOADER`. The app's four package products,
+locked dependency versions, architecture settings and signing behavior remain unchanged.
+
+**Verification:** clean-checkout simulator app/test build passes with standard settings and no
+linker override. Serial core: 556 cases, one optional skip, zero failures; deterministic services:
+2,340 assertions; device helper: 57 cases. Initial linker failures and one initial heartbeat timing
+failure remain recorded in `docs/qa/ios/source-handoff-2026-11-13.md`; independent hosted runtime
+verification and final GitHub readback follow before completion.
+
+**Next steps:** clone or pull `main` on the second Mac, run the simulator checks and continue
+coding. Commit/push on the working computer and pull before switching computers. Existing device
+refresh and actual feature/sync acceptance gates remain separate.
+
 Last updated: 2026-10-18. Phone native2.0.0/build21 installed/preserved, manual opening and sync readback pending. Personal iPad Build20 refresh held for active practice. Friend Build12 held; Mac11.1.0/schema21 unchanged.
 
 Build20 delivery checkpoint: iPad installation succeeds with a complete 13-file pre-backup; post-install folder copy and read-only retry fail with transport/permission errors, so no preservation or launch pass is claimed. Actual signed package37/37 and private archive pass. Phone update stops safely before installation during its pre-copy. Both devices were requested unlocked/connected for verification; no destructive workaround or queue edit occurs. Real account sync is not yet accepted.
@@ -30,4 +64,4 @@ Version digest: v6 Practice Core; v7/v8 contracts; v9 portable library/Windows c
 
 Next steps: manual phone21 opening/readback and, after paused-idle readiness, guarded iPad21 refresh with exact preservation and open/version/schema readback, then real account metadata/history/private-score catch-up and later offline-edit convergence. Obtain actual phone/iPad camera/audio/latency acceptance separately. Keep the friend iPad held and the broad Assistant on hold.
 
-Code lives at /Users/c3/praelude; editable docs at /Users/c3/Desktop/christian's universe/Piano Practice/Praelude. The private repository https://github.com/cchow375/praelude includes the Markdown manual at docs/project, version records, lockfiles and new-Mac setup. Start with AGENTS.md, ios/README.md, NOTES.md and docs/qa/ios/2.0.0/build19. Git excludes live libraries, scores/photos, credentials, device backups and release archives. Git clone restores development context, not the personal practice environment; transferring live data to another Mac/path needs its own verified procedure.
+Code lives at /Users/c3/praelude; editable docs at /Users/c3/Desktop/christian's universe/Piano Practice/Praelude. The public repository https://github.com/cchow375/praelude includes the Markdown manual at docs/project, version records, lockfiles and new-Mac setup. Start with AGENTS.md, ios/README.md, NOTES.md and docs/qa/ios/2.0.0/build19. Git excludes live libraries, scores/photos, credentials, device backups and release archives. Git clone restores development context, not the personal practice environment; transferring live data to another Mac/path needs its own verified procedure.
