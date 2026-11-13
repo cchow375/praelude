@@ -10,6 +10,15 @@
 
 ---
 
+### 2026-11-13 · iPhone/iPad confirmed as the primary Praelude product
+
+- **Why:** Christian clarified that the main app is iOS, primarily iPhone and iPad, and asked for its status. The earlier successful setup applies to the available Mac source only.
+- **Priority:** native mobile source recovery (B116), then rebuild/fresh signing and physical iPhone/iPad acceptance. Mac remains a separate, secondary client; no new feature, release or installation is requested by this status correction.
+- **Last documented mobile status:** 1.1.0/build2/schema2 candidate; scoped simulator checks pass and September 14 iPad installation/file preservation is recorded. Controlled launch, schema2 migration and physical Pencil/audio/voice/export/backup acceptance remain open in that handoff. The recorded signing profile expired September 21; current device state is not checked.
+- **Source investigation:** rechecked GitHub branches/history and repository list; no available `ios/` source or separate Praelude mobile repository was found. A targeted local name/path search found no additional project source. GitHub reports the repository's last push on September 13, before the documented mobile work. An unpublished original-machine checkout is a plausible recovery route, not a verified location.
+- **Touched:** vault AGENTS/summary/Command Center/Roadmap/Flaws/How To Use/Changelog; repository NOTES and entry points; synchronized Markdown mirror. No code, lockfile, app, device or practice data changes.
+- **Next:** recover the mobile source before mobile implementation, then rebuild and verify both device workflows. Historical release records remain unchanged.
+
 ### 2026-11-13 · GitHub checkout and development setup on this Mac
 
 - **Why:** Christian asked to pull Praelude from GitHub and prepare this computer for development.

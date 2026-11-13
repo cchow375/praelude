@@ -1,5 +1,11 @@
 # NOTES
 
+## Mobile is the primary product (2026-11-13)
+
+- **Christian's scope correction:** the main Praelude app is native iOS/iPadOS for iPhone and iPad. Treat the prepared Tauri Mac checkout as the separate secondary client, not completion of mobile setup. Immediate priority is recovering missing mobile source (B116), then fresh build/signing and real-device acceptance.
+- **Status is a dated handoff, not current device proof:** September 14 records describe 1.1.0/build2/schema2, scoped simulator checks and iPad installation/file preservation; controlled launch/migration and physical acceptance remain open. The recorded profile expired September 21. No present device state was queried in this review.
+- **Recovery evidence:** GitHub advertises only `main` and `v7/plan-c`, with no `ios/` history; the documented `124707d` is unresolved. Repository listing found only `cchow375/praelude` for this project, last pushed September 13. Targeted local name/path searches found no other source copy. The mobile work may remain unpublished on the original machine because its recorded work is September 14; that is an inference, not a verified source location.
+
 ## This Mac development setup (2026-11-13)
 
 - **Canonical clone:** `/Users/christian/praelude`, `main`, imported from `cchow375/praelude` at `6447c65`. No product source, lockfile, schema or installed app changed during setup.

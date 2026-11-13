@@ -1,10 +1,28 @@
 # Praelude — Roadmap
 
+**Product priority — Christian, 2026-11-13:** Praelude's primary app is the native iOS/iPadOS product for iPhone and iPad. Mac is a separate client; today's successful Mac setup does not establish mobile development readiness. The last documented mobile milestone is 1.1.0/build2/schema2 (September 14), a development candidate with scoped simulator checks and a recorded iPad installation, while controlled launch/migration and physical acceptance remain unverified in the handoff. The immediate priority is recovering its missing `ios/` source (B116), then rebuilding and checking real iPhone/iPad workflows.
+
 **Last updated: 2026-11-13. This Mac:** canonical GitHub Mac source is checked out at `/Users/christian/praelude` (base `6447c65`, `main`). macOS 26.6.2/arm64, Xcode 26.6, Node 25.9.0/npm 11.12.1 and rustup-managed Rust/Cargo 1.100.0 are available; lockfile-exact JavaScript setup and the frontend build/suite pass. Native checks also pass: 1,106 unit tests/18 ignored plus 28 integration tests/2 ignored; the debug native executable compiles. Independent live mock navigation passes. No Praelude app is installed on this Mac. Its existing legacy app-data directory is kept outside all launch/tests. The mobile notes below are a retained September handoff: GitHub's current branches contain no `ios/`, and commit `124707d` cannot be resolved there. Recover that source before mobile work. The existing npm lockfile reports 10 audit advisories (3 moderate, 7 high); dependency remediation is pending. Current setup evidence: `docs/qa/setup-2026-11-13.md` in the code repository.
 
 **Historical Mac release boundary (original Mac, last verified 2026-09-08): Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
 
 **Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
+
+## Primary lane — native iPhone/iPad (Christian, 2026-11-13)
+
+Mobile is the main Praelude app. The September 14 handoff describes 1.1.0/build2/schema2;
+its scoped simulator checks and recorded iPad install do not establish current device acceptance.
+The source is missing from this checkout and advertised GitHub branches (B116). GitHub reports
+the repository's last push on September 13, preceding the documented mobile work. This suggests
+unpublished work on the original machine, but that location has not been verified.
+
+### Next steps
+
+Recover the native source/commit before replacing or rebuilding the app. Rebuild with fresh signing
+(the recorded profile expired September 21), then verify controlled launch/migration, real iPad
+Pencil and iPhone touch workflows, metronome/audio, annotation export and backup/restore. Mac/iOS
+sync, Listen Back and full desktop/forScore parity remain separate unbuilt scope. Mac setup is
+complete and secondary to this mobile lane.
 
 ## Maintenance — this Mac development setup (2026-11-13)
 

@@ -1,9 +1,9 @@
 # Praelude — Project Context & Operating Manual
 
-> A piano **practice & rep tracker** for a serious pianist, built native with Tauri v2. The
-> installed Mac product is voice-first; the first Windows port is keyboard/mouse-first. Not a
-> coach that listens to the piano — the last app tried
-> that and it was the fatal flaw. **The user is the sensor; the app is the memory.**
+> A piano **practice & rep tracker** for a serious pianist. **The primary product is native
+> iPhone/iPad**, using SwiftUI, PDFKit and PencilKit (Christian, 2026-11-13). The separate Mac
+> client uses Tauri v2 and is voice-first; the historical Windows port is keyboard/mouse-first.
+> It never grades piano audio. **The user is the sensor; the app is the memory.**
 > Christian speaks what happened (tempo changes, reps, mistakes); Praelude counts,
 > times, remembers, structures, runs the metronome, and organizes practice — hands-free.
 
@@ -181,6 +181,8 @@ Every version record and every roadmap phase MUST end with a clear "Next steps" 
   friction is expected; voice, Listen Back, system TTS and volume boost are unavailable.
 
 ## Status
+
+**Product priority — Christian, 2026-11-13:** Praelude's primary app is the native iOS/iPadOS product for iPhone and iPad. Mac is a separate client; today's successful Mac setup does not establish mobile development readiness. The last documented mobile milestone is 1.1.0/build2/schema2 (September 14), a development candidate with scoped simulator checks and a recorded iPad installation, while controlled launch/migration and physical acceptance remain unverified in the handoff. The immediate priority is recovering its missing `ios/` source (B116), then rebuilding and checking real iPhone/iPad workflows.
 
 **Last updated: 2026-11-13. This Mac:** canonical GitHub Mac source is checked out at `/Users/christian/praelude` (base `6447c65`, `main`). macOS 26.6.2/arm64, Xcode 26.6, Node 25.9.0/npm 11.12.1 and rustup-managed Rust/Cargo 1.100.0 are available; lockfile-exact JavaScript setup and the frontend build/suite pass. Native checks also pass: 1,106 unit tests/18 ignored plus 28 integration tests/2 ignored; the debug native executable compiles. Independent live mock navigation passes. No Praelude app is installed on this Mac. Its existing legacy app-data directory is kept outside all launch/tests. The mobile notes below are a retained September handoff: GitHub's current branches contain no `ios/`, and commit `124707d` cannot be resolved there. Recover that source before mobile work. The existing npm lockfile reports 10 audit advisories (3 moderate, 7 high); dependency remediation is pending. Current setup evidence: `docs/qa/setup-2026-11-13.md` in the code repository.
 

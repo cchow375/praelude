@@ -1,5 +1,7 @@
 # Praelude — Command Center
 
+**Product priority — Christian, 2026-11-13:** Praelude's primary app is the native iOS/iPadOS product for iPhone and iPad. Mac is a separate client; today's successful Mac setup does not establish mobile development readiness. The last documented mobile milestone is 1.1.0/build2/schema2 (September 14), a development candidate with scoped simulator checks and a recorded iPad installation, while controlled launch/migration and physical acceptance remain unverified in the handoff. The immediate priority is recovering its missing `ios/` source (B116), then rebuilding and checking real iPhone/iPad workflows.
+
 **Last updated: 2026-11-13. This Mac:** canonical GitHub Mac source is checked out at `/Users/christian/praelude` (base `6447c65`, `main`). macOS 26.6.2/arm64, Xcode 26.6, Node 25.9.0/npm 11.12.1 and rustup-managed Rust/Cargo 1.100.0 are available; lockfile-exact JavaScript setup and the frontend build/suite pass. Native checks also pass: 1,106 unit tests/18 ignored plus 28 integration tests/2 ignored; the debug native executable compiles. Independent live mock navigation passes. No Praelude app is installed on this Mac. Its existing legacy app-data directory is kept outside all launch/tests. The mobile notes below are a retained September handoff: GitHub's current branches contain no `ios/`, and commit `124707d` cannot be resolved there. Recover that source before mobile work. The existing npm lockfile reports 10 audit advisories (3 moderate, 7 high); dependency remediation is pending. Current setup evidence: `docs/qa/setup-2026-11-13.md` in the code repository.
 
 **Historical Mac release boundary (original Mac, last verified 2026-09-08): Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
@@ -10,7 +12,7 @@ This is the live entry map. Historical release detail belongs in [[(C) Changelog
 
 ## Current work
 
-**Active task:** prepare the GitHub Mac checkout on this computer. Frontend/native checks and fresh-context live mock verification pass; the setup record is complete. The mobile material below is historical handoff context, not source present in this clone.
+**Active priority:** recover the native iPhone/iPad source (B116), then rebuild and complete real-device acceptance. Christian confirmed mobile as the main product on November 13. The Mac development checkout is prepared, but it is not the primary lane. Mobile material below is the last recorded handoff, not source present here.
 
 **Historical mobile work (source absent here) — 1.1.0/build2/schema2 DEVELOPMENT CANDIDATE, scoped verification complete:** visual passage boxes,
 PencilKit ink, recorded-target history, annotated-PDF sharing/Print, metronome and reward controls
@@ -67,6 +69,7 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 
 ## Open threads
 
+- [ ] Primary product: native iPhone/iPad; recover source, rebuild with fresh signing, then verify real-device practice, annotation, audio and backup workflows.
 - [x] This Mac development verification: doctor, locked setup, frontend/native checks, debug compilation, fresh-context live mock review and unchanged personal-data hashes; evidence in repo `docs/qa/setup-2026-11-13.md`.
 - [ ] Recover mobile `ios/` source/commit `124707d` missing from GitHub branches (B116).
 - [ ] Review the 10 current npm audit advisories without treating setup as dependency remediation (B117).

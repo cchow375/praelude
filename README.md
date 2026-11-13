@@ -1,7 +1,9 @@
 # Praelude
 
-Praelude is a native piano practice and repertoire tracker for macOS, built with Tauri v2,
-Rust, React and TypeScript. The pianist supplies every Clean, Sloppy or Again verdict;
+Praelude is a piano practice and repertoire tracker whose primary product is native iPhone/iPad
+(Christian, 2026-11-13). This checkout currently contains the separate macOS client, built with
+Tauri v2, Rust, React and TypeScript. The native mobile source described by the September handoff
+is missing from GitHub's current branches; source recovery is the immediate priority (B116). The pianist supplies every Clean, Sloppy or Again verdict;
 Praelude counts, times, remembers, runs the metronome and organizes local scores. It does
 not grade piano audio.
 

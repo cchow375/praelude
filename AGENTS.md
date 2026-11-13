@@ -15,7 +15,11 @@ update, run `npm run docs:sync` and `npm run docs:check` and commit the mirror. 
 that vault, the checked-in mirror is the binding fallback. Reconcile any mirror edits back to the
 vault before a future sync.
 
-Praelude v11.1.0 / schema 21 is the current installed release boundary. Visible branding is
+Christian confirmed on 2026-11-13 that native iPhone/iPad is the primary product. This checkout
+contains only the separate Tauri Mac source; recover the missing native `ios/` source before
+mobile implementation (B116). September mobile status is a dated handoff, not current device proof.
+
+Praelude v11.1.0 / schema 21 is the historical original-Mac installed release boundary. Visible branding is
 Praelude. Preserve `com.christian.codakiller`, `codakiller.db`, the legacy Keychain service and
 durable storage keys as compatibility contracts unless a migration is explicitly designed and
 verified.

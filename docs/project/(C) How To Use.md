@@ -2,6 +2,10 @@
 
 **Matches: v11.1.0 / schema 21 (historical installed release on the original Mac). Last updated: 2026-11-13.** No app is installed on this Mac; the product tutorial below describes the historical v11.1 release. Old UI and release history are retained in Changelog/version records.
 
+## Primary app: iPhone and iPad
+
+Christian confirmed native iOS/iPadOS as Praelude's main product on November 13. The mobile controls below describe the September 1.1 candidate; its source is missing from this GitHub checkout (B116), so these are reference instructions until source recovery and fresh device verification. The Mac setup below is for the separate Mac client. No product controls or version changed in this status review.
+
 ## Work on this Mac
 
 The code is `/Users/christian/praelude`. Open that folder for development. `npm run doctor` checks the toolchain; `npm run dev:mock` starts disposable browser fixtures at `http://localhost:1420`, and `npm test -- --maxWorkers=4` runs frontend checks. Read repo `docs/NEW_MAC_SETUP.md` and `docs/qa/setup-2026-11-13.md` for native commands and this machine's exact verification.
