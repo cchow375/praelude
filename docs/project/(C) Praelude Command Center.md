@@ -1,12 +1,55 @@
 # Praelude — Command Center
 
-**Last updated: 2026-09-13. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
+**Last updated: 2026-11-13. This Mac:** canonical GitHub Mac source is checked out at `/Users/christian/praelude` (base `6447c65`, `main`). macOS 26.6.2/arm64, Xcode 26.6, Node 25.9.0/npm 11.12.1 and rustup-managed Rust/Cargo 1.100.0 are available; lockfile-exact JavaScript setup and the frontend build/suite pass. Native checks also pass: 1,106 unit tests/18 ignored plus 28 integration tests/2 ignored; the debug native executable compiles. Independent live mock navigation passes. No Praelude app is installed on this Mac. Its existing legacy app-data directory is kept outside all launch/tests. The mobile notes below are a retained September handoff: GitHub's current branches contain no `ios/`, and commit `124707d` cannot be resolved there. Recover that source before mobile work. The existing npm lockfile reports 10 audit advisories (3 moderate, 7 high); dependency remediation is pending. Current setup evidence: `docs/qa/setup-2026-11-13.md` in the code repository.
+
+**Historical Mac release boundary (original Mac, last verified 2026-09-08): Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup.
 
 **Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
 
 This is the live entry map. Historical release detail belongs in [[(C) Changelog]] and `versions/`; historical implementation phases remain in [[(C) Roadmap]]. Never restart an old lane from a stale snapshot.
 
 ## Current work
+
+**Active task:** prepare the GitHub Mac checkout on this computer. Frontend/native checks and fresh-context live mock verification pass; the setup record is complete. The mobile material below is historical handoff context, not source present in this clone.
+
+**Historical mobile work (source absent here) — 1.1.0/build2/schema2 DEVELOPMENT CANDIDATE, scoped verification complete:** visual passage boxes,
+PencilKit ink, recorded-target history, annotated-PDF sharing/Print, metronome and reward controls
+were described in the independent native target. Historical original-machine links (unavailable here pending B116 recovery): [mobile guide](/Users/c3/praelude/ios/README.md),
+[task context](/Users/c3/praelude/ios/AGENTS.md), [development](/Users/c3/praelude/ios/docs/DEVELOPMENT.md),
+[install/renewal](/Users/c3/praelude/ios/docs/INSTALL_ON_IPAD.md), [workflow guide](/Users/c3/praelude/ios/docs/USING_MOBILE.md)
+and [mobile roadmap](/Users/c3/praelude/ios/docs/ROADMAP.md). The recorded mobile workspace is absent from this clone.
+
+**Current QA:** 29 core tests, 2,166 service assertions, 28 fake-device helper tests and 36/36 native hosted tests
+on each simulator pass. The final-toolbar iPad9 selected run passes 3/3: finger 59.497 s, meter 61.653 s,
+Focus 23.719 s. iPad7 supplies box editing/relaunch and accessibility markup in both orientations;
+five targeted iPad scenarios pass across runs. Phone3 passes 36 hosted plus 3 selected UI, and Phone2
+supplies the other four UI passes: seven distinct phone scenarios pass across runs. Phone4 also passes its final-toolbar finger 91.652 s/meter 84.624 s recheck. Final exact-source signed Release verification passes. Earlier failed runs remain
+failed; no all-green full-scheme or physical-feature claim is made.
+
+Phone3 pre-Undo/after-Redo images verify visible ink after the PDF/PencilKit gesture correction.
+The 44-point toolbar entry and corrected offscreen meter-test guards now pass on iPad9. The
+historical phone backup UI gap is closed by Phone3 simulator evidence. This update's complete
+file preservation passes; physical Pencil and in-app backup/restore acceptance remain open. See [current QA](/Users/c3/praelude/docs/qa/ios/1.1.0/README.md).
+
+**Installed mobile candidate, launch pending:** the iPad now reports **1.1.0/build2**, installed
+at 20:56 EDT on September 14 from source `124707d`. Complete private copies before and after
+installation match all owned file names, byte counts and SHA-256. The preserved ledger is schema1;
+first-launch schema2 migration has not been accepted. Automatic launch was denied with a generic
+security/unlock error, with exact cause unproven. User unlock/open and conditional Developer App
+trust are pending; this is not physical-feature acceptance. The signed candidate remains at ignored
+`releases/ios-personal-1.1.0/Praelude.app`, with profile expiry September 21 at 21:24:58 UTC.
+
+Earlier PDF-copy probes and the 20:50 refresh failed before installation. The 20:52 Xcode container
+download failed on a SplashBoard snapshot cache with CoreDevice7000/POSIX1; only partial caches
+were obtained. Complete copying succeeded after the user reported ready, clearing the former hold.
+The helper retained both verified copies and used no deletion, reset, restore or explicit termination.
+
+**Historical native baseline:** 1.0 installed at 17:51 EDT with Developer Mode enabled; the initial
+launch request encountered developer trust. Later user activity does not replace a controlled
+launch/feature verdict. Its app and QA remain unchanged: 22 core, 2,041 service, 13 hosted per
+simulator, 8/8 distinct iPad and 7/8 phone UI across runs. Phone3 now closes the complete phone backup UI gap with simulator evidence; physical in-app backup/restore remains open.
+B115 keeps physical/distribution, Mac-sync and unported feature limits open. Mac v11.1.0/schema21
+and its personal data are untouched; Assistant stays off/on hold.
 
 Project portability is now part of the canonical private repository. `docs/project/` mirrors the
 living manual and every Markdown version record; `docs/NEW_MAC_SETUP.md` separates a safe developer
@@ -24,6 +67,19 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 
 ## Open threads
 
+- [x] This Mac development verification: doctor, locked setup, frontend/native checks, debug compilation, fresh-context live mock review and unchanged personal-data hashes; evidence in repo `docs/qa/setup-2026-11-13.md`.
+- [ ] Recover mobile `ios/` source/commit `124707d` missing from GitHub branches (B116).
+- [ ] Review the 10 current npm audit advisories without treating setup as dependency remediation (B117).
+
+- [x] Mobile 1.1.0 scoped simulator checks and final exact-source signed Release verification.
+- [x] Device update: 1.1.0/build2 installed at 20:56 EDT; complete owned-library pre/post file comparison passes.
+- [ ] Controlled device launch and first-launch schema2 migration; unlock/open and conditional trust pending.
+- [x] Mobile developer handoff and helper28 fake-device safety checks; this update's real full-copy gate passes.
+- [x] Historical iPad cable install: Developer Mode enabled, 1.0.0/build1 confirmed at 17:51 EDT.
+- [ ] Physical Pencil/audio/voice, interruption, accessibility, sharing/Print and backup acceptance (B115).
+- [x] Complete phone backup UI: Phone3 export/cancel/restore/cancel passes; physical in-app backup/restore remains open.
+- [ ] Native parity: Mac schema21 migration/sync, Listen Back, cloud mapping, full Studio economy,
+      desktop warmups/history repair and broader forScore tools remain separate scope.
 - [x] v11.1 progressive practice feedback, independent review, package/install and exact preservation. Runtime `c411e7b`; `docs/qa/v11.1.0/` is the current evidence ledger.
 - [x] Fresh-Mac development portability: current manual/version records are Git-backed; clone,
       toolchain, bootstrap, verification and local-only state boundaries are documented and checked.
@@ -54,6 +110,7 @@ Post-install comparison proves all **46 tables** and DB bytes exactly equal to t
 
 | Need | Open |
 | --- | --- |
+| Mobile source recovery | B116 in [[(C) Flaws]]; historical `ios/README.md` and `ios/DESIGN.md` are absent from this checkout |
 | Binding process and install preference | [[AGENTS]]; Git mirror `docs/project/AGENTS.md` |
 | Portable current overview | [[Praelude]] |
 | Installed tutorial | [[(C) How To Use]] |

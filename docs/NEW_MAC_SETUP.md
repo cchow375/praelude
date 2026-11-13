@@ -48,11 +48,18 @@ No global package install is performed by the script.
 ## 3. Prove the checkout
 
 ```bash
-npm test
-(cd src-tauri && cargo test --locked)
+npm test -- --maxWorkers=4
+(cd src-tauri && RUST_TEST_THREADS=4 cargo test --locked)
 npm run build
-npm run tauri dev
+npm run dev:mock
 ```
+
+The browser preview uses disposable fixtures and does not open the native practice database. Stop
+it before running the native Vite server because both use port 1420. A default `npm run tauri dev`
+uses `com.christian.codakiller` and opens the existing per-app `codakiller.db`; a source clone does
+not isolate that runtime data. Before a native development launch on a Mac with existing personal
+state, follow the backup/data-safety boundary in section 4. Do not use the live DB as a smoke-test
+fixture. This Mac's setup used browser preview and compilation/tests without a native launch.
 
 The native app may request Microphone, Speech Recognition, Camera or score-folder access when a
 feature first needs it. Browser/devMock success is not native permission acceptance.
@@ -95,3 +102,21 @@ release or native acceptance.
 On the original Mac, `npm run docs:sync` refreshes this mirror from the Obsidian vault and
 `npm run docs:check` proves it matches. On another Mac the checked-in mirror is the safe fallback;
 set `PRAELUDE_PROJECT_VAULT` only if an editable vault copy is also present.
+
+## 6. This Mac's accepted setup — 2026-11-13
+
+The checkout is `/Users/christian/praelude`, imported from `origin/main` at `6447c65`. The available
+GitHub source is the Mac v11.1.0 Tauri product. The local vault also contains September mobile
+handoff notes, but GitHub's advertised branches contain no `ios/`, and `124707d` cannot be resolved.
+Recover that source before mobile work; do not infer mobile readiness from the copied notes.
+
+This Mac's editable vault is `~/Desktop/christians universe/Piano Practice/Praelude` (no apostrophe).
+Its local `.zshenv` sets the supported `PRAELUDE_PROJECT_VAULT` override, so ordinary
+`npm run docs:sync`, `npm run docs:check` and `npm run project:check` use that folder. These paths
+are observations about this Mac, not new hardcoded script defaults.
+
+Doctor, lockfile-exact setup, frontend/native tests, frontend build, debug native compilation and
+fresh-context live browser preview pass. No application was installed or native personal-state
+launch performed. Existing app-data byte counts and SHA-256 match before/after. The existing npm
+lockfile has 10 current advisories (3 moderate, 7 high); dependency remediation is separate.
+See [the setup QA record](qa/setup-2026-11-13.md) for exact evidence and limits.

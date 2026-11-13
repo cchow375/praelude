@@ -1,6 +1,71 @@
 # Praelude — How To Use
 
-**Matches: v11.1.0 / schema 21 (installed). Last updated: 2026-09-13.** Open `/Applications/Praelude.app`. This guide describes current actions; old UI and release history are retained in Changelog/version records.
+**Matches: v11.1.0 / schema 21 (historical installed release on the original Mac). Last updated: 2026-11-13.** No app is installed on this Mac; the product tutorial below describes the historical v11.1 release. Old UI and release history are retained in Changelog/version records.
+
+## Work on this Mac
+
+The code is `/Users/christian/praelude`. Open that folder for development. `npm run doctor` checks the toolchain; `npm run dev:mock` starts disposable browser fixtures at `http://localhost:1420`, and `npm test -- --maxWorkers=4` runs frontend checks. Read repo `docs/NEW_MAC_SETUP.md` and `docs/qa/setup-2026-11-13.md` for native commands and this machine's exact verification.
+
+The local shell config sets `PRAELUDE_PROJECT_VAULT` to this editable vault so `npm run docs:sync` and `npm run docs:check` use the correct path. A default `npm run tauri dev` uses the real legacy app-data identity; this Mac already has an older database there, so ordinary setup uses fixtures and does not launch/migrate it. There is no installed app or personal-state migration from this Git clone.
+
+The September mobile instructions below are historical: `ios/` and commit `124707d` are absent from GitHub's current branches. Recover that source before following mobile build/install commands.
+
+## Historical separate iPhone/iPad development candidate
+
+The installed Mac tutorial below still matches **Mac v11.1.0/schema21**. Native mobile source is
+**1.1.0/build2/schema2 DEVELOPMENT CANDIDATE** from source `124707d`; the iPad now confirms
+**1.1.0/build2 installed** at 20:56 EDT on September 14. Controlled launch and first-launch schema2
+migration remain pending. Its controls are described in the
+[current mobile guide](/Users/c3/praelude/ios/README.md) and
+[Using Mobile](/Users/c3/praelude/ios/docs/USING_MOBILE.md).
+
+In the candidate, Today/Pieces/Progress use phone tabs and an adaptive iPad sidebar. Import a PDF,
+read pages or enter Focus, draw multiple passage boxes with optional measure labels, and use
+Annotate score for PencilKit tools or explicit Draw with finger. Ink Undo/Redo is separate from
+practice Undo. Progress → session → What you practiced shows the original recorded target.
+Score options → Share annotated score creates a new flattened-ink PDF for system Files/sharing/Print;
+practice boxes are excluded and the source score/editable ink remain intact.
+
+Choose a passage or whole piece, then set focus/target/tempo. Clean/Sloppy/Again record your judgment;
+pause/resume and Undo preserve the practice contract. The metronome adds meter, beat accents/silence,
+subdivisions, sound/volume and optional haptics. Optional voice is at Score options → Hands-free
+commands → Enable hands-free; it uses supported on-device English recognition and never grades piano.
+Native schema2 backup contains the independent library, PDFs and editable ink. It does not import
+Mac SQLite data or provide automatic sync. See the workflow guide for source labels and error handling.
+
+**Current simulator limits:** 29 core tests, 2,166 service assertions, 28 fake-device helper tests and 36/36 native hosted tests
+on each simulator pass. The final-toolbar iPad9 selected run passes 3/3: finger 59.497 s, meter 61.653 s,
+Focus 23.719 s. iPad7 supplies box editing/relaunch and accessibility markup in both orientations;
+five targeted iPad scenarios pass across runs. Phone3 passes 36 hosted plus 3 selected UI, and Phone2
+supplies the other four UI passes: seven distinct phone scenarios pass across runs. Phone4 also passes its final-toolbar finger 91.652 s/meter 84.624 s recheck. Final exact-source signed Release verification passes. Earlier failed runs remain
+failed; no all-green full-scheme or physical-feature claim is made.
+
+Phone3 visually verifies ink before Undo and after Redo; a prior iPad blank capture has an
+unexplained cause. The corrected drawing gestures and 44-point toolbar controls have scoped
+simulator evidence. The complete phone backup-dialog UI passes. Physical Pencil precision,
+printing, acoustic audio/voice, VoiceOver and in-app backup/restore remain separate checks.
+
+For free setup, conditional developer trust and seven-day renewal use
+[Install on iPad](/Users/c3/praelude/ios/docs/INSTALL_ON_IPAD.md). Help/status are read-only;
+`npm run ios:refresh -- --device "YOUR IPAD NAME"` explicitly builds and updates an existing app.
+Pause/end practice and leave the app idle. The helper has 28 passing fake-device safety tests: it
+retains full pre/post copies, compares every file name/length/hash before launch and never uninstalls
+or automatically restores. A failed post-install comparison says installed-but-unverified and blocks launch.
+
+**Device update installed; launch pending:** the guarded refresh now installed 1.1.0/build2 and
+verified all owned file names, byte counts and SHA-256 against complete private pre/post copies.
+The preserved ledger is still schema1; migration will be checked after launch. Earlier PDF-copy
+probes failed with EPERM. The 20:50 refresh again failed the complete copy, with only a generic
+failure reported. The 20:52 Xcode container download failed with CoreDevice7000/POSIX1 on a
+snapshot cache and did not create a complete practice backup. Copying succeeded after the user
+reported ready, so the prior update hold is cleared.
+
+Automatic launch was denied with a generic security/unlock error whose cause is unproven.
+Unlock the iPad and tap Praelude. If it requests Developer App trust, follow Settings → General →
+VPN & Device Management → Developer App as explained in the installation guide. Controlled launch
+and hardware acceptance remain pending. No deletion, reset, restore or explicit termination was used.
+The signed 1.1 snapshot remains outside Git and its profile expires September 21 at 21:24:58 UTC.
+The Mac Matches line stays unchanged.
 
 ## Start a useful practice session
 

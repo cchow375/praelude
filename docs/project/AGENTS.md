@@ -19,6 +19,7 @@ entry point for every session — read it, then jump to
 
 ## Where everything lives (docs here, code there)
 
+- **Historical native iPhone/iPad (`~/praelude/ios/` on the original machine):** SwiftUI source/project described by the September handoff is absent from this GitHub clone (B116). Recover the source before mobile work; the Mac is the separate Tauri product.
 - **Docs (this vault folder, `Piano Practice/Praelude/`):** this AGENTS.md, the portable
   summary [[Praelude]], the hub [[(C) Praelude Command Center]], [[(C) Motivation]],
   [[(C) Roadmap]], [[(C) Flaws]], [[(C) Changelog]], and `versions/` (immutable per-version
@@ -116,7 +117,7 @@ gate or an explicit hold remains a real safety blocker.
 
 ## 🏷️ The version system (so "what's next" is always clear)
 
-- **App version (semver-ish)** = a shipped milestone of the `.app`. Installed is **Praelude v11.1.0 / schema21**, installed 2026-09-08 at 16:58 EDT; implementation `c411e7b`. Progressive practice resonance is shipped, with exact 46-table/DB-byte preservation. Native Score/Variants now pass; native audio/motivation verdict remains open. See Status/Changelog and `docs/qa/v11.1.0/`. Hidden `com.christian.codakiller` storage identifiers preserve compatibility.
+- **App version (semver-ish)** = a shipped milestone of the `.app`. The historical original-Mac install is **Praelude v11.1.0 / schema21**, installed 2026-09-08 at 16:58 EDT; implementation `c411e7b`. Progressive practice resonance is shipped, with exact 46-table/DB-byte preservation. Native Score/Variants now pass; native audio/motivation verdict remains open. See Status/Changelog and `docs/qa/v11.1.0/`. Hidden `com.christian.codakiller` storage identifiers preserve compatibility.
   The historical **v9.1.0/schema 21 Windows x64 candidate** is unchanged: exact unsigned current-user NSIS installer 7,654,002 bytes, SHA-256 `e2e2f3ae8846ef7aca6a6c04b2e1a2f346e97640f5d9089e6e49012365dc5dd4`; package implementation `2d33004888a97c3ebcb4b7799bf54029efd15626`, tag `v9.1.0` at `f296f3cb38ae5d29c1ae813493f5c37ea07ed9a6`. Native Windows tests/Windows 10/11 acceptance remain pending; no voice/Listen Back/system TTS/volume boost. Read Git for the moving private `origin/main` tip. Historical Mac package/tag identities remain in Changelog and version records, not as current install blockers.
 - **Phases `P0`–`P7`** = the build plan ([[(C) Roadmap]]). Mapping: P0–P2 → `v0.1.0`;
   P3 → `v0.2.0`; P3.5 Foundation → `v0.3.0`; P4 → `v0.4.0`; P5 → `v0.5.0`;
@@ -124,8 +125,8 @@ gate or an explicit hold remains a real safety blocker.
   frontend transformation; v3.1.0 is the real-use hands-free stabilization and v3.2.0 the
   long-session/system-coherence release; v4.0.0 is the Practice Notebook OS, v5.0.0 the paper
   redesign + colour-depth perf fix, and v6.0.0 the Practice Core. Keep the mapping written down.
-- **`versions/`** = one immutable note per shipped **minor/major** version (e.g. `(C) v0.1.0 —
-Version Record`) with what it is, what shipped, what was verified, honest gaps, and
+- **`versions/`** = one immutable note per shipped **minor/major** version (e.g. `v0.1.0 —
+Version Record (C).md`) with what it is, what shipped, what was verified, honest gaps, and
   **explicit NEXT STEPS**. Patch releases live in [[(C) Changelog]] only.
   **Honest coverage note (audited 2026-08-27):** records exist for v0.1.0–v1.3.0, v3.0.0,
   v3.1.0, v3.2.0, v4.0.0, v5.0.0, v6.0.0, v7.0.0, v7.1.0, v7.2.0, v8.1.0 and v8.2.0. A
@@ -181,7 +182,54 @@ Every version record and every roadmap phase MUST end with a clear "Next steps" 
 
 ## Status
 
-**Last updated: 2026-09-13. Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup. The private Git repository now carries a curated copy of the complete living project manual, version records, a new-Mac guide and a machine doctor/bootstrap script; personal data remains deliberately outside Git.
+**Last updated: 2026-11-13. This Mac:** canonical GitHub Mac source is checked out at `/Users/christian/praelude` (base `6447c65`, `main`). macOS 26.6.2/arm64, Xcode 26.6, Node 25.9.0/npm 11.12.1 and rustup-managed Rust/Cargo 1.100.0 are available; lockfile-exact JavaScript setup and the frontend build/suite pass. Native checks also pass: 1,106 unit tests/18 ignored plus 28 integration tests/2 ignored; the debug native executable compiles. Independent live mock navigation passes. No Praelude app is installed on this Mac. Its existing legacy app-data directory is kept outside all launch/tests. The mobile notes below are a retained September handoff: GitHub's current branches contain no `ios/`, and commit `124707d` cannot be resolved there. Recover that source before mobile work. The existing npm lockfile reports 10 audit advisories (3 moderate, 7 high); dependency remediation is pending. Current setup evidence: `docs/qa/setup-2026-11-13.md` in the code repository.
+
+**Historical mobile milestone (2026-09-14; source absent from this GitHub clone): 1.1.0/build2 DEVELOPMENT CANDIDATE, schema2; scoped checks complete; installed, launch pending.**
+The native SwiftUI/PDFKit/PencilKit app adds visual passage boxes, editable ink, recorded-target
+history, separate annotated-PDF sharing/Print and metronome/reward controls. It uses its own JSON
+ledger and owned scores; schema1 migration preserves the original. Mac schema21 data is untouched.
+The historical guide was `ios/README.md`; task context was `ios/AGENTS.md`, module/checks
+`ios/docs/DEVELOPMENT.md`, free install/renewal `ios/docs/INSTALL_ON_IPAD.md`, current controls
+`ios/docs/USING_MOBILE.md`, and scope `ios/docs/ROADMAP.md`. These referenced mobile files are unavailable here pending B116 source recovery; the handoff described one Git repo, not a nested mobile repo.
+
+**Current checks:** 29 core tests, 2,166 service assertions, 28 fake-device helper tests and 36/36 native hosted tests
+on each simulator pass. The final-toolbar iPad9 selected run passes 3/3: finger 59.497 s, meter 61.653 s,
+Focus 23.719 s. iPad7 supplies box editing/relaunch and accessibility markup in both orientations;
+five targeted iPad scenarios pass across runs. Phone3 passes 36 hosted plus 3 selected UI, and Phone2
+supplies the other four UI passes: seven distinct phone scenarios pass across runs. Phone4 also passes its final-toolbar finger 91.652 s/meter 84.624 s recheck. Final exact-source signed Release verification passes. Earlier failed runs remain
+failed; no all-green full-scheme or physical-feature claim is made.
+
+Phone2 zero-stroke input was corrected by making PDF pan wait for PencilKit drawing; Phone3
+pre-Undo/after-Redo ink is visibly present. A prior iPad blank capture remains unexplained, not a
+proven persistent defect. The 44-point toolbar change now has iPad9 entry evidence. Offscreen test
+controls are revealed before meter assertions. Phone3 closes the historical complete-phone-backup
+UI gap with simulator evidence. Current QA is `docs/qa/ios/1.1.0/README.md`.
+
+**Final signed candidate and installed-device boundary:** verified signed 1.1 is preserved at ignored
+`releases/ios-personal-1.1.0/Praelude.app`; signing/profile, arm64/iOS17/both families, fixture
+exclusion and full-copy hashes pass. The final rebuild includes the gesture/toolbar fixes and diagnostics; all production inputs remained stable during compilation. The profile expires 2026-09-21 at 21:24:58 UTC. Local team selection
+stays only in ignored `ios/Signing.local.xcconfig`; no private identity/device data belongs in Git.
+The iPad now reports **1.1.0/build2**, installed at 20:56 EDT on September 14 from source `124707d`.
+The guarded refresh retained complete private pre/post copies and verified identical owned file
+names, byte counts and SHA-256 before requesting launch. The preserved ledger remains schema1;
+first-launch schema2 migration has not been accepted. Automatic launch was denied with a generic
+security/unlock error; its exact cause is unproven. Unlock/open Praelude and conditional Developer
+App trust are the next user steps; controlled launch and hardware acceptance remain pending.
+Earlier PDF-copy probes failed with CoreDevice7000/POSIX1 EPERM. The 20:50 refresh again failed
+the complete copy, with only a generic failure reported. The 20:52 Xcode container download
+failed with CoreDevice7000/POSIX1 on a SplashBoard snapshot cache and produced only partial caches. After the user reported ready, complete copying succeeded and the prior update hold cleared.
+No deletion, reset, automatic restore or explicit termination was used. Both verified copies stay private.
+
+**Historical baseline:** 1.0 installed at 17:51 EDT on 2026-09-14 with Developer Mode enabled; its
+initial launch request was denied by developer trust. Later user activity is not a controlled
+launch or feature-acceptance result. Its signed app at `releases/ios-personal/Praelude.app` remains
+unchanged. The 1.0 ledger/manifests retain 22 core/2,041 services/13 hosted per simulator, 8/8 iPad
+and 7/8 phone UI scenarios across runs, including the then-open complete phone backup UI gap, now closed by Phone3 simulator evidence.
+These are historical evidence, not new 1.1 passes. B115 keeps physical/distribution, Mac sync,
+Listen Back, Studio economy, warmups/history repair and full desktop/forScore parity boundaries
+open. Assistant stays OFF/ON HOLD. Do not label the native candidate shipped.
+
+**Historical Mac release boundary (original Mac, last verified 2026-09-08): Praelude v11.1.0 / schema 21 — SHIPPED + INSTALLED.** Installed at `/Applications/Praelude.app` at 16:58 EDT on 2026-09-08; implementation `c411e7b`. Fresh native launch, real Score and Variants dialog pass. All 46 database tables and DB bytes are unchanged from the fresh backup. The private Git repository now carries a curated copy of the complete living project manual, version records, a new-Mac guide and a machine doctor/bootstrap script; personal data remains deliberately outside Git.
 
 **Native boundary:** v11.1.0 launches and renders the real Beethoven Op.90 movement 2 score, selected passage and Variants dialog. The earlier Desktop/Score permission blocker is cleared. Progressive rep/set/chain effects passed independent live browser review; native audible quality, voice/chime overlap and Christian’s motivation verdict remain open. Cover-picker selection/save (B109), microphone/Steinway, real mapping and Windows acceptance remain separate.
 

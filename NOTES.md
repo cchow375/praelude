@@ -1,5 +1,15 @@
 # NOTES
 
+## This Mac development setup (2026-11-13)
+
+- **Canonical clone:** `/Users/christian/praelude`, `main`, imported from `cchow375/praelude` at `6447c65`. No product source, lockfile, schema or installed app changed during setup.
+- **Toolchain observed:** macOS 26.6.2/arm64, Xcode 26.6, Node 25.9.0, npm 11.12.1, rustup-managed stable Rust/Cargo 1.100.0. Rustup configures Cargo in the local shell. The project's historical Node/Rust pins/evidence are retained; these are this Mac's verified versions.
+- **Vault spelling is machine-local:** this Mac uses `Desktop/christians universe`, while the historical default contains an apostrophe. Local `.zshenv` sets the documented `PRAELUDE_PROJECT_VAULT` override; no tracked script is hardcoded to the new machine.
+- **Existing personal state is outside setup:** the legacy app-data directory exists, but no Praelude application is installed in system/user Applications. A normal native dev launch opens that DB and may migrate it. Tests use temporary fixtures and live UI review uses `dev:mock`; no production-identity native launch was performed during setup. Before/after byte hashes stay in ignored logs, with no personal database in Git.
+- **Mobile source availability gap (B116):** the local vault contains September `ios/`/`124707d` handoff notes, but neither advertised GitHub branch has `ios/`, and GitHub cannot resolve that commit. Preserve those historical notes while explicitly scoping this clone to the available Mac source; source recovery is separate work.
+- **Dependency advisory boundary (B117):** November 13 `npm audit` reports 10 advisories (3 moderate, 7 high) in the existing lockfile. Setup does not run `npm audit fix` or rewrite versions. Review/update the affected dependencies as a separate checked maintenance change.
+- **Verification:** doctor/locked setup and production build pass; frontend 2,614 passed/1 skipped, native 1,106 unit passed/18 ignored plus 28 integration passed/2 ignored, with four workers. The debug native executable compiles. Independent live mock Today/Pieces/Score/Warmups/Studio navigation passes; a PDF fixture range error falls back successfully. Low Warmups contrast is a follow-up observation (B118). Personal-state before/after byte hashes match. See `docs/qa/setup-2026-11-13.md`.
+
 ## Project portability (2026-09-13)
 
 - **The private Git repository is now the complete development handoff.** The editable Obsidian
