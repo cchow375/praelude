@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-16",
+  "status": "INSTALLED_OPENED_RUNNING_READBACK_VERIFIED",
+  "target": "personal iPhone",
+  "model": "iPhone 16 Pro Max",
+  "os": "26.6.2",
+  "source_commit": "eb4eccd",
+  "source_tag": "ios-v2.0.0-build19-candidate",
+  "bundle_identifier": "com.christian.praelude.ios",
+  "version": "2.0.0",
+  "build": "19",
+  "first_install": true,
+  "prior_app_present": false,
+  "prior_library_preservation": "NOT_APPLICABLE: exact-phone preflight and guarded helper both found no existing app. No existing library was overwritten.",
+  "schema_migration": "NOT_APPLICABLE: newly initialized schema5 library",
+  "helper": {
+    "action": "ios:install with explicitly selected iPhone",
+    "exit_code": 1,
+    "installation": "PASS; expected installed version read back",
+    "automatic_launch": "DECLINED; no specific lock/trust cause inferred",
+    "raw_log_private": "/tmp/praelude-build19-iphone-delivery/guarded-install.log"
+  },
+  "opening": {
+    "user_confirmed": true,
+    "running_process_readback": true,
+    "postlaunch_installed_version": "2.0.0/build19"
+  },
+  "postlaunch": {
+    "installedVersion": "2.0.0",
+    "installedBuild": "19",
+    "runningAppObserved": true,
+    "backupRelativePath": "releases/ios-device-backups/20261016T234647Z-866fe422",
+    "schemaVersion": 5,
+    "revision": 189,
+    "counts": {
+      "pieces": 0,
+      "passages": 0,
+      "historySets": 0,
+      "sessions": 0,
+      "attempts": 0,
+      "inkStrokes": 0,
+      "textAnnotations": 0
+    },
+    "activeSetStatus": null,
+    "firstInstall": true,
+    "priorLibraryPreservation": "NOT_APPLICABLE: no existing app at two pre-install checks",
+    "postlaunchBackupFiles": 3,
+    "postlaunchBackupBytes": 109341,
+    "postlaunchBackupIndependentlyRehashed": true,
+    "independent_readback_checks": {
+      "passed": 18,
+      "total": 18,
+      "details": "iphone-package-review.json first_install_readback"
+    },
+    "local_identity_boundary": "Profile owner agrees with sync-state owner. No identity values retained; live credentials and two-device convergence are not established."
+  },
+  "signing": {
+    "independent_checks": 35,
+    "passed": 35,
+    "actual_executable_sha256": "4f0755c427a0bef334f33dbbf454b08f43faf6abcc8006da09d673fa45b5ae0d",
+    "profile_expiration_utc": "2026-10-23T23:42:03Z",
+    "profile_expiration_user_time": "2026-10-23 19:42:03 America/New_York",
+    "details": "iphone-package-review.json"
+  },
+  "archive": {
+    "private_directory": "releases/ios-personal/build19-iphone-20261016T234457Z",
+    "files": 16,
+    "uncompressed_bytes": 111544953,
+    "archive_sha256": "2ce032cf81228a9703ff0211ba1fa06686840df5b76a459afd447180e24047e9",
+    "full_archive_readback": "PASS"
+  },
+  "other_devices": "No iPad or Mac app/library was modified. Personal iPad last verified Build18; friend held at Build12; Mac11.1.0/schema21 unchanged.",
+  "data_transfer": "No Mac/iPad library, score, image, recording, credential or account was copied to the phone by this installation.",
+  "acceptance_limits": [
+    "User opening and running-process/readback are verified; physical camera/Photos/audio/haptics/sustained responsiveness are not accepted by installation alone.",
+    "Actual same-account two-device/offline convergence remains pending.",
+    "B170/B171/B172/B173 remain open within their existing scope."
+  ],
+  "safety": "No uninstall, reset, restore-over, physical app-termination workaround or fixture argument used.",
+  "delivery_documentation": {
+    "docs_sync": "PASS",
+    "docs_check": "PASS; 32 version records and 18 lineage documents",
+    "git_diff_check": "PASS",
+    "privacy_check": "Selected private device identities absent from all changed/new text files",
+    "source_changes": "None during delivery; candidate source retained"
+  }
+}

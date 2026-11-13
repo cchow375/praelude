@@ -1,0 +1,18 @@
+# Build13 controls — source candidate
+
+Both iPads last verified installed at build12. This historical guide describes build13 candidate controls and their scoped verification. Delivery is held; the current follow-up is build14.
+
+**Follow-up:** build13 delivery is held after a source-confirmed stale dictation-intent bug. The successor is build14; see `../build14/functional-follow-up.md`. Controls below remain the candidate guide, with hardware acceptance still open.
+
+- **Undo and draw:** Undo removes the last mark; a new mark starts a new branch. The old Redo branch is discarded. Visible Undo/Redo and two-finger Undo stay available through zoom and save.
+- **Camera:** Score options → Camera gestures → Enable camera. Preview starts minimized; Show camera preview and Show face mapping expose what the camera sees. Sit at the piano, face the camera with a relaxed mouth for a second and choose Calibrate neutral face. Test here before returning to the score. Nod down and back; shake left/right and return; hold a wide grin briefly and relax. Map each gesture to page turns, a verdict or Off. Rep verdicts require Allow gestures to record reps and a running set with focus off. Settings/editors pause actions; focus permits page turns and blocks rep grading. Low light, multiple faces, unclear mapping or stale frames pause gestures. Rotation requires recalibration. Off closes capture; background/score exit stops it. Real accuracy still needs physical testing.
+- **Voice:** temporary failures reconnect while retaining your hands-free choice. Off cancels reconnecting. Repeated failures expose Retry listening in Hands-free. Say **Next** for the next page and **Next set** for another set after completion. Clean/Sloppy/Again remain your own verdicts; final recognition and context guards still apply. Speech over piano remains unverified.
+- **Names and goals:** tap the pencil beside the armed passage, double-tap its name or selected box, or use Edit in Today/passage lists. The focused editor saves the passage name and optional Goal BPM. The saved goal applies to future sets; current-set snapshots and old history retain their original values. Triple-tap a selected box to dictate its name; review before saving.
+- **First attempt:** Metronome On/Off now starts/stops the click before grading. Choose the tempo first. The first attempt stays ungraded until you choose Clean/Shaky/Missed. Explore starts without grading. Actual loudness needs an iPad check.
+- **Urgent review:** Today → All passage reviews shows overdue/due tough passages and upcoming tough spots. URGENT means overdue, or due with your latest first attempt Missed/Shaky. A Missed report due tomorrow remains upcoming today. Saved dates/reports determine priority; late practice does not invent a grade. Edit or start a passage directly.
+
+Camera mappings are local to this device; frames/calibration/preview are transient. Passage name/goal use existing native sync fields. Review priority is computed from saved reports. Continuous Mac/native or real-account two-device convergence remains unverified.
+
+## Next steps
+
+Build13 is held after the stale dictation-intent finding. Build14 fixes that source path and replaces the long red score error with a neutral microphone attention indicator; tapping it opens Hands-free details and recovery. See the successor audit for final results. Resolve unexplained B155 opening failures before describing the candidate as ready. Later guarded delivery requires explicit readiness, fresh idle backup, full-file comparison and separate launch/readback. Physical Pencil, mapping/light/orientations, repeated speech over piano, audible click and sustained practice remain open. Never reset the app to validate an update.

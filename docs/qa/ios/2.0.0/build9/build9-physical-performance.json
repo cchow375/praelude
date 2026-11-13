@@ -1,0 +1,32 @@
+{
+  "build": 9,
+  "deviceModel": "iPad Pro 12.9-inch (3rd generation), iPad8,5",
+  "os": "iOS18.7.8 (22H352)",
+  "capture": "45-second Time Profiler attach, October9 local, after user-confirmed opening",
+  "appImageUUID": "A79D5ACA-E790-306A-B42C-5EDC9D99DD0A",
+  "mainThreadSampledCPUMilliseconds": 5.0,
+  "mainThreadSamples": 5,
+  "allThreadSamples": 12,
+  "potentialHangs": [],
+  "lifecycle": "Unknown for entire attachment; no state transition observed.",
+  "assessment": "Essentially idle sampling. No active touch responsiveness, speedup, or crash-repair acceptance follows. A later screenshot shows Today with paused practice; it does not establish the screen during recording.",
+  "activeCapture": "Completed but also effectively idle; not active-use evidence.",
+  "secondCapture": {
+    "requestedDurationSeconds": 120,
+    "observedLifecycleDurationSeconds": 120.488,
+    "mainThreadSampledCPUMilliseconds": 8.0,
+    "mainThreadSamples": 8,
+    "allThreadSamples": 15,
+    "potentialHangs": [],
+    "samplePattern": "Main samples at approximately 15-second timer intervals; no identifiable touch, gesture, drawing, selection, practice or sync action frames.",
+    "lifecycle": "Unknown for entire attachment; no state transition observed.",
+    "assessment": "Inconclusive for active responsiveness, speedup and physical crash-repair acceptance."
+  },
+  "nextStep": "No repeated profiling is required for this accepted retry. Profile a reproducible regression if one is reported; longer-term reliability remains separate.",
+  "userAcceptance": {
+    "date": "2026-10-10",
+    "userReply": "Those actions work and feel responsive",
+    "evidence": "physical-user-acceptance.json",
+    "boundary": "User accepts the named interactions; the trace measurements remain inconclusive for active-use performance."
+  }
+}

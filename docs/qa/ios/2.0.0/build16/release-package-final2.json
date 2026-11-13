@@ -1,0 +1,37 @@
+{
+  "createdUTC": "2026-10-12T17:07:19.169470+00:00",
+  "result": "passed",
+  "independentChecks": 49,
+  "executableSHA256": "8e1eace9f4677b10687ecfd4c7e21c1f44e19037b174de1cd766a277f8ac41e9",
+  "sourceFilesMatched": 279,
+  "signatureDeepStrict": true,
+  "entitlementsProfileAndStableIdentity": true,
+  "trustedSignerAndProfileMembership": true,
+  "priorSavedPersonalTargetIncluded": true,
+  "provisioningExpiryUTC": "2026-10-17T16:14:24Z",
+  "architecture": "arm64",
+  "matchingDSYM": true,
+  "appFileCount": 13,
+  "dSYMFileCount": 3,
+  "exactFontsPrivacyAndPinnedResource": true,
+  "excludedDiagnosticMarkerCount": 71,
+  "allExcludedMarkersAbsent": true,
+  "testPluginsDylibsSymlinksAbsent": true,
+  "releaseLogSHA256": "d35dfcd8342c5bdd7792e59105a0df4341e439987eb3d3c75f2c6b34aac761fe",
+  "archivePath": "releases/ios-build16-camera-verified-20261012",
+  "archives": {
+    "Praelude-build16.app.zip": {
+      "bytes": 8715872,
+      "sha256": "88f8e67938e9155d56960a0862354fb642da081dffde8fec190ec1c94b0a355a",
+      "fullInventoryReadbackExact": true
+    },
+    "Praelude-build16.dSYM.zip": {
+      "bytes": 15105608,
+      "sha256": "461cfcdd4985ebed12c21ded77c73fdd98c5d992d5b16596fe1073ea19ef8dab",
+      "fullInventoryReadbackExact": true
+    }
+  },
+  "archiveManifestSHA256": "c39634c72053ce161dbe983fe1c9edc1ec29c9eddae48d09e4620e67481c6de5",
+  "physicalActions": "none",
+  "boundary": "generic signed Release and prior saved target inclusion; fresh connection, guarded backup/install/readback, real video/mirroring/rotation and camera recognition not established"
+}

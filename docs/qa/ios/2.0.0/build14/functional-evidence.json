@@ -1,0 +1,147 @@
+{
+  "status": "HELD: functional opening failures remain; no installation acceptance",
+  "boundary": "Synthetic disposable iPad simulator only. All actual gestures use production recognition paths after an explicitly DEBUG-only score starting point. No physical device, camera, speech-over-piano, Pencil or perceived audio acceptance.",
+  "baseCommit": "176e9b6c703b60bc8d66435e2c2e02855e2b86f8",
+  "version": "14",
+  "sourceSHA256": {
+    "ios/Praelude/UITestFixture.swift": "614b8d9838c24a013512231c7df869ce0113e925adea0279aaace733f136fb77",
+    "ios/Praelude/Views/ScoreWorkspace.swift": "af97d95e884e0d16f1eb76dd980e28717a55a2f68d0245c9354f3d0685e53dcf",
+    "ios/Praelude/PraeludeApp.swift": "5649d6a2f10e90a7dbd6994ed9dc4395d196864350fefc3c9246d54a57a25f98",
+    "ios/PraeludeUITests/FreshBuild13UITests.swift": "95074e8cdcc637bfd1da2c2bc32a5c5e8f04d88928dff51aa4ff7e710b482265"
+  },
+  "simulatorAppExecutableSHA256": "73c804472992ba4000e7df579ee5f2ad51f1980e7edd2bb4d91435d93c46c5a7",
+  "simulatorTestExecutableSHA256": "88cd1c84768f0656c7932923ebd0983ce8b0795228b6e61ce5b4967e6816eadd",
+  "builtAndInstalledAppMatch": true,
+  "builtAndInstalledRunnerMatch": true,
+  "finalSourceNative": {
+    "run": "build14-fresh5",
+    "executed": 304,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 16.224,
+    "liveAccountSyncSkipped": true
+  },
+  "finalSourceUI": [
+    {
+      "run": "build14-fresh5",
+      "seconds": 27.427,
+      "result": "failed",
+      "stage": "Initial Passages opening after one actual tap",
+      "coordinate": [
+        38,
+        209
+      ],
+      "targetFrame": [
+        16,
+        187,
+        44,
+        44
+      ],
+      "observed": "Score remains unobscured; Whole piece, no passage sheet, mic Off. Does not establish global UI responsiveness."
+    },
+    {
+      "run": "build14-fresh6",
+      "seconds": 58.198,
+      "result": "failed",
+      "passedActions": [
+        "Actual centered saved-box single tap arms Evenness",
+        "Actual dock-title double tap opens editor",
+        "Actual name and goal Save persists Double tap name / 108.5"
+      ],
+      "failedStage": "Actual selected-box double tap does not open Rename within 8 seconds",
+      "touches": [
+        {
+          "x": 410,
+          "y": 709.5,
+          "offset": 0
+        },
+        {
+          "x": 410,
+          "y": 709.5,
+          "offset": 0.05
+        },
+        {
+          "x": 410,
+          "y": 709.5,
+          "offset": 0.25
+        },
+        {
+          "x": 410,
+          "y": 709.5,
+          "offset": 0.3
+        }
+      ],
+      "overlayFrame": [
+        98.7,
+        268.9,
+        622.6,
+        881.1
+      ],
+      "normalizedPoint": [
+        0.5,
+        0.5
+      ],
+      "selectedBoxNormalizedY": [
+        0.435,
+        0.565
+      ],
+      "otherBoxNormalizedY": [
+        0.35,
+        0.48
+      ],
+      "observed": "Final decoded video frame and AX show score without Rename. No test targeting flaw identified. Triple-tap denial, compact attention badge, recovery details and final relaunch were not reached.",
+      "lastDecodedFrame": "praelude-build14-fresh6-last-decoded.png",
+      "video": "praelude-build14-fresh6-attachments/642CAD79-82E0-41B3-B374-0840C1A32749.mp4"
+    }
+  ],
+  "priorSourceEvidence": {
+    "build14-fresh1TodayPriority": "Pass15.117s before compact voice caption repair: overdue/due both URGENT, exactly2 due, future Tough not URGENT, visible ordered actual dates. Queue opening remains separately failed.",
+    "build14-fresh4": "Before compact voice repair: actual dock/box double-tap saves and relaunch112.5, actual triple-tap real permission denial and ordinary editor afterward. Final assertion failed because global error query matched score behind sheet; editor had no error row. Retained as failed run and partial evidence."
+  },
+  "fresh6ProtectedState": {
+    "boundary": "Read-only actual disposable simulator baseline/post-test comparison; physical devices untouched. This is record comparison, not file byte equality.",
+    "changedProtectedFields": [],
+    "passageIdentitiesEqual": true,
+    "rewardsStateChangeMatchesKnownStartupNormalization": true,
+    "unexpectedTopLevelDeltas": [],
+    "beforeSHA256": "6eb19d886dcc4a4f24f31fec88ec7a971d0ecaa06571c73ec303e60e3b26f331",
+    "afterSHA256": "86b780b5bd07f7ddf29daf5c848f73d3cfbca429728f459cd9463e7d1bbe9a29",
+    "counts": {
+      "history": 0,
+      "sessions": 0,
+      "coldGrades": 0,
+      "ruleEvents": 0,
+      "rewardLedger": 0,
+      "inkStrokes": 0,
+      "textAnnotations": 0,
+      "stampAnnotations": 0
+    },
+    "activeSet": null,
+    "protectedRecordPreservationPassed": true,
+    "intendedPassageChanges": [
+      {
+        "title": {
+          "before": "Evenness and pulse",
+          "after": "Double tap name"
+        },
+        "performanceTempo": {
+          "before": null,
+          "after": 108.5
+        },
+        "updatedAtChanged": true
+      }
+    ],
+    "otherDeltas": {
+      "revision": {
+        "before": 6,
+        "after": 8
+      },
+      "startupRank": {
+        "before": "Unranked",
+        "after": "Prelude"
+      },
+      "startupRankUpdatedAtChanged": true
+    }
+  },
+  "sourceReview": "Explicit dictation intent helper and compact attention UI have no identified source blocker. Observed actual opening failures prevent functional acceptance; no source-cause proof or blanket reliability claim."
+}

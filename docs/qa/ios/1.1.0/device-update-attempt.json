@@ -1,0 +1,28 @@
+{
+  "recordedAtUTC": "2026-09-15T00:55:06.679486+00:00",
+  "sourceCommit": "124707d",
+  "candidateVersion": "1.1.0",
+  "candidateBuild": "2",
+  "userRequestedUpdate": true,
+  "refreshAttemptLocal": "2026-09-14 20:50 EDT",
+  "refreshOutcome": "Full pre-install owned-library copy failed; helper exited before build/install/launch.",
+  "xcodeBackupAttemptUTC": "2026-09-15T00:52:10Z",
+  "xcodeBackupOutcome": "Download Container failed reading a SplashBoard snapshot cache; partial cache copy is not a verified practice backup.",
+  "xcodeErrorDomainsAndCodes": {
+    "com.apple.dt.CoreDeviceError": 7000,
+    "NSPOSIXErrorDomain": 1
+  },
+  "subsequentReadOnlyInstalledStatus": {
+    "version": "1.0.0",
+    "build": "1"
+  },
+  "backupComplete": false,
+  "buildAttempted": false,
+  "installationAttempted": false,
+  "launchAttempted": false,
+  "uninstallRestoreResetOrTerminationAttempted": false,
+  "deviceInteractionRequested": "Unlock the iPad and leave Praelude open and idle; wait for user readiness before retrying.",
+  "lockStateCauseEstablished": false,
+  "physicalFeatureAcceptance": false,
+  "privateIdentifiersAndDataExcluded": true
+}

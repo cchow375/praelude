@@ -1,0 +1,85 @@
+{
+  "date": "2026-10-18",
+  "version": "2.0.0",
+  "build": 21,
+  "schema": 5,
+  "status": "PHONE_INSTALLED_PRESERVED_OPEN_SYNC_PENDING_IPAD_HELD_ACTIVE_SET",
+  "confirmed_user_error": "A practice set references a missing passage.",
+  "phone_before_repair": {
+    "target": "phone",
+    "version": "2.0.0",
+    "build": "20",
+    "runningProcessObserved": true,
+    "backup": "releases/ios-device-backups/20261018T154953Z-f4386d49",
+    "files": 3,
+    "bytes": 3939590,
+    "schema": 5,
+    "revision": 1710,
+    "pieces": 6,
+    "passages": 129,
+    "historySets": 94,
+    "sessions": 58,
+    "attempts": 604,
+    "scoresWithFileReference": 5,
+    "scoreFilesAtCanonicalScoresPath": 0,
+    "activeSet": null
+  },
+  "ipad_before_refresh": {
+    "target": "ipad",
+    "pre_backup": "releases/ios-device-backups/20261018T154942Z-b70fc440",
+    "files": 13,
+    "bytes": 10303446,
+    "schema": 5,
+    "revision": 6888,
+    "pieces": 6,
+    "passages": 130,
+    "historySets": 95,
+    "sessions": 59,
+    "attempts": 653,
+    "activeSet": null
+  },
+  "hosted_counts": [
+    {
+      "annotations": 26,
+      "attempts": 653,
+      "ink_strokes": 1157,
+      "passages": 130,
+      "pieces": 6,
+      "practice_sessions": 59,
+      "private_score_files": 5,
+      "sets": 95
+    }
+  ],
+  "confirmed_dependency_gap": {
+    "cloud_sets_referencing_passages_missing_on_phone": 1,
+    "cloud_sets_referencing_pieces_missing_on_phone": 0
+  },
+  "cause": "Rejected stale outbound practice row triggers whole remote graph adoption before ordinary score/passage pull, then validation blocks missing parents and retains queue, preventing future pulls/assets.",
+  "data_safety": "No queue clearing, ID stripping, relaxed validation, personal backend repair or schema migration. Preserve all saved evidence and older checkpoints.",
+  "earlier_today_delivery": "Build20 phone refreshed/preserved/opened; iPad20 candidate rejected before install, invalid artifact archived. See build20/refresh-2026-10-18-package-review.json.",
+  "verification": {
+    "core": {
+      "tests": 556,
+      "skipped": 1,
+      "failures": 0,
+      "seconds": 3.674,
+      "skip": "optional private-library bookmark timing"
+    },
+    "hosted_native": {
+      "tests": 375,
+      "skipped": 1,
+      "failures": 0,
+      "seconds": 18.557,
+      "skip": "opt-in live Supabase two-device smoke"
+    },
+    "regressions": {
+      "core": 4,
+      "native": 4
+    },
+    "independent_source_review": "source-review.json",
+    "schema_migration": false,
+    "physical_catchup": "pending"
+  },
+  "candidate_commit": "357fda3",
+  "delivery_report": "refresh-2026-10-18-package-review.json"
+}

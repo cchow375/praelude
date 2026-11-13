@@ -1,0 +1,130 @@
+{
+  "scope": {
+    "fixture": "disposable synthetic review-priority library; no personal data comparison",
+    "comparison": "decoded JSON values by record identity",
+    "snapshotCoverage": "before/after files cover final review-cycle test after its reset; first test has separate traced UI results",
+    "provenance": "historical app source and binary hashes captured; separately captured compiled UI test source precedes appended padding method",
+    "capturedHashes": {
+      "appSourceFiles": 5,
+      "builtBinaries": 2,
+      "prePaddingTestSource": 1
+    }
+  },
+  "schemaVersion": {
+    "before": 5,
+    "after": 5
+  },
+  "revision": {
+    "before": 12,
+    "after": 14,
+    "delta": 2
+  },
+  "records": {
+    "before": 191,
+    "after": 194,
+    "preexistingRetained": 191,
+    "preexistingUnchangedDecodedValues": 191,
+    "preexistingModified": 0,
+    "addedStartupRewardEntries": 3,
+    "otherAdded": 0,
+    "removed": 0
+  },
+  "nonemptyCollections": {
+    "coldGrades": {
+      "before": 3,
+      "after": 3
+    },
+    "instruments": {
+      "before": 1,
+      "after": 1
+    },
+    "passages": {
+      "before": 5,
+      "after": 5
+    },
+    "pieces": {
+      "before": 2,
+      "after": 2
+    },
+    "rewardLedger": {
+      "before": 0,
+      "after": 3
+    },
+    "warmupExercises": {
+      "before": 180,
+      "after": 180
+    }
+  },
+  "allowedStartupDifferences": {
+    "topLevelFields": [
+      "revision",
+      "rewardLedger",
+      "rewardsState"
+    ],
+    "rewardStateFields": [
+      "rank",
+      "updatedAt"
+    ],
+    "rankBefore": "Unranked",
+    "rankAfter": "Prelude",
+    "rewardStateTimestampAdvanced": true,
+    "newOnTimeReviewCredits": 3,
+    "matchingPreexistingOnTimeGrades": 3,
+    "xpDelta": 45,
+    "coinsDelta": 24,
+    "newBadges": 0,
+    "newMilestones": 0
+  },
+  "protectedValues": {
+    "allPassagesRegionsAndSchedulesUnchanged": true,
+    "allColdGradesUnchanged": true,
+    "allPiecesUnchanged": true,
+    "profilePreferencesRuleSettingsUnchanged": true,
+    "allOtherTopLevelValuesUnchanged": true,
+    "newPracticeAttemptsOrSets": 0,
+    "nonemptyAnnotationHistoryRetentionExercised": false,
+    "caveat": "ink, stamps, notes, sessions and practice history are empty in this fixture"
+  },
+  "traceScope": {
+    "cumulativeEvents": 956,
+    "cumulativeAppProcesses": 6,
+    "eventsForTheseTwoTests": 424,
+    "appProcessesForTheseTwoTests": 2,
+    "earlierAuditEventsExcluded": 532
+  },
+  "strictUIResults": {
+    "casesPassed": 2,
+    "failures": 0,
+    "sidebar": {
+      "durationSeconds": 52.915,
+      "actualSingleTaps": 3,
+      "touchBegins": 3,
+      "touchEnds": 3,
+      "touchCancels": 0,
+      "piecesActions": 1,
+      "piecesAssignments": 1,
+      "sidebarShownStateChanges": 1,
+      "sidebarHiddenStateChanges": 1,
+      "requiredScreenPostconditionsPassed": 3
+    },
+    "reviewCycles": {
+      "durationSeconds": 157.022,
+      "completedOpenDoneCycles": 8,
+      "actualOpenTaps": 8,
+      "openActions": 8,
+      "openStateChanges": 8,
+      "sheetAppearances": 8,
+      "actualDoneTaps": 8,
+      "closedStateChanges": 8,
+      "requiredOpenPostconditionsPassed": 8,
+      "requiredDismissedPostconditionsPassed": 8,
+      "touchBegins": 16,
+      "touchEnds": 16,
+      "touchCancels": 0,
+      "doneActionCallbackSeparatelyInstrumented": false
+    },
+    "totalDurationSeconds": 209.937,
+    "limits": "settled-target simulator checks only; appended padding test, other feature flows, physical input and sustained reliability are not accepted by this run"
+  },
+  "unexpectedDifferences": []
+}

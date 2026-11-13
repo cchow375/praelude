@@ -1,0 +1,139 @@
+{
+  "date": "2026-10-16",
+  "version": "2.0.0",
+  "build": "20",
+  "schema": 5,
+  "status": "SOURCE_REVIEW_PASS_CORE_PASS_FINAL_NATIVE_PENDING",
+  "scope": "Independent read-only review of finalized native sync requests, durable queue recovery, hierarchy merging, profile hydration and error classification; synthetic hosted regression and Swift core evidence. Device/account convergence is separate.",
+  "source_review": {
+    "reviewed_files": [
+      "ios/Praelude/Core/SyncEngine.swift",
+      "ios/Praelude/Core/PracticeStore.swift",
+      "ios/Praelude/Core/SyncCoding.swift",
+      "ios/Praelude/Services/SyncCoordinator.swift",
+      "ios/Praelude/Services/PostgRESTSyncTransport.swift"
+    ],
+    "confirmed": [
+      "Prerequisite bootstrap prepends current hard foreign-key parents before every unchanged legacy queue entry; original IDs, payloads, clocks and FIFO suffix are retained.",
+      "Owner/version marker is persisted only after durable prefix publication; marker-write failure retains the prefix and permits safe idempotent retry duplication.",
+      "Outbound snapshot signatures cannot suppress prerequisite bootstrap; stale parent adoption or queue failures do not discard pending writes.",
+      "Folder and passage table pulls merge atomically under local LWW validation before acknowledging rows/cursors.",
+      "account_preferences requests order by owner_id; backend/schema errors remain actionable while typed connectivity failures retain offline classification.",
+      "No additional checked-in DTO column or enum mismatch was identified against the complete migration history.",
+      "Immediate practice enqueue collects passage provenance once and orders only hard parentPassageID dependencies, accepting valid split/merge-back provenance cycles.",
+      "First-login profile preparation downloads required score organization and atomic score/page-edit snapshots before synchronous profile adoption without clearing cloud working-on selections.",
+      "Asynchronous profile preparation rejects changed account/generation, cancellation, local profile or pending core/backend/editor intent before any stale profile publication or hydration receipt.",
+      "Atomic score/page-edit download preserves display-page bounds and bookmarks while retaining the existing PDF replacement guard for the actual LWW metadata winner."
+    ],
+    "findings": [
+      {
+        "severity": "P2",
+        "state": "RESOLVED_SOURCE_REVIEWED",
+        "summary": "Combined provenance and parent traversal can reject a valid split-then-merge-back graph during immediate practice enqueue.",
+        "evidence": [
+          "ios/Praelude/Services/SyncCoordinator.swift:409",
+          "ios/Praelude/Core/PracticeStore.swift:846",
+          "ios/Praelude/Core/PracticeStore.swift:909"
+        ],
+        "required_behavior": "Collect provenance closure with cycle tolerance, then order only hard parentPassageID dependencies.",
+        "resolution": "Closure collection is cycle tolerant; a separate parentPassageID-only topological pass determines upsert order."
+      },
+      {
+        "severity": "P1",
+        "state": "RESOLVED_SOURCE_REVIEWED",
+        "summary": "First-login cloud profile hydration can reference scores before those scores are pulled, failing validation before sync reaches the library.",
+        "evidence": [
+          "ios/Praelude/Services/SyncCoordinator.swift:191",
+          "ios/Praelude/Core/PracticeStore.swift:521",
+          "ios/Praelude/Core/PracticeStore.swift:2061"
+        ],
+        "required_behavior": "Retain cloud working-on selections and hydrate their references after required library data is available.",
+        "resolution": "Optional asynchronous dependency preparation precedes existing synchronous complete-profile adoption."
+      },
+      {
+        "severity": "P1",
+        "state": "RESOLVED_SOURCE_REVIEWED_CORE_REGRESSION_PASS",
+        "summary": "The first asynchronous hydration draft could overwrite edits staged while downloading score references.",
+        "resolution": "Two-phase preparation snapshots the current profile and pending core/backend/editor ownership maps; any change throws before synchronous publication or receipt. Suspended-adopter same-account edit/reinstantiate and account-switch tests pass."
+      },
+      {
+        "severity": "P2",
+        "state": "RESOLVED_SOURCE_REVIEWED",
+        "summary": "Valid display pages and bookmarks after inserted blank/staff pages could fail fresh download when piece metadata arrived before page edits.",
+        "resolution": "pullScoreSnapshot fetches pieces and page_edits before one atomic LWW store transaction and acknowledges both only after successful commit. Later bookmarks see the complete reading order."
+      },
+      {
+        "severity": "P1",
+        "state": "RESOLVED_SOURCE_REVIEWED",
+        "summary": "The initial atomic score merge bypassed existing protection against replacing PDF bytes underneath offline annotations/history.",
+        "resolution": "The selected LWW metadata winner must pass requireReplaceableScore when pdfFileName or pageCount changes, before atomic assignment."
+      }
+    ],
+    "final_verdict": "Fresh bounded adversarial review completed after all reported repairs. No remaining actionable durable-data, account-safety, DTO/schema or valid-state dependency finding was identified in the reviewed diff. This is source review, not physical or real-account convergence acceptance.",
+    "reviewed_files_sha256": {
+      "ios/Praelude/Core/SyncEngine.swift": "41140669c221c2c3dd041be816ef3cdf1ba09c3dcec6bd0362090f2bdecee082",
+      "ios/Praelude/Core/PracticeStore.swift": "0358dd57ee562e88a535d2945dd5394633c6471c7238fd59120de3171c656a36",
+      "ios/Praelude/Core/SyncCoding.swift": "3438098b7b88625597c09effe6e2942b360afd5ca297c7d882ba9b080de4eec5",
+      "ios/Praelude/Services/SyncCoordinator.swift": "6064466da68eb5958a271690ce97c1eaf4f78b579cf227fad7b0979077d19219",
+      "ios/Praelude/Services/PostgRESTSyncTransport.swift": "04b8f13ef2da1834bd3fd269507cd1a7069025eb6617660fa574be186592f69f"
+    }
+  },
+  "swift_core": {
+    "status": "PASS",
+    "tests": 552,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 3.365,
+    "bootstrap_regressions": 8,
+    "raw_log": "/tmp/praelude-build20-core-score-final.log",
+    "additional_regressions": [
+      "Account change during suspended profile preparation cannot publish or acknowledge another owner profile.",
+      "Profile/privacy edit during suspended preparation survives durable restart and successful retry without stale publication.",
+      "All four pull APIs reject rows after account reset.",
+      "Failed atomic score commit leaves both cursors absent after reopen; retry delivers both tables and persists both receipts."
+    ],
+    "scope": "Final Core-owned API, queue and lifecycle changes; parent final native suite covers final Coordinator/store integration and PDF replacement regression."
+  },
+  "synthetic_hosted_sql": {
+    "status": "PASS",
+    "script": "supabase/tests/08_legacy_queue_prerequisites.sql",
+    "sha256": "7b4cd1a63423871b30c334d336155f2cfbdeb35da18545b8eff3d0eeafc59898",
+    "execution": "Hosted SQL via configured CLI; exit 0; PASS result inspected independently.",
+    "checks": [
+      "Three child-before-parent operations fail with foreign-key violations and publish no child rows.",
+      "Complete ordered instrument/tag/folder/piece/passage/session/set prefix permits original attempt append.",
+      "Repeated append is idempotent; Undo retains the original attempt.",
+      "Explicit nullable fields clear represented parent/state values.",
+      "Second synthetic owner cannot read, overwrite or Undo another owner\u2019s records.",
+      "ROLLBACK removes every synthetic auth and library fixture."
+    ],
+    "privacy": "Only static synthetic UUIDs and reserved example.invalid fixture emails; no personal rows, device IDs, owner identities, credentials or project identifiers in script or report.",
+    "raw_result": "/tmp/praelude-sync-prerequisite-bootstrap-regression-result.txt",
+    "runner": "Executed directly; existing multi-test run.sh is unchanged."
+  },
+  "retained_intermediate_failures": [
+    {
+      "scope": "Isolated bootstrap core run",
+      "cause": "Test expectation compared the full piece despite a retained queued page operation intentionally changing last_page and its independent timestamp.",
+      "resolution": "Corrected only those two expected page fields; title, metadata and updated_at remain exact; full core rerun passes."
+    },
+    {
+      "scope": "Initial hosted native run",
+      "cause": "New passage-region transfer fixture omitted the PDF filename required for its region.",
+      "resolution": "Implementer corrected fixture PDF metadata only; final native rerun is tracked by the parent QA record."
+    }
+  ],
+  "limits": [
+    "No personal device mutation, installation or account query was performed by this reviewer.",
+    "This record does not establish physical feature acceptance or real two-device/offline convergence.",
+    "Parent final native/live results and actual signed-package audit are recorded separately; final native validation was running when this source review record was finalized."
+  ],
+  "earlier_full_core": {
+    "status": "PASS",
+    "tests": 549,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 4.193,
+    "raw_log": "/tmp/praelude-build20-bootstrap-core-full-final.log"
+  }
+}

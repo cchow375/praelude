@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-10",
+  "timezone": "America/New_York",
+  "build": 9,
+  "version": "2.0.0",
+  "sourceCommit": "2de2444a782cb54a5cd31966ecc33257e4511dd0",
+  "deviceModel": "iPad Pro 12.9-inch (3rd generation), iPad8,5",
+  "os": "iOS18.7.8",
+  "question": "After trying build9, how are score pinch-zoom, Pencil marks → Done, two-finger Undo, passage selection and button response? Please mention any action that still delays, moves ink separately, freezes or crashes.",
+  "userReply": "Those actions work and feel responsive",
+  "result": "User-accepted for the named physical flows",
+  "acceptedFlows": [
+    "Score pinch-zoom",
+    "Pencil marks followed by Done",
+    "Two-finger Undo",
+    "Passage selection",
+    "Button response"
+  ],
+  "evidenceType": "Direct user report from the installed physical iPad",
+  "limits": [
+    "No instrumented touch-latency or speedup measurement. Both prior build9 traces were essentially idle.",
+    "No week-long or zero-defect reliability claim.",
+    "No inference about microphone/audio, real-account two-device sync, or a specific combined zoomed two-finger Undo sequence."
+  ]
+}

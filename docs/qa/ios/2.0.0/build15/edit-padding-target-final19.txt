@@ -1,0 +1,1 @@
+button=(161.0, 989.0, 44.0, 44.0) paddingPoint=(183.0, 1026.0) centralGlyphExclusion=(171.0, 999.0, 24.0, 24.0) panel=(16.0, 989.0, 788.0, 121.0) hittable=true readiness=1

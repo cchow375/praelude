@@ -1,0 +1,82 @@
+{
+  "result": "passed",
+  "recordedUTC": "2026-10-13T21:42:57.775292+00:00",
+  "version": "2.0.0",
+  "build": 18,
+  "sourceScope": "Independent manual controls/navigation proof on Debug source before accepted-command tracking-loss repair. Later service-only fix needs its own current-build check; this report is retained unchanged.",
+  "sourceProvenanceSHA256": "fd6eb1f06c5d378301bdbffd4979e1de90c101bed9c781b5c5a81e9c34f8970f",
+  "processes": [
+    4886,
+    5228
+  ],
+  "provenance": {
+    "fullInstalledAndBuiltBundleExact": true,
+    "bundleFiles": 109,
+    "fullCodeFilesExact": true,
+    "codeFileCount": 33,
+    "mainExecutableSHA256": "218ec4e5c0a6764d3e3234c5a3d981f91d3f0681e5cc94f7d3fefc558834298e",
+    "mainExecutableBytes": 44681080,
+    "debugDylibPresent": false,
+    "codeInventorySHA256": "18badef382f4ac991229e2e7a782f70c1218a496b842ff7a7aa079750c3a7f1b"
+  },
+  "flows": [
+    {
+      "flow": "Normal Today\u2192Sidebar\u2192Pieces\u2192visible Practice study card\u2192score",
+      "result": "passed",
+      "firstInputOnly": true
+    },
+    {
+      "flow": "Score menu\u2192Camera gestures and new right/left/down defaults with explicit legacy-Shake suspension warning",
+      "result": "passed"
+    },
+    {
+      "flow": "Previous page remapped to Look down; Clean becomes Unassigned",
+      "result": "passed"
+    },
+    {
+      "flow": "Synthetic Enable\u2192calibrated Test mode\u2192two preview hide/show pairs\u2192Off\u2192Done\u2192score",
+      "result": "passed",
+      "previewPairs": 2
+    },
+    {
+      "flow": "Fresh process\u2192normal sidebar score shortcut\u2192Camera gestures, exact remap retained and camera Off",
+      "result": "passed"
+    },
+    {
+      "flow": "Head-look interval lower-form control",
+      "result": "untested",
+      "reason": "One CUA wheel and one built-in drag did not move lower form. No further scrolling attempts; interval was not reached or changed, input/product cause unproven."
+    }
+  ],
+  "inputScope": {
+    "tool": "CUA Simulator coordinate clicks",
+    "singleClickHoldMs": 120,
+    "tapRetries": 0,
+    "eventTrace": false,
+    "latencyMeasured": false,
+    "observation": "First immediate screenshot sometimes preceded the visible transition; a later observation showed completion without another input."
+  },
+  "preferences": {
+    "lookRight": "nextPage",
+    "lookDown": "previousPage",
+    "lookLeft": "off",
+    "cleanUnassigned": true,
+    "directionCooldown": 0.4,
+    "allowVerdicts": false,
+    "reloadedFromSavedPreferences": true
+  },
+  "library": {
+    "completeFileUnionExact": true,
+    "files": 2,
+    "bytes": 97084,
+    "changedFiles": [],
+    "fullJSONExact": true,
+    "changedTopLevelFields": [],
+    "schema": 5,
+    "revision": 7,
+    "activeSet": false,
+    "historySets": 0,
+    "attempts": 0
+  },
+  "boundary": "Disposable Simulator library and synthetic camera lifecycle only. No video/real capture graph, physical tracking/sign/alignment/accuracy/distance/action-latency/Pencil/audio acceptance. No physical device operations; friend held."
+}

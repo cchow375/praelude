@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-13",
+  "installedBuildReported": 17,
+  "sourceCheckpoint": "ios-v2.0.0-build17-candidate",
+  "recognition": "User reports continued poor recognition and excessive friction at piano distance, especially full head shake/nod requirements.",
+  "requestedBehavior": {
+    "quickRightLook": "nextPage",
+    "quickLeftLook": "previousPage",
+    "quickDownLook": "assignedCommand",
+    "activation": "more sensitive, fire before full shake/nod and return",
+    "trackingLoss": "use recent directional movement and reacquisition as bounded evidence; disappearance alone is ambiguous"
+  },
+  "latency": "No new physical latency verdict; user requested shipping Build17 first in prior reply. Build17 was already installed and launched.",
+  "scope": "Implement/test Build18 and guarded same-bundle install on personal iPad. Friend iPad remains held; Mac unchanged.",
+  "physicalAcceptance": "Build17 real recognition remains failed; Build18 requires new actual-device acceptance.",
+  "physicalSetup": {
+    "userReportedFaceDistanceFeet": "2.5\u20133",
+    "orientation": "upright/portrait, nearly always",
+    "rangeMetersApproximate": "0.76\u20130.91",
+    "boundary": "Reported setup, not measured camera field of view or recognition accuracy."
+  }
+}

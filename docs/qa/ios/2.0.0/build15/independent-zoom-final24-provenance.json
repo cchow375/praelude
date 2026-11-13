@@ -1,0 +1,47 @@
+{
+  "appSHA256": "f18c220c56eed9d2d30bc3b68e2c3e315e5fa79f7a17c20c75daa83c196fe645",
+  "built": {
+    "app": {
+      "bytes": 43817784,
+      "sha256": "f18c220c56eed9d2d30bc3b68e2c3e315e5fa79f7a17c20c75daa83c196fe645"
+    },
+    "runnerPlugin": {
+      "bytes": 2342896,
+      "sha256": "bd8fbeeeca9b4046b66ffff2bc962a8535c6acc255ace8891772afc2b96adb9c"
+    }
+  },
+  "compiledDuringIndependentRun": false,
+  "excludedFlags": [
+    "--audit-taps",
+    "--audit-reading-delivery",
+    "--audit-reading-lifecycle",
+    "--audit-window-reading-delivery",
+    "--audit-open-gesture-score",
+    "--audit-simulated-voice"
+  ],
+  "execution": "test-without-building",
+  "installedAppAfter": {
+    "bytes": 43817784,
+    "matchesBuilt": true,
+    "sha256": "f18c220c56eed9d2d30bc3b68e2c3e315e5fa79f7a17c20c75daa83c196fe645"
+  },
+  "matchesFinal23Binaries": true,
+  "normalFlags": [
+    "--uitesting",
+    "--reset",
+    "--seed",
+    "--seed-sections",
+    "--audit-gesture-preservation"
+  ],
+  "rawLogSHA256": "80c668f2f74fd8fb7347eaf0e7277e4c5aff6e193d5a8f641aa73e12bcb000e8",
+  "rawResultBundle": "praelude-build15-independent-zoom-final24.xcresult",
+  "result": "passed",
+  "screenshot": {
+    "path": "docs/qa/ios/2.0.0/build15/screenshots/independent-zoom-armed-final24.png",
+    "sha256": "bba80d0749456f3d8023e8b32346f9035813b08d3b7f201b7146227ae52c7fc6"
+  },
+  "sourceHashCount": 241,
+  "sourceHashReference": "tap-input-final23-provenance.json",
+  "sourceMismatches": [],
+  "valuesAttachmentSHA256": "df42a0b7f343f3d47708d7ce76ab6034c917df22f4989cd820dc42cbd31ebde3"
+}

@@ -1,0 +1,93 @@
+{
+  "boundary": "Read-only actual disposable simulator baseline/post-test comparison; physical devices untouched. This is record comparison, not file byte equality.",
+  "case": "urgency",
+  "practiceAndAnnotationFieldsCompared": [
+    "activeSet",
+    "history",
+    "sessions",
+    "coldGrades",
+    "breakPointTaps",
+    "ruleEvents",
+    "goals",
+    "routines",
+    "rewardLedger",
+    "badges",
+    "milestoneEvents",
+    "notebookEntries",
+    "recordings",
+    "inkStrokes",
+    "textAnnotations",
+    "stampAnnotations"
+  ],
+  "changedProtectedFields": [
+    "rewardLedger"
+  ],
+  "passageIdentitiesEqual": true,
+  "passageChanges": {},
+  "allOtherTopLevelDeltas": {
+    "revision": {
+      "before": 12,
+      "after": 14
+    },
+    "rewardLedger": {
+      "before": [],
+      "after": [
+        {
+          "coinsDelta": 8,
+          "date": 813445399.602361,
+          "id": "8CD7E015-BE4A-4F8D-BC72-086FE645D3EF",
+          "reason": "Reviewed on time",
+          "xpDelta": 15
+        },
+        {
+          "coinsDelta": 8,
+          "date": 813445399.602365,
+          "id": "A0B08CE1-F836-4346-9B8B-4DABABA0FCBF",
+          "reason": "Reviewed on time",
+          "xpDelta": 15
+        },
+        {
+          "coinsDelta": 8,
+          "date": 813445399.602366,
+          "id": "016AD78A-4F2A-43A2-82FC-FC2D6C45819E",
+          "reason": "Reviewed on time",
+          "xpDelta": 15
+        }
+      ]
+    },
+    "rewardsState": {
+      "before": {
+        "division": 1,
+        "rank": "Unranked",
+        "streakDays": 0,
+        "streakFreezesAvailable": 0,
+        "updatedAt": 813445397.265063
+      },
+      "after": {
+        "division": 1,
+        "rank": "Prelude",
+        "streakDays": 0,
+        "streakFreezesAvailable": 0,
+        "updatedAt": 813445399.614831
+      }
+    }
+  },
+  "knownStartupRewardsNormalizationOnly": true,
+  "unexpectedTopLevelDeltas": [
+    "rewardLedger"
+  ],
+  "beforeSHA256": "74e27eec9ee649240baea761aa7841c489994a033cf676d85b08d058ec2ec1e4",
+  "afterSHA256": "71b31226ac46bdd180326485005b0222ab9f74d8b4aa8204785287477f141ffb",
+  "counts": {
+    "history": 0,
+    "sessions": 0,
+    "coldGrades": 3,
+    "ruleEvents": 0,
+    "rewardLedger": 3,
+    "inkStrokes": 0,
+    "textAnnotations": 0,
+    "stampAnnotations": 0
+  },
+  "activeSet": null,
+  "protectedRecordPreservationPassed": false
+}

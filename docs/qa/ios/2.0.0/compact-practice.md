@@ -1,0 +1,54 @@
+# Build6 compact practice controls
+
+2.0.0/build6/schema5 development candidate. Build6 is installed and user-opened after guarded refresh; no schema, rules or sync changes.
+
+## Requested correction
+
+Christian’s installed build5 feedback: Start without grading, Techniques and More options consumed excessive vertical space, while a narrow dock left useful horizontal space empty. Score visibility takes priority.
+
+Removed the760-point dock width cap. Wide setup shares metadata/tempo/secondary actions with cold grading or Start. Secondary actions retain44-point targets. Cold and running verdicts use horizontal icon/text and52-point targets. Running progress, directly adjustable tempo, transport and verdicts use one row when their measured widths fit, with readable narrow fallbacks. Expanded readout and accessibility wrapping/scrolling remain available.
+
+## Native verification
+
+- Six distinct iPad cases pass across the scoped initial/final runs: setup geometry, collapsed running geometry with actual Clean→1/Undo→0 and stable PDF bounds, largest-text complete labels/reachability, pre-attempt metronome edits, Techniques scrolling/hand choice, and completion→Another set→ordinary Start.
+- Final geometry tests exercise portrait and landscape: ordinary and first-attempt setup143pt; collapsed running100pt. Secondary targets44pt; verdicts52pt. These are native accessibility dock bounds, excluding system safe-area/margins. Score viewports remain927/567pt during setup and970/610pt during collapsed running. The saved repetition and Undo leave all four score-frame components unchanged.
+- Largest accessibility text uses the bounded scroll footer, keeps all labels/actions reachable and leaves score height554pt portrait/285.5pt landscape. Its dock content extends beyond the visible scroll viewport deliberately; normal-text height caps do not apply to it.
+- Initial rotation waits failed for both ordinary setup and HUD while the simulator kept portrait geometry. Portrait geometry and actual Clean/Undo already passed. Restarting the synthetic simulator resolves that environment state; both real landscape geometries pass in the final run. No product hit-testing defect is inferred from the combined orientation predicate.
+- Native visual review caught squeezed progress text; fixed-size statistics and lower-priority title compression retain the complete counter, tempo and expansion target. Final running height falls from120pt to100pt. Source review also caught the confirmation overlay sitting over the new verdict row; informational voice flashes now pass touches through.
+- Phone collapsed running geometry and actual verdict/Undo pass both orientations:204pt portrait/152pt landscape. Independent visual review confirms readable full labels/counter/tempo and distinct transport controls. Phone setup initially hit a43.999999pt representation of a44pt frame;0.01pt numerical tolerance is now applied, and the setup rerun now passes portrait/landscape sizing plus an actual first-attempt save after clearing simulator rotation state. One prior landscape press did not save; a subsequent synthetic launch displayed rotated content in a portrait simulator shell. The complete unchanged-app rerun passes after restarting that simulator; the earlier failure is retained without claiming a proven product callback defect. Largest-text review prompted a stronger More options frame/label containment assertion; that targeted native rerun passes both orientations and the final capture shows its complete label. No all-green full UI-scheme, live voice/audio or physical pianist acceptance is claimed.
+
+## Native captures
+
+Synthetic fixture scores only. No personal PDF/data, device IDs, account names or raw result bundles are committed.
+
+- [Build5 before](build6/ipad-build5-before.png)
+- [Compact cold setup portrait](build6/ipad-cold-portrait.png)
+- [Compact cold setup landscape](build6/ipad-cold-landscape.png)
+- [Compact running portrait](build6/ipad-running-portrait.png)
+- [Compact running landscape](build6/ipad-running-landscape.png)
+- [Largest-text scroll fallback](build6/ipad-largest-text-landscape.png)
+- [Phone running portrait](build6/phone-running-portrait.png)
+- [Phone running landscape](build6/phone-running-landscape.png)
+- [Native bounds](build6/layout-metrics.json)
+
+## Guarded device update
+
+The October3 refresh attempt stopped at the initial device data copy. No build or installation was attempted by that helper run. Its failed local copy is retained; installed build5 remains. No lock/trust cause is inferred beyond the helper’s copy failure.
+
+The user then explicitly requested shipment again. A sandbox retry could not reach the device service; the host-access retry verifies11 files/6,212,619bytes with independent manifest/byte review, schema5/revision883 and no active set. Release compilation reaches code signing and fails with `errSecInternalComponent`; the same exact-identity signing probe fails on a plain temporary executable outside the sandbox. Two identities are valid; the selected certificate is unexpired and its code-signing trust check passes; the default keychain is unlocked. Native Xcode’s default Debug build stops earlier at an unrelated Helpers framework linker error and does not establish signing. The cause remains unresolved; no ACL/credential/trust change was performed. The user is asked to run `npm run ios:refresh` locally in Terminal and handle any signing prompt there. [Sanitized attempt](build6/device-update-attempt.json). No installation has been attempted.
+
+The later connected-device retries retain two complete11-file backups, both identical to the earlier private backup. No installation occurred. Fresh certificate trust checks now return `CSSMERR_TP_CERT_REVOKED` for both matching local certificates, superseding the earlier trust result. Latest Xcode diagnostics report No Accounts and invalid development signing certificate. Native Xcode has the existing account/Personal Team, with another certificate Not in Keychain; creation/export/deletion are unavailable. Native profile refresh finishes without a displayed error, but guarded retry still fails. The user is asked which Mac created the available certificate so the usable signing key can be located. No key export, account/certificate removal or trust/credential change was performed.
+
+The user reports the certificate likely originated on another Mac and confirms that Mac is available. Existing-identity `.p12` export/import instructions are prepared in `ios/docs/INSTALL_ON_IPAD.md`; local transfer/import remains unconfirmed. No certificate has been revoked or private key transferred by the agent.
+
+After the user challenged the transfer requirement, root independently matches the earlier codesign identity and confirms both local public certificates fail default and required live OCSP codeSign policies with CERT_REVOKED. Native Xcode’s existing Release Build For Profiling action completes for the physical iPad, but strict signature verification of that app fails CERT_REVOKED. No Run/install action issued. Xcode’s formatting/launcher-identifier normalization was restored after confirming no other semantic changes. Transfer is one recovery path; coordinated replacement is another. Revocation cause is unproven; no agent private-key export/import or certificate revocation occurred.
+
+The user subsequently supplies the exported identity. Native File Import Items targets the login keychain; no password prompt appears. Independent checks confirm a new trusted, unexpired identity matching the configured team. The guarded refresh makes a fresh complete backup, then stops before install: the profile excludes the new certificate and CLI reports No Accounts. Native Download Manual Profiles finishes, but independent cache review still finds no matching usable profile. Native Release Build For Profiling is requested from the user after repeated stale-element automation errors. No trust override/revocation or device workaround occurs. Build5 remains installed.
+
+October3 weekly renewal: Apple confirms Personal Team profiles last seven days. The previously inspected current local profile expiresOctober9 (installed-profile expiry unavailable), but excluded the trusted certificate. Native automatic signing reset still produces revoked signing. One matching local cache profile was reversibly archived outside Git and project reopened. Fresh profile created17:55:53UTC expiresOctober10 at17:55:53UTC; independent app/team/device/development and2 trusted certificate checks pass. Project normalization/local signing overrides restored after semantic review. Native Release waits at codesign/SecurityAgent local authorization; tool safety policy prohibits accessing SecurityAgent. User password entry, actual signed-app verification and guarded installation remain pending.
+
+Final guarded update installs2.0.0/build6 with strict signature/profile/team/device checks. Complete pre/post11-file inventory (6,212,619bytes) matches exactly; independent history/account/privacy review passes. Automatic launch declined; user confirms open, and direct ledger copy confirms schema5/revision883. Profile expiresOctober10 at17:55:53UTC. [Install evidence](build6/personal-ipad-install.json).
+
+## Next steps
+
+Use installed build6 to judge score visibility, essential target sizes and annotation during actual practice. Physical Pencil/freeze/piano and real-account second-device acceptance remain open.

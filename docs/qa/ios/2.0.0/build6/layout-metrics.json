@@ -1,0 +1,119 @@
+{
+  "build": "6",
+  "schema": 5,
+  "measurement": "native accessibility bounds; accessibility dock content may exceed the bounded scroll viewport",
+  "cases": [
+    {
+      "platform": "iPad",
+      "state": "collapsed-HUD",
+      "orientation": "portrait",
+      "dock_width_pt": 788.0,
+      "dock_height_pt": 100.0,
+      "score_viewport_height_pt": 970.0
+    },
+    {
+      "platform": "iPad",
+      "state": "collapsed-HUD",
+      "orientation": "landscape",
+      "dock_width_pt": 1148.0,
+      "dock_height_pt": 100.0,
+      "score_viewport_height_pt": 610.0
+    },
+    {
+      "platform": "iPad",
+      "state": "idle-arm",
+      "orientation": "portrait",
+      "dock_width_pt": 788.0,
+      "dock_height_pt": 143.0,
+      "score_viewport_height_pt": 927.0
+    },
+    {
+      "platform": "iPad",
+      "state": "idle-arm",
+      "orientation": "landscape",
+      "dock_width_pt": 1148.0,
+      "dock_height_pt": 143.0,
+      "score_viewport_height_pt": 567.0
+    },
+    {
+      "platform": "iPad",
+      "state": "cold-arm",
+      "orientation": "portrait",
+      "dock_width_pt": 788.0,
+      "dock_height_pt": 143.0,
+      "score_viewport_height_pt": 927.0
+    },
+    {
+      "platform": "iPad",
+      "state": "cold-arm",
+      "orientation": "landscape",
+      "dock_width_pt": 1148.0,
+      "dock_height_pt": 143.0,
+      "score_viewport_height_pt": 567.0
+    },
+    {
+      "platform": "iPad",
+      "state": "accessibility-arm",
+      "orientation": "portrait",
+      "dock_width_pt": 788.0,
+      "dock_height_pt": 796.5,
+      "score_viewport_height_pt": 554.0
+    },
+    {
+      "platform": "iPad",
+      "state": "accessibility-arm",
+      "orientation": "landscape",
+      "dock_width_pt": 1148.0,
+      "dock_height_pt": 796.5,
+      "score_viewport_height_pt": 285.5
+    },
+    {
+      "platform": "phone",
+      "state": "collapsed-HUD",
+      "orientation": "portrait",
+      "dock_width_pt": 386.0,
+      "dock_height_pt": 204.0,
+      "score_viewport_height_pt": 516.0
+    },
+    {
+      "platform": "phone",
+      "state": "collapsed-HUD",
+      "orientation": "landscape",
+      "dock_width_pt": 734.0,
+      "dock_height_pt": 152.0,
+      "score_viewport_height_pt": 148.0
+    },
+    {
+      "platform": "phone",
+      "state": "idle-arm",
+      "orientation": "portrait",
+      "dock_width_pt": 386.0,
+      "dock_height_pt": 154.66668701171875,
+      "score_viewport_height_pt": 565.3333333333333
+    },
+    {
+      "platform": "phone",
+      "state": "idle-arm",
+      "orientation": "landscape",
+      "dock_width_pt": 734.0,
+      "dock_height_pt": 142.6666717529297,
+      "score_viewport_height_pt": 157.33333333333331
+    },
+    {
+      "platform": "phone",
+      "state": "cold-arm",
+      "orientation": "portrait",
+      "dock_width_pt": 386.0,
+      "dock_height_pt": 221.0,
+      "score_viewport_height_pt": 499.0
+    },
+    {
+      "platform": "phone",
+      "state": "cold-arm",
+      "orientation": "landscape",
+      "dock_width_pt": 756.0,
+      "dock_height_pt": 142.6666717529297,
+      "score_viewport_height_pt": 157.33333333333331
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "status": "completed: 308 native with 1 skip/0fail; 6 UI with 4pass/2fail; exit65",
+  "sourceSnapshot": "/tmp/praelude-build15-context-final8-evidence/next-compile-sources.json",
+  "sourceHashes": {
+    "ios/Praelude/Views/ScoreWorkspace.swift": "25b927f86326f2c9af53c176ed998011041331b37895db37e9dbfe5c478bb46c",
+    "ios/Praelude/InteractionAudit.swift": "72dad11c6fbb10b5558b6eadcb30732d3acd009ea1909f85e63f303d4710177c",
+    "ios/PraeludeUITests/VoiceContextUITests.swift": "7b5a2a13ab8f852bf0d55fe52d0267a32185745283e0a6ae2bd6b60a5aaacf34",
+    "ios/PraeludeUITests/TapDeliveryUITests.swift": "98813af1ba2dcaf62fb7171bb054f7e67ff3bf3f108acc6c845a1de5d113fc13",
+    "ios/PraeludeUITests/FreshBuild13UITests.swift": "3547ade9155ddce420cc204ab6e46eda86c5028ca4d009bb0fabe8d26f33727c",
+    "ios/Praelude/PraeludeApp.swift": "72e21cf2dd8a5befcc475e8d2228c78b863702698526f0be04571c766d6f6aad"
+  },
+  "built": {
+    "app": {
+      "sha256": "2b116993f79cd677869d7510a7964f2e4fc7686a1a5fbd2563ba929a4d0e26a2",
+      "bytes": 43490056,
+      "path": "ios/DerivedData/Build/Products/Debug-iphonesimulator/Praelude.app/Praelude"
+    },
+    "runnerPlugin": {
+      "sha256": "aa2b5e73cb153202c76cc85c17f7eecdd7da1f5a991bed2a7f6de4efd0e25680",
+      "bytes": 1905904,
+      "path": "ios/DerivedData/Build/Products/Debug-iphonesimulator/PraeludeUITests-Runner.app/PlugIns/PraeludeUITests.xctest/PraeludeUITests"
+    }
+  },
+  "scope": "Final9 new production End menu reorder, DEBUG structural audit layout, corrected merged Clean counter assertions, 32-cycle normal Sidebar stress. Tracing disabled in all selected cases; explicit simulated voice only for VoiceContext. No physical device touched.",
+  "installed": {
+    "app": {
+      "sha256": "2b116993f79cd677869d7510a7964f2e4fc7686a1a5fbd2563ba929a4d0e26a2",
+      "bytes": 43490056,
+      "matchesBuilt": true
+    },
+    "runnerPlugin": {
+      "sha256": "aa2b5e73cb153202c76cc85c17f7eecdd7da1f5a991bed2a7f6de4efd0e25680",
+      "bytes": 1905904,
+      "matchesBuilt": true
+    }
+  },
+  "laterSourceExcluded": [
+    "regular owned Sidebar buttons and initial/Close detailOnly",
+    "event-driven Back ownership restoration",
+    "End viewport inset/existence correction",
+    "owned Sidebar stress and rotation tests"
+  ]
+}

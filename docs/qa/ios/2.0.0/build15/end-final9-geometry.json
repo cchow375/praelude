@@ -1,0 +1,83 @@
+{
+  "scope": "Independent read-only inspection of final9 actual simulator menu geometry and screenshot; no End action was attempted.",
+  "run": "praelude-build15-normal-final9",
+  "test": "VoiceContextUITests/testEndPracticeConfirmationRejectsQueuedVoiceBatchAndCancelRestoresCommands",
+  "result": {
+    "status": "failed-before-End-action",
+    "durationSeconds": 57.856
+  },
+  "appExecutableSHA256": "2b116993f79cd677869d7510a7964f2e4fc7686a1a5fbd2563ba929a4d0e26a2",
+  "geometryAttachment": {
+    "content": {
+      "x": 586.0,
+      "y": 32.0,
+      "width": 224.0,
+      "height": 1180.0
+    },
+    "actualMenuSurface": {
+      "x": 586.0,
+      "y": 32.0,
+      "width": 224.0,
+      "height": 520.0
+    },
+    "oldInsetViewport": {
+      "x": 591.0,
+      "y": 37.0,
+      "width": 214.0,
+      "height": 510.0
+    },
+    "EndRow": {
+      "x": 586.0,
+      "y": 66.5,
+      "width": 224.0,
+      "height": 38.0
+    },
+    "EndRowHittable": true,
+    "actualSurfaceContainsEndRow": true,
+    "oldInsetViewportContainsEndRow": false
+  },
+  "visualInspection": "End practice is the first action under Current practice and is fully visible. The resolved button is the entire row, not its smaller icon child.",
+  "trigger": "The fixture inset the true menu surface by five points, rejecting the full-width End row horizontally and issuing an unnecessary view-finding drag.",
+  "observedSequence": [
+    {
+      "seconds": 51.3,
+      "event": "Geometry records the full visible hittable End row."
+    },
+    {
+      "seconds": 51.62,
+      "event": "First view-finding drag begins.",
+      "from": {
+        "x": 698.0,
+        "y": 419.5
+      },
+      "to": {
+        "x": 698.0,
+        "y": 215.5
+      }
+    },
+    {
+      "seconds": 54.58,
+      "event": "Subsequent menu lookup finds no collection containing End."
+    },
+    {
+      "seconds": 57.856,
+      "event": "Case fails when the old helper reads the absent menu frame."
+    }
+  ],
+  "testOnlyCorrection": {
+    "file": "ios/PraeludeUITests/VoiceContextUITests.swift",
+    "SHA256": "23fdf3fdb56b2f0149459d42daaed35a72a74b2ab94fe248d4cb0bae774f1868",
+    "changes": [
+      "Use the actual clip rectangle for full-row containment.",
+      "Guard optional menu and ancestor existence before reading frames.",
+      "Capture disappearance and fail explicitly before any End action."
+    ],
+    "verification": "Swift syntax parse and git diff whitespace check pass; actual corrected End flow remains pending.",
+    "actionRetriesAdded": false
+  },
+  "screenshot": {
+    "path": "screenshots/end-final9-visible.png",
+    "SHA256": "d3c0594135b2e6f47e4caea7a52a98c27302b9430ed2098e13499569d517e72e"
+  },
+  "boundary": "This evidence identifies a fixture geometry error. It does not accept End confirmation command suspension, cancellation restoration, physical speech, or device delivery."
+}

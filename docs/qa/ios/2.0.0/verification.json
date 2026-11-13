@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-02",
+  "baseCommit": "8c87409",
+  "candidate": {
+    "version": "2.0.0",
+    "build": "3",
+    "minimumOS": "17.0",
+    "schema": 3
+  },
+  "releaseBuild": {
+    "configuration": "Release",
+    "platform": "iphoneos-arm64",
+    "signed": false,
+    "result": "BUILD SUCCEEDED",
+    "applicationInputFileCount": 164,
+    "applicationInputSHA256": "802adda39fef4ee30632c3b5c674fc05e9925cdb4e828c706b88ff02dc610eba",
+    "executableSHA256": "f5d2b9d2e5a4b76c77f3eb6ba8bcbb52e8c8bbf2f1286db7b5dfb87aea498835",
+    "debugFixtureFlagsPresent": false,
+    "privateTransferPathPresent": false
+  },
+  "checks": {
+    "core": {
+      "executed": 343,
+      "failures": 0
+    },
+    "pythonHelpers": {
+      "executed": 52,
+      "failures": 0
+    },
+    "serviceAssertions": 2199,
+    "nativeHosted": {
+      "executed": 175,
+      "skipped": 1,
+      "failures": 0
+    },
+    "independentReview": "passed scoped review",
+    "nativeUI": {
+      "iPadSelectedScenariosPassed": 4,
+      "privateMacImportAndPracticePassed": true,
+      "phoneSelectedScenariosPassed": 3,
+      "fullSchemeClaim": false
+    }
+  },
+  "limitations": [
+    "No connected physical device; no install or first launch.",
+    "No intended-account/live two-device Supabase acceptance.",
+    "Desktop transfer is a snapshot; no continuous Mac adapter.",
+    "Historical failed UI setup bundles remain failed.",
+    "Intermittent simulator scroll-adjacent Today taps remain unexplained; final phone tempo run succeeds with one tap."
+  ],
+  "implementationCommit": "635a5ae"
+}

@@ -1,0 +1,129 @@
+{
+  "scope": {
+    "fixture": "disposable synthetic library; no personal-library comparison",
+    "comparison": "decoded JSON values by record identity",
+    "sourceProvenance": "historical audit3 capture; not current checkout verification",
+    "capturedHashes": {
+      "sourceFiles": 5,
+      "builtBinaries": 2
+    },
+    "interactionEvents": 335,
+    "appProcesses": 2
+  },
+  "schemaVersion": {
+    "before": 5,
+    "after": 5
+  },
+  "revision": {
+    "before": 6,
+    "after": 9,
+    "delta": 3
+  },
+  "records": {
+    "before": 185,
+    "after": 185,
+    "retained": 185,
+    "unchangedDecodedValues": 184,
+    "intentionallyEdited": 1,
+    "added": 0,
+    "removed": 0
+  },
+  "nonemptyCollections": {
+    "instruments": {
+      "before": 1,
+      "after": 1
+    },
+    "passages": {
+      "before": 2,
+      "after": 2
+    },
+    "pieces": {
+      "before": 2,
+      "after": 2
+    },
+    "warmupExercises": {
+      "before": 180,
+      "after": 180
+    }
+  },
+  "emptyCollectionsUnchanged": 22,
+  "passageDifference": {
+    "recordsEdited": 1,
+    "fieldsChanged": [
+      "performanceTempo",
+      "title",
+      "updatedAt"
+    ],
+    "initialTitleMatchesFixture": true,
+    "firstSavedTitleMatchesDockEdit": true,
+    "finalTitleMatchesBoxEdit": true,
+    "goalBefore": null,
+    "firstSavedGoal": 108.5,
+    "finalSavedGoal": 112.5,
+    "updatedAtAdvanced": true,
+    "allOtherPassageFieldsUnchanged": true,
+    "otherPassageUnchanged": true,
+    "regionsUnchanged": true
+  },
+  "rewardDifference": {
+    "fieldsChanged": [
+      "rank",
+      "updatedAt"
+    ],
+    "rankBefore": "Unranked",
+    "rankAfter": "Prelude",
+    "updatedAtAdvanced": true,
+    "divisionUnchanged": true,
+    "streakDaysUnchanged": true,
+    "streakFreezesUnchanged": true,
+    "rewardLedgerEntriesBefore": 0,
+    "rewardLedgerEntriesAfter": 0,
+    "badgesBefore": 0,
+    "badgesAfter": 0,
+    "milestoneEventsBefore": 0,
+    "milestoneEventsAfter": 0
+  },
+  "protectedValues": {
+    "piecesUnchanged": true,
+    "instrumentsUnchanged": true,
+    "warmupExercisesUnchanged": true,
+    "profileUnchanged": true,
+    "preferencesUnchanged": true,
+    "ruleSettingsUnchanged": true,
+    "allOtherTopLevelValuesUnchanged": true,
+    "nonemptyAnnotationHistoryRetentionExercised": false,
+    "annotationHistoryCaveat": "ink, stamps, notes, bookmarks, page edits, grades, sessions, practice history and recordings are empty in this fixture",
+    "passageSchedulingFieldsUnchanged": true
+  },
+  "actualUI": {
+    "cases": 1,
+    "completedPasses": 0,
+    "failures": 1,
+    "durationSeconds": 142.404,
+    "reached": [
+      "actual selected passage arm without starting a set",
+      "dock title double tap, name and 108.5 goal save",
+      "selected box double tap, name and 112.5 goal save",
+      "relaunch and ordinary title double tap with saved values",
+      "actual region triple tap and denied or unavailable dictation recovery",
+      "Cancel then ordinary title double tap without inherited dictation request",
+      "neutral microphone Needs attention value with long score error caption absent",
+      "actual microphone tap opens Hands-free"
+    ],
+    "stoppedAt": "recovery error label not found within 5 seconds in initial unscrolled Hands-free list",
+    "handsFreeViewport": {
+      "sheetWidth": 580,
+      "sheetHeight": 650,
+      "verticalScrollPages": 3,
+      "verticalScrollPercent": 0
+    },
+    "notReached": [
+      "visible recovery details assertion",
+      "Hands-free Done and post-dismissal checks",
+      "final close, relaunch and persistence recheck"
+    ],
+    "librarySidebarOpeningExercised": false,
+    "physicalInputAcceptance": false
+  },
+  "unexpectedDifferences": []
+}

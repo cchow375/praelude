@@ -1,0 +1,168 @@
+{
+  "checkedAtUTC": "2026-10-12T21:41:55.042306+00:00",
+  "scope": "Independent live Simulator UI using CUA screenshot-derived inputs; disposable synthetic library and synthetic face frames.",
+  "app": {
+    "bundle": "com.christian.praelude.ios",
+    "version": "2.0.0",
+    "build": "17",
+    "sourceExecutableSHA256": "58582ddb8891b51fdc392ae782b4447dea9bc8e9535d7fa4248abe0b78ca6a6d",
+    "installedExecutableSHA256": "58582ddb8891b51fdc392ae782b4447dea9bc8e9535d7fa4248abe0b78ca6a6d",
+    "hashMatches": true,
+    "fixture": "disposable synthetic library and synthetic face frames",
+    "physicalDeviceOperations": false
+  },
+  "result": "passed_with_input_observation",
+  "checks": {
+    "normalTodaySidebarPiecesScoreNavigation": "pass",
+    "commandFirstExclusiveAssignment": {
+      "result": "pass",
+      "previousPage": "Nod",
+      "clean": "Unassigned",
+      "reopenedSheetVerification": true,
+      "persistedSettingsReadback": {
+        "holdDuration": 0.4,
+        "eyesClosed": "off",
+        "nod": "previousPage",
+        "grin": "nextPage",
+        "shake": "sloppy",
+        "mouthOpen": "off",
+        "sensitivity": "standard",
+        "cooldown": 1.25,
+        "allowVerdicts": false
+      }
+    },
+    "automaticCalibration": "pass: Test mode actions paused in settings; Ready on score",
+    "previewCycles": [
+      {
+        "cycle": 1,
+        "previewHidden": true,
+        "previewRestored": true,
+        "DoneReturnsReadyScoreOverlay": true,
+        "reopenedSettingsWithScoreOverlayHidden": true
+      },
+      {
+        "cycle": 2,
+        "previewHidden": true,
+        "previewRestored": true,
+        "DoneReturnsReadyScoreOverlay": true,
+        "reopenedSettingsWithScoreOverlayHidden": true
+      },
+      {
+        "cycle": 3,
+        "previewHidden": true,
+        "previewRestored": true,
+        "DoneReturnsReadyScoreOverlay": true,
+        "reopenedSettingsWithScoreOverlayHidden": true
+      },
+      {
+        "cycle": 4,
+        "previewHidden": true,
+        "previewRestored": true,
+        "DoneReturnsReadyScoreOverlay": true,
+        "reopenedSettingsWithScoreOverlayHidden": true
+      },
+      {
+        "cycle": 5,
+        "previewHidden": true,
+        "previewRestored": true,
+        "DoneReturnsReadyScoreOverlay": true,
+        "reopenedSettingsWithScoreOverlayHidden": true
+      },
+      {
+        "cycle": 6,
+        "previewHidden": true,
+        "previewRestored": true,
+        "DoneReturnsReadyScoreOverlay": true,
+        "reopenedSettingsWithScoreOverlayHidden": "not repeated after final cycle"
+      }
+    ],
+    "cameraSettingsLibraryPreservation": {
+      "cameraSettingsPhaseLibraryExact": true,
+      "beforeSHA256": "3fbe6fa7c05d7b098e99aed299a6b477b4fe936842b338570fa38be93aa0c6d1",
+      "afterSHA256": "3fbe6fa7c05d7b098e99aed299a6b477b4fe936842b338570fa38be93aa0c6d1",
+      "hasActiveSet": false,
+      "historyCount": 0
+    },
+    "ordinaryPageTurn": {
+      "result": "pass",
+      "from": 1,
+      "to": 2,
+      "savedLastPage": 2
+    },
+    "explicitTouchPracticeRep": {
+      "result": "pass",
+      "uiProgressBefore": "0/5",
+      "uiProgressAfter": "1/5",
+      "transientFeedbackObserved": "Clean \u00b7 1 of 5 (visible during fade-in)",
+      "savedAttempts": 1,
+      "savedCleanAttempts": 1,
+      "savedRewardCompletedRepetitionEntries": 1
+    },
+    "cleanup": {
+      "setEnded": true,
+      "savedHistorySets": 1,
+      "cameraOverlayRemovedAfterOff": true
+    },
+    "practiceReadback": {
+      "changedTopLevelFields": [
+        "history",
+        "pieces",
+        "revision",
+        "rewardLedger",
+        "sessions"
+      ],
+      "unchangedTopLevelFields": [
+        "badges",
+        "bookmarks",
+        "breakPointTaps",
+        "coldGrades",
+        "desktopImports",
+        "folders",
+        "goals",
+        "inkStrokes",
+        "instruments",
+        "milestoneEvents",
+        "notebookEntries",
+        "pageEdits",
+        "passages",
+        "preferences",
+        "profile",
+        "recordings",
+        "rewardsState",
+        "routines",
+        "ruleEvents",
+        "ruleSettings",
+        "schemaVersion",
+        "scoreLinks",
+        "setlists",
+        "stampAnnotations",
+        "tags",
+        "textAnnotations",
+        "warmupExercises"
+      ],
+      "allOtherLibraryFieldsExact": true
+    }
+  },
+  "observations": [
+    {
+      "action": "First preview hide at switch center with default CUA click",
+      "result": "No state change on two subsequent screenshots",
+      "followup": "One bounded alternate at visible switch thumb with120ms contact succeeded; all remaining preview cycles used visible thumb/120ms and succeeded",
+      "cause": "Unproven; no event-transport trace collected, so no production switch defect or freeze inferred."
+    }
+  ],
+  "untested": [
+    "Physical ARKit/TrueDepth camera/recognition accuracy",
+    "Physical Vision fallback accuracy",
+    "Physical preview rendering/crash behavior",
+    "Gesture-to-verdict end-to-end through actual changing face frames (synthetic worker emits neutral only)",
+    "Physical one-second stall or measured input/render latency",
+    "Audible sound/haptic acceptance"
+  ],
+  "screenshots": [
+    "independent-live-final5-exclusive-mapping.png",
+    "independent-live-final5-score-page2.png"
+  ],
+  "physicalDeviceOperations": false,
+  "productionSourceChanges": false
+}

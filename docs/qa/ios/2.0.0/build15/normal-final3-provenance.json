@@ -1,0 +1,71 @@
+{
+  "capturedUTC": "2026-10-12T01:05:01.145029+00:00",
+  "scope": "Final3 17 normal actual UI cases; test-without-building reuses final1 app and runner; no tracing and no simulated voice. VoiceContext test-only edits in working tree are not compiled into this run. Outcomes separate.",
+  "Praelude": {
+    "built": {
+      "sha256": "96c291686efa6661ddd9d85960e6b0ebb71b6e24cbd17465497bd00fb9a42ede",
+      "size": 43374408
+    },
+    "installed": {
+      "sha256": "96c291686efa6661ddd9d85960e6b0ebb71b6e24cbd17465497bd00fb9a42ede",
+      "size": 43374408
+    }
+  },
+  "runner": {
+    "sha256": "bf3634e7f37e9091126d0bd49978ad7cb5074f8b77cff30d4acd729a9765fc84",
+    "size": 1757552
+  },
+  "final1_source_files": {
+    "ios/Praelude/Views/ScoreWorkspace.swift": {
+      "sha256": "ca403baee8ceb535d1dcf4e21bccc7dfc71942a88f8affddcd303add5fe1aa92",
+      "size": 102821
+    },
+    "ios/Praelude/Services/SpeechCommandService.swift": {
+      "sha256": "f7532cbb86043c314c74b34d96e8cc1f18a92978ab4bc531eb4c32ba240e0f43",
+      "size": 36052
+    },
+    "ios/Praelude/Services/MetronomeService.swift": {
+      "sha256": "75bf0b1eaf5be95805e3b7366b9a280863345e99161bbc9be55491b5ab859c52",
+      "size": 21207
+    },
+    "ios/Praelude/Services/AudioSessionCoordinator.swift": {
+      "sha256": "d408f89ea201128d7c2142522dda031f7ef87ed162cb5fdebf542043d74d9b10",
+      "size": 7456
+    },
+    "ios/PraeludeAppTests/VoiceCaptureSafetyTests.swift": {
+      "sha256": "7f23ab9a07a88e2967e57f06e170090c590eea3cdb8f9d73a5ab11f1315f517d",
+      "size": 28302
+    },
+    "ios/PraeludeUITests/VoiceContextUITests.swift": {
+      "sha256": "b7a28988de2664104cf6e765baf142da01eecfa79cf9cf15f678a1a7900e9ecc",
+      "size": 28172
+    },
+    "ios/PraeludeUITests/VoiceCustomizationUITests.swift": {
+      "sha256": "a75c126b5ab06223d948b01315a4b658bc5041494f01b0e592f76b5414fe3a36",
+      "size": 7570
+    }
+  },
+  "selected_test_sources": {
+    "ios/PraeludeUITests/FreshBuild13UITests.swift": {
+      "sha256": "369bfe63b36eb93da55fc39c705249886ac3e2d22bc4d16661008682d95f75de",
+      "size": 34465
+    },
+    "ios/PraeludeUITests/ScoreFocusUITests.swift": {
+      "sha256": "cf0bfd90e41f4f348540067b56727f8f2d59cc5c8b17bebbbc98794ed6b777a3",
+      "size": 9130
+    },
+    "ios/PraeludeUITests/TapDeliveryUITests.swift": {
+      "sha256": "601c96b6558e2b12a4e7668233a41bc78548f0eab73b1b69a8a3cf8ce46f78d9",
+      "size": 11537
+    },
+    "ios/PraeludeUITests/SelectedPassageTapUITests.swift": {
+      "sha256": "7cbe8aba0390cba4808270f3ecab96481cc257b5ae0fe5502e1fe56a7a8cbe47",
+      "size": 9284
+    },
+    "ios/PraeludeUITests/GestureErgonomicsUITests.swift": {
+      "sha256": "a69d185ad0e7dc1402ec9940b376fd3cd1fc3db8a0108cb0dd0dfa8187b1ef15",
+      "size": 19590
+    }
+  },
+  "physical_devices_touched": false
+}

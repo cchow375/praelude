@@ -1,0 +1,22 @@
+{
+  "recordedUTC": "2026-10-13T21:58:35.612335+00:00",
+  "candidateCommit": "ae1c34e",
+  "sourceCheckpoint": "ios-v2.0.0-build18-candidate",
+  "installedBuildReadback": "17",
+  "runningProcessObserved": true,
+  "failureStage": "initial pre-install full library copy",
+  "appleErrorDomains": {
+    "com.apple.dt.CoreDeviceError": 7000,
+    "com.apple.dt.remoteservices.error": 11001,
+    "NSPOSIXErrorDomain": 1
+  },
+  "completeBackupVerified": false,
+  "privateFailedCopy": "releases/ios-device-backups/20261013T215500Z-8aa1fc94",
+  "manifestPresent": false,
+  "buildAttempted": false,
+  "installationAttempted": false,
+  "preservedExistingApp": true,
+  "readinessConfirmationPending": true,
+  "noUninstallResetRestoreOrTermination": true,
+  "scope": "Failure cause unproven; generic copy failure does not establish lock state. User asked to unlock/open/pause/leave idle before guarded retry. Friend remains held, Mac unchanged."
+}

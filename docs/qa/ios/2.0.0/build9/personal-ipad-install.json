@@ -1,0 +1,254 @@
+{
+  "version": "2.0.0",
+  "build": 9,
+  "sourceCommit": "2de2444a782cb54a5cd31966ecc33257e4511dd0",
+  "deviceModel": "iPad Pro 12.9-inch (3rd generation), iPad8,5",
+  "os": "iOS18.7.8",
+  "installation": "Guarded same-bundle refresh; no uninstall, reset, restore-over or application termination workaround.",
+  "preservation": {
+    "auditVersion": 1,
+    "deviceActionsPerformed": false,
+    "preLaunchLedger": {
+      "schema": 5,
+      "revision": 2167,
+      "pieces": 6,
+      "passages": 53,
+      "historicalSets": 53,
+      "allSetIDs": 54,
+      "sessions": 35,
+      "uniqueAttempts": 317,
+      "activeSetStatus": "paused",
+      "runningSets": 0,
+      "inkRows": 259,
+      "activeInkRows": 202,
+      "stamps": 2,
+      "textNotes": 2
+    },
+    "beforeFiles": {
+      "count": 13,
+      "totalBytes": 12960329,
+      "manifestRecomputed": true
+    },
+    "installationPreservation": {
+      "beforeBuild": "8",
+      "afterBuild": "9",
+      "ownedFiles": 13,
+      "totalBytes": 12960329,
+      "addedFiles": 0,
+      "deletedFiles": 0,
+      "changedFiles": 0,
+      "allFilenamesBytesSHA256Identical": true,
+      "ledgerByteIdentical": true,
+      "ledgerStructurallyIdentical": true,
+      "profilePrivacyPreferencesExact": true
+    },
+    "postLaunchReadback": {
+      "ledger": {
+        "schema": 5,
+        "revision": 2167,
+        "pieces": 6,
+        "passages": 53,
+        "historicalSets": 53,
+        "allSetIDs": 54,
+        "sessions": 35,
+        "uniqueAttempts": 317,
+        "activeSetStatus": "paused",
+        "runningSets": 0,
+        "inkRows": 259,
+        "activeInkRows": 202,
+        "stamps": 2,
+        "textNotes": 2
+      },
+      "schemaUnchanged": true,
+      "revisionNondecreasing": true,
+      "retention": {
+        "history": {
+          "originalRecords": 53,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "sessions": {
+          "originalRecords": 35,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "inkStrokes": {
+          "originalRecords": 259,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "pieces": {
+          "originalRecords": 6,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "passages": {
+          "originalRecords": 53,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "textAnnotations": {
+          "originalRecords": 2,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "stampAnnotations": {
+          "originalRecords": 2,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "allSets": {
+          "originalRecords": 54,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "attempts": {
+          "originalRecords": 317,
+          "missingOriginalIDs": 0,
+          "changedOriginalRecords": 0,
+          "addedIDs": 0,
+          "allOriginalIDsRetained": true,
+          "allOriginalRecordsExact": true
+        },
+        "attemptsWithinSets": {
+          "missingOriginalContainers": 0,
+          "missingOriginalAttempts": 0,
+          "changedOriginalAttempts": 0,
+          "allOriginalAttemptRecordsRetainedInOriginalContainers": true
+        },
+        "attemptsWithinSessions": {
+          "missingOriginalContainers": 0,
+          "missingOriginalAttempts": 0,
+          "changedOriginalAttempts": 0,
+          "allOriginalAttemptRecordsRetainedInOriginalContainers": true
+        }
+      },
+      "protectedData": {
+        "profileExact": true,
+        "privacyExact": true,
+        "accountOwnerExact": true,
+        "preferencesExact": true,
+        "syncOwnershipExact": true,
+        "backendProfilePrivacyExact": true,
+        "originalScoreAndOtherStaticFilesExact": true
+      },
+      "strictRetentionPassed": true,
+      "activityAttribution": "Not inferred. This is separate from byte-exact prelaunch preservation."
+    },
+    "result": "passed",
+    "checks": {
+      "before_stable_bundle": true,
+      "backup_root_is_directory": true,
+      "no_symlinks": true,
+      "regular_files_only": true,
+      "before_manifest_matches_actual_file_bytes": true,
+      "before_ledger_present": true,
+      "before_valid_schema_revision": true,
+      "active_set_status_valid": true,
+      "record_lists_valid": true,
+      "no_duplicate_ids_within_collection": true,
+      "active_set_not_duplicated_in_history": true,
+      "no_running_preinstall_set": true,
+      "after_stable_bundle": true,
+      "after_manifest_matches_actual_file_bytes": true,
+      "after_ledger_present": true,
+      "after_valid_schema_revision": true,
+      "expected_postinstall_version_build": true,
+      "all_prelaunch_files_exact": true,
+      "postlaunch_stable_bundle": true,
+      "postlaunch_manifest_matches_actual_file_bytes": true,
+      "postlaunch_ledger_present": true,
+      "postlaunch_valid_schema_revision": true,
+      "postlaunch_sync_state_present": true,
+      "postlaunch_schema_revision_valid": true,
+      "postlaunch_retention_proven": true
+    }
+  },
+  "actualInstalledReleaseSignature": {
+    "result": "passed",
+    "build": "9",
+    "profile_created_utc": "2026-10-09T23:56:11+00:00",
+    "profile_expires_utc": "2026-10-16T23:56:11+00:00",
+    "hours_remaining": 167.17,
+    "executable_sha256": "cde90889055e808e7c9463dd8b54dea5aa9a283410f45585a072db5b3764a100",
+    "checks": {
+      "exactly_one_named_device": true,
+      "device_udid_available": true,
+      "same_bundle": true,
+      "expected_version": true,
+      "expected_build": true,
+      "device_platform": true,
+      "no_test_fixtures": true,
+      "no_debug_diagnostic_strings": true,
+      "no_debug_injection_dylib": true,
+      "macho_architecture_read": true,
+      "arm64_device_executable": true,
+      "strict_signature_valid": true,
+      "profile_cms_decoded": true,
+      "profile_team_bundle_device_expiry": true,
+      "entitlements_read": true,
+      "signed_app_identifier": true,
+      "signed_team_identifier": true,
+      "signed_development_permission": true,
+      "all_signed_entitlements_permitted": true,
+      "signer_certificates_extracted": true,
+      "signer_certificate_present": true,
+      "signer_is_profile_member": true,
+      "usable_signing_identities_read": true,
+      "signer_has_valid_local_private_key_identity": true,
+      "signer_codesign_trust": true,
+      "requested_trial_expiry_covered": true
+    },
+    "boundary": "No installation or launch. Local code-sign trust does not establish iPad Developer App trust or physical feature acceptance."
+  },
+  "actualInstalledDSYM": {
+    "appDsymUUIDMatches": true,
+    "architecture": "arm64"
+  },
+  "launch": {
+    "automaticLaunch": "denied by iOS",
+    "userConfirmedOpen": true,
+    "runningReadback": true,
+    "postLaunchBackupUTC": "2026-10-10T00:57:50Z"
+  },
+  "physicalAcceptance": {
+    "date": "2026-10-10",
+    "result": "User-accepted for score pinch-zoom, Pencil marks → Done, two-finger Undo, passage selection and button response",
+    "userReply": "Those actions work and feel responsive",
+    "evidence": "physical-user-acceptance.json",
+    "boundary": "Scoped physical user acceptance; no measured latency or week-long reliability claim."
+  },
+  "postInstallBackupUTC": "2026-10-10T00:45:33Z",
+  "postLaunchDeltaAudit": {
+    "changedLedgerFields": [],
+    "changedCollections": {},
+    "changedFileCount": 0,
+    "addedFiles": 0,
+    "removedFiles": 0,
+    "changedSyncFiles": []
+  }
+}

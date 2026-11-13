@@ -1,0 +1,100 @@
+{
+  "date": "2026-10-16",
+  "status": "CANDIDATE_NATIVE_VERIFIED_READY_FOR_GUARDED_DELIVERY",
+  "version": "2.0.0",
+  "build": "20",
+  "schema": 5,
+  "user_symptoms": [
+    "iPad connected but reports Offline; will sync when connected",
+    "phone generic sync error0"
+  ],
+  "confirmed_blockers": [
+    "FIFO practice history precedes unuploaded parent scores",
+    "account_preferences ordered by nonexistent id",
+    "downloaded organized scores precede required tags/folders",
+    "row-by-row folder/passage hierarchy and region moves can fail local validation",
+    "backend errors misclassified offline and associated messages discarded"
+  ],
+  "original_pending_writes": 8036,
+  "preflight_ipad": {
+    "installedVersion": "2.0.0",
+    "installedBuild": "18",
+    "schemaVersion": 5,
+    "revision": 4265,
+    "activeSet": null,
+    "counts": {
+      "pieces": 6,
+      "passages": 129,
+      "history": 93,
+      "sessions": 57,
+      "inkStrokes": 1088,
+      "stampAnnotations": 20,
+      "textAnnotations": 6
+    },
+    "backup": "releases/ios-device-backups/20261016T235833Z-213b4d31",
+    "fileCount": 13,
+    "bytes": 29081951
+  },
+  "preflight_phone": {
+    "version": "2.0.0",
+    "build": "19",
+    "backup": "releases/ios-device-backups/20261017T000412Z-2ad339c0",
+    "files": 3,
+    "bytes": 109341,
+    "schema": 5,
+    "revision": 189,
+    "pieces": 0,
+    "passages": 0,
+    "active": null
+  },
+  "identity_boundary": "Local profile owners match each other and their own sync-state owners. Values omitted; live credentials not established.",
+  "hosted_before": {
+    "pieces": 0,
+    "passages": 0,
+    "practice_sessions": 0,
+    "sets": 0,
+    "attempts": 0,
+    "ink_strokes": 0,
+    "annotations": 0,
+    "account_preferences": 0,
+    "rule_events": 0,
+    "reward_ledger": 0
+  },
+  "core": {
+    "tests": 552,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 3.365
+  },
+  "limits": [
+    "Physical features and actual account convergence remain unaccepted until separate evidence",
+    "Friend iPad and installed Mac remain unchanged"
+  ],
+  "source_tag": "ios-v2.0.0-build20-candidate",
+  "native": {
+    "tests": 371,
+    "skipped": 1,
+    "failures": 0,
+    "seconds": 28.024,
+    "log_local": "/tmp/praelude-build20/native-frozen.log",
+    "new_download_practice_profile_cases": 7,
+    "sdk_request_error_cases": 4
+  },
+  "device_tool_tests": {
+    "tests": 57,
+    "failures": 0
+  },
+  "live_ui_checkpoint": {
+    "device": "iPad simulator",
+    "test": "CounterPracticeUITests.testIndependentCardScoreCounterCleanUndoPreservesUngradedReview",
+    "pass": true,
+    "seconds": 70.654,
+    "boundary": "Intermediate Build20 source; subsequent changes only affect sync/profile dependency paths covered by final native tests. Not physical sync acceptance."
+  },
+  "additional_resolved_findings": [
+    "First-login currently-working profile IDs hydrate their score dependencies before synchronous adoption; account and concurrent profile intent checked after await",
+    "Piece display lastPage can exceed PDF pageCount with inserted pages; score+page_edits apply atomically",
+    "Split/merge joinedFrom provenance is a visited closure; only parent edges determine upload order",
+    "Atomic piece merge retains annotated-score replacement guard"
+  ]
+}

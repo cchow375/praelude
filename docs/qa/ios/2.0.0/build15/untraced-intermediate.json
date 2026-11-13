@@ -1,0 +1,138 @@
+{
+  "status": "interrupted; incomplete xcresult; no overall pass",
+  "compiled_before_latest_repairs": true,
+  "tracing_enabled": false,
+  "completed_ui_cases": 20,
+  "passed": 18,
+  "failed": 2,
+  "native_cases_executed": 0,
+  "remaining_case": "VoiceCustomizationUITests/testScoreVoiceAliasesRejectTempoCollisionRecoverAndExposeDiagnostics",
+  "remaining_case_status": "interrupted amid repeated 60-second XCTest keyboard animation synchronization waits; not accepted",
+  "termination": "SIGINT then SIGTERM to host xcodebuild; exit143; xcresult Info.plist absent",
+  "cases": [
+    {
+      "class": "FreshBuild13UITests",
+      "method": "testActualDoubleTapNameAndBoxGoalsPersistAndTripleTapDictationRecovers",
+      "result": "failed",
+      "seconds": 34.025
+    },
+    {
+      "class": "FreshBuild13UITests",
+      "method": "testCameraStartsOffWithMinimizedPreviewAndPersistsExplicitMapping",
+      "result": "passed",
+      "seconds": 146.305
+    },
+    {
+      "class": "FreshBuild13UITests",
+      "method": "testDirectNameAndDecimalGoalSaveAndReopenWithoutStartingSet",
+      "result": "passed",
+      "seconds": 96.799
+    },
+    {
+      "class": "FreshBuild13UITests",
+      "method": "testFirstAttemptClickStateAndMissedFutureToughQueueSurviveRelaunch",
+      "result": "passed",
+      "seconds": 67.385
+    },
+    {
+      "class": "FreshBuild13UITests",
+      "method": "testIndependentUndoNewStrokeRetainsNewLocationThroughSaveAndRelaunch",
+      "result": "passed",
+      "seconds": 99.507
+    },
+    {
+      "class": "FreshBuild13UITests",
+      "method": "testTodayPriorityRenderingShowsDueCountAndKeepsFutureToughNonurgent",
+      "result": "passed",
+      "seconds": 16.649
+    },
+    {
+      "class": "FreshBuild13UITests",
+      "method": "testUrgentOverdueAndDueToughQueueKeepsFutureReviewNonurgent",
+      "result": "passed",
+      "seconds": 24.54
+    },
+    {
+      "class": "GestureErgonomicsUITests",
+      "method": "testActualDrawUndoDrawKeepsOnlyTheNewBranchAfterZoomAndReopen",
+      "result": "passed",
+      "seconds": 75.168
+    },
+    {
+      "class": "ScoreFocusUITests",
+      "method": "testControlPositionPersistsAfterRelaunch",
+      "result": "passed",
+      "seconds": 41.713
+    },
+    {
+      "class": "ScoreFocusUITests",
+      "method": "testFocusHidesCounterPreservesSetAndRestoresCountingWithHands",
+      "result": "passed",
+      "seconds": 42.825
+    },
+    {
+      "class": "ScoreFocusUITests",
+      "method": "testTodayPassageNamesSaveWithoutStartingPractice",
+      "result": "failed",
+      "seconds": 16.971
+    },
+    {
+      "class": "ScoreFocusUITests",
+      "method": "testWhiteSideMarginsTurnTheCorrectPage",
+      "result": "passed",
+      "seconds": 26.845
+    },
+    {
+      "class": "SelectedPassageTapUITests",
+      "method": "testEightSelectedBoxDoubleTapCancelCyclesThenTripleAndOrdinaryDockEdit",
+      "result": "passed",
+      "seconds": 215.496
+    },
+    {
+      "class": "TapDeliveryUITests",
+      "method": "testCameraSettingsSingleTapDoneAndReopenAfterScoreCloseRelaunch",
+      "result": "passed",
+      "seconds": 154.474
+    },
+    {
+      "class": "TapDeliveryUITests",
+      "method": "testLibraryCardPaddingIsPartOfTheTapTarget",
+      "result": "passed",
+      "seconds": 49.308
+    },
+    {
+      "class": "TapDeliveryUITests",
+      "method": "testPassagesSingleTapSelectsSavedRowAndArmsColdAttempt",
+      "result": "passed",
+      "seconds": 64.345
+    },
+    {
+      "class": "TapDeliveryUITests",
+      "method": "testPracticeStudyGridCenterTapOpensActualScore",
+      "result": "passed",
+      "seconds": 40.371
+    },
+    {
+      "class": "TapDeliveryUITests",
+      "method": "testSidebarShowPiecesHideUsesSingleTaps",
+      "result": "passed",
+      "seconds": 32.998
+    },
+    {
+      "class": "TapDeliveryUITests",
+      "method": "testTodayAllPassageReviewsCenterTapOpensQueue",
+      "result": "passed",
+      "seconds": 25.618
+    },
+    {
+      "class": "TapDeliveryUITests",
+      "method": "testTodayReviewQueueEightSingleTapOpenDoneCycles",
+      "result": "passed",
+      "seconds": 134.535
+    }
+  ],
+  "provenance_file": "/tmp/praelude-build15-final-intermediate-provenance.json",
+  "raw_log": "/tmp/praelude-build15-final.log",
+  "simulator_runtime": "iOS26.5 (23F77)",
+  "physical_devices_touched": false
+}

@@ -1,0 +1,205 @@
+import SwiftUI
+
+/// Sign up/in, magic link, password reset, sign out, and in-app account deletion (spec §4b). A
+/// guest keeps practicing fully offline either way — nothing here is required to use the app.
+struct AccountView: View {
+    @Environment(PracticeStore.self) private var store
+    @Environment(AuthManager.self) private var auth
+    @Environment(SyncCoordinator.self) private var syncCoordinator
+
+    private enum Mode: Hashable { case signIn, signUp }
+
+    @State private var email = ""
+    @State private var password = ""
+    @State private var mode = Mode.signIn
+    @State private var isWorking = false
+    @State private var confirmDeleteStep1 = false
+    @State private var confirmDeleteStep2 = false
+    @State private var deleteError: String?
+
+    /// The age gate (spec §5c "age gate at signup with stricter defaults for minors"). `nil` until
+    /// chosen; required before "Create account" enables, so a new account is never created without
+    /// it. Applied once, the moment `auth.state` actually flips to `.signedIn` for the first time
+    /// after that tap — sign-up itself only sends a confirmation email (`AccountView`'s own footer
+    /// copy says so), so the account this needs to write to doesn't exist yet at the point of tap.
+    @State private var pendingAgeBracket: AgeBracket?
+    @State private var appliedAgeGate = false
+    @State private var profileSaveError: String?
+    @State private var agePreferenceEditID = UUID()
+
+    var body: some View {
+        Form {
+            switch auth.state {
+            case .guest, .authenticating:
+                signedOutSections
+            case .signedIn(_, let signedInEmail):
+                signedInSections(email: signedInEmail)
+            }
+            if let profileSaveError {
+                Section {
+                    ErrorMessage(message: profileSaveError)
+                    Button("Retry age preference") { if let bracket = pendingAgeBracket { applyAgeGate(bracket) } }
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(PraeludeColor.paper)
+        .navigationTitle("Account")
+        .navigationBarTitleDisplayMode(.inline)
+        .disabled(isWorking)
+        .confirmationDialog("Delete your account?", isPresented: $confirmDeleteStep1, titleVisibility: .visible) {
+            Button("Continue", role: .destructive) { confirmDeleteStep2 = true }
+        } message: {
+            Text("This removes your account, profile, friends, and everything else synced to it. It cannot be undone.")
+        }
+        .alert("Delete account permanently?", isPresented: $confirmDeleteStep2) {
+            Button("Delete permanently", role: .destructive) {
+                Task {
+                    isWorking = true
+                    let success = await auth.deleteAccount()
+                    isWorking = false
+                    if !success { deleteError = auth.lastError ?? "Couldn't delete your account. Try again." }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("There is no way to undo this.")
+        }
+        .onChange(of: auth.state) { _, state in
+            guard case .signedIn = state, !appliedAgeGate, let bracket = pendingAgeBracket else { return }
+            applyAgeGate(bracket)
+        }
+    }
+
+    /// See `ProfileBackendFields.applyingAgeGate` (Core) for exactly which fields this changes and
+    /// why — kept there, not inline here, so the decision itself is unit-testable without a View.
+    private func applyAgeGate(_ bracket: AgeBracket) {
+        do {
+            try syncCoordinator.saveProfile(store.state.profile, extras: syncCoordinator.profileBackendFields.applyingAgeGate(bracket),
+                                            sourceID: agePreferenceEditID)
+            appliedAgeGate = true; profileSaveError = nil
+        } catch { profileSaveError = error.localizedDescription }
+    }
+
+    @ViewBuilder private var signedOutSections: some View {
+        Section {
+            Text("Your practice is saved on this device. Sign in to the same account on your iPhone and iPad to upload your library and download it on the other device.")
+                .foregroundStyle(PraeludeColor.inkSecondary)
+            Text("Scores and photo passages stay local until you sign in. An account is optional for practicing.")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+        Section {
+            Picker("Mode", selection: $mode) {
+                Text("Sign in").tag(Mode.signIn)
+                Text("Create account").tag(Mode.signUp)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .listRowBackground(Color.clear)
+            TextField("Email", text: $email)
+                .keyboardType(.emailAddress).textContentType(.username)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+            SecureField("Password", text: $password)
+                .textContentType(mode == .signIn ? .password : .newPassword)
+            if mode == .signUp {
+                Picker("Age", selection: $pendingAgeBracket) {
+                    Text("Choose one").tag(AgeBracket?.none)
+                    ForEach(AgeBracket.allCases, id: \.self) { Text($0.label).tag(AgeBracket?.some($0)) }
+                }
+            }
+            Button(mode == .signIn ? "Sign in" : "Create account") {
+                Task {
+                    isWorking = true
+                    if mode == .signIn { await auth.signIn(email: email, password: password) }
+                    else { appliedAgeGate = false; await auth.signUp(email: email, password: password) }
+                    isWorking = false
+                }
+            }
+            .buttonStyle(.praeludePrimary)
+            .disabled(email.isEmpty || password.count < 6 || (mode == .signUp && pendingAgeBracket == nil))
+            .listRowInsets(EdgeInsets())
+        } footer: {
+            Text(mode == .signUp
+                 ? "A confirmation email is sent before a new account can sign in. Age sets your starting privacy defaults — stricter for under 18 — which you can always change in Edit profile."
+                 : "At least 6 characters.")
+        }
+        Section {
+            Button("Email me a sign-in link") { Task { await send(auth.sendMagicLink) } }
+                .buttonStyle(.praeludeQuiet).disabled(email.isEmpty).listRowInsets(EdgeInsets())
+            Button("Forgot password") { Task { await send(auth.resetPassword) } }
+                .buttonStyle(.praeludeQuiet).disabled(email.isEmpty).listRowInsets(EdgeInsets())
+            if let sent = auth.lastSentEmail {
+                Label("Check \(sent) for a link.", systemImage: "envelope")
+                    .font(.footnote).foregroundStyle(PraeludeColor.inkSecondary)
+            }
+        }
+        if let error = auth.lastError { Section { ErrorMessage(message: error) } }
+    }
+
+    private func send(_ action: (String) async -> Bool) async {
+        isWorking = true
+        _ = await action(email)
+        isWorking = false
+    }
+
+    @ViewBuilder private func signedInSections(email: String?) -> some View {
+        Section {
+            LabeledContent("Signed in as", value: email ?? "Your account")
+            syncStatusRow
+            Button("Sync library now", systemImage: "arrow.triangle.2.circlepath") {
+                Task { await syncCoordinator.syncAll() }
+            }.disabled(syncIsRunning)
+                .accessibilityIdentifier("syncLibraryNow")
+        }
+        Section {
+            let scores = store.realPieces.filter { $0.pdfFileName != nil }
+            let files = NativeLibraryFiles(store: store)
+            let available = scores.filter { piece in
+                files.scoreURL(for: piece).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+            }.count
+            LabeledContent("Scores on this device", value: "\(available) of \(scores.count)")
+            LabeledContent("Passage cards", value: "\(store.state.passages.filter { !$0.archived && $0.deletedAt == nil }.count)")
+            Text("Scores, photo crops, passages, annotations and saved practice history sync privately to this account. Offline changes wait for a connection.")
+                .font(.footnote).foregroundStyle(.secondary)
+        } header: { Text("Library on this device") } footer: {
+            Text("Check this screen on both signed-in devices. Local file counts show availability here; they do not prove the other device has downloaded them. Counter layout and camera preferences stay device-local. A running set stays on the device where you started it.")
+        }
+        Section { NavigationLink("Edit profile") { ProfileEditView() } }
+        Section {
+            Button("Sign out") { Task { await auth.signOut() } }
+                .buttonStyle(.praeludeQuiet).listRowInsets(EdgeInsets())
+        }
+        Section {
+            Button("Delete account", role: .destructive) { confirmDeleteStep1 = true }
+        } footer: {
+            Text("Permanently deletes your account, profile and everything synced to it from the server. Practice already saved on this device is not touched.")
+        }
+        if let deleteError { Section { ErrorMessage(message: deleteError) } }
+    }
+
+    @ViewBuilder private var syncStatusRow: some View {
+        HStack {
+            Text(syncStatusText).font(.footnote).foregroundStyle(syncStatusColor)
+            Spacer()
+            if syncCoordinator.pendingCount > 0 {
+                Text("\(syncCoordinator.pendingCount) waiting").font(.caption).foregroundStyle(PraeludeColor.inkTertiary)
+            }
+        }
+    }
+    private var syncStatusText: String {
+        switch syncCoordinator.status {
+        case .idle: "No queued changes"
+        case .syncing: "Syncing…"
+        case .offline: "Offline — will sync when connected"
+        case .stuck(let message): message
+        }
+    }
+    private var syncStatusColor: Color {
+        if case .stuck = syncCoordinator.status { return PraeludeColor.live }
+        return PraeludeColor.inkSecondary
+    }
+    private var syncIsRunning: Bool {
+        if case .syncing = syncCoordinator.status { return true }
+        return false
+    }
+}

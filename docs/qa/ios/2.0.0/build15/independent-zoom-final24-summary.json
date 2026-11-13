@@ -1,0 +1,12 @@
+{
+  "exitCode": 0,
+  "failedTests": 0,
+  "passedTests": 1,
+  "result": "passed",
+  "resultBundleFinalized": true,
+  "scope": "One independent normal-flags test-without-building invocation, original actual pinch/pan and strict absolute-scale arm contract, no action retry.",
+  "skippedTests": 0,
+  "test": "TapDeliveryUITests/testUnselectedSavedBoxPreservesRealPinchPanAndArmsAtZoom",
+  "testDurationSeconds": 70.062,
+  "totalTestCount": 1
+}

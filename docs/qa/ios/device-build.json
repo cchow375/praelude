@@ -1,0 +1,26 @@
+{
+  "recordedAtUTC": "2026-09-14T04:46:35.677777+00:00",
+  "configuration": "Release",
+  "buildCommandLog": "/private/tmp/praelude-ios-release-device-verified.log",
+  "bundleIdentifier": "com.christian.praelude.ios",
+  "version": "1.0.0",
+  "build": "1",
+  "minimumOS": "17.0",
+  "deviceFamilies": [
+    1,
+    2
+  ],
+  "architecture": "arm64",
+  "sdk": "iphoneos26.5",
+  "codeSigningAllowed": false,
+  "physicalDeviceAccepted": false,
+  "validSigningIdentitiesAtVerification": 0,
+  "connectedPhysicalDevicesAtVerification": 0,
+  "fixtureFlagsExcluded": true,
+  "testPluginsExcluded": true,
+  "executableBytes": 4511480,
+  "executableSHA256": "346a9de01b35d478a0a27a554e125610ebc959a57c5cc31f940088d7783d7871",
+  "appSwiftSourceCount": 25,
+  "appSwiftSourcesSHA256": "685ddf15aab8829b76fe34d5db584d2e543faa6b324b4b6a73bb73572389ecdf",
+  "sourceDigestFormat": "Sorted repo-relative app Swift path, NUL, file bytes, NUL; repeated for each source."
+}

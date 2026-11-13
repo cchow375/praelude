@@ -1,0 +1,31 @@
+{
+  "recorded_utc": "2026-10-03T18:04:00.347099+00:00",
+  "source_commit": "00375fa",
+  "bundle_id": "com.christian.praelude.ios",
+  "installed_version": "2.0.0",
+  "installed_build": "6",
+  "signed_release_binary_sha256": "0698ed7bdd8947153a3e9af8147b4a751db5156ca8e04517efd1d346e92726b0",
+  "profile_expires_utc": "2026-10-10T17:55:53+00:00",
+  "signature_profile_owner_device_checks_passed": true,
+  "pre_backup": "releases/ios-device-backups/20261003T180209Z-5873bf15",
+  "post_backup": "releases/ios-device-backups/20261003T180241Z-c017a436",
+  "prelaunch_schema": 5,
+  "preserved_files": 11,
+  "preserved_bytes": 6212619,
+  "complete_file_tree_hashes_equal": true,
+  "ledger_bytes_equal": true,
+  "automatic_launch": "declined; user open requested",
+  "schema_migration": "no schema change from build5/schema5",
+  "hardware_feature_acceptance": "open",
+  "user_launch": "User confirms Praelude opened",
+  "postlaunch_ledger_copy": "releases/ios-device-backups/20261003T180432Z-build6-open-17450e83/library.json",
+  "postlaunch_schema": 5,
+  "postlaunch_revision": 883,
+  "independent_prelaunch_review": {
+    "files": 11,
+    "total_bytes": 6212619,
+    "all_file_bytes_equal": true,
+    "symlinks": 0,
+    "history_account_ownership_privacy_unchanged": true
+  }
+}

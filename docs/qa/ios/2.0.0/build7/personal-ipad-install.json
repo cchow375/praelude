@@ -1,0 +1,73 @@
+{
+  "date": "2026-10-07",
+  "sourceCommit": "3e03330ac6df952a7c830ca18b6b890f6fa9f505",
+  "sourceTag": "ios-v2.0.0-build7-candidate",
+  "bundleIdentifier": "com.christian.praelude.ios",
+  "installedVersion": "2.0.0",
+  "installedBuild": "7",
+  "previousBuild": "6",
+  "method": "guarded same-bundle refresh",
+  "installationConfirmedByReadOnlyStatus": true,
+  "provisioningExpiryUTC": "2026-10-10T17:55:53Z",
+  "profileTeamAppDeviceChecks": "helper app/team/profile/device-inclusion checks pass; independent signature/app-profile-team/signer-certificate membership/code-sign trust pass",
+  "privatePreBackup": "releases/ios-device-backups/20261007T054512Z-c9b0c898",
+  "privatePostBackup": "releases/ios-device-backups/20261007T054628Z-fc4c1f2d",
+  "preservation": {
+    "independentlyVerified": true,
+    "ownedFiles": 11,
+    "totalBytes": 7981365,
+    "allNamesSizesSHA256Identical": true,
+    "addedDeletedChangedFiles": 0,
+    "symlinks": 0,
+    "ledgerStructurallyAndByteIdentical": true,
+    "accountProfilePrivacyPreferencesIdentical": true
+  },
+  "preLaunchLedger": {
+    "schema": 5,
+    "revision": 1647,
+    "pieces": 5,
+    "passages": 44,
+    "historicalSets": 43,
+    "sessions": 30,
+    "uniqueAttempts": 255,
+    "activeSetStatus": "completed",
+    "runningSets": 0,
+    "inkStrokes": 45,
+    "stamps": 2,
+    "textNotes": 1
+  },
+  "launch": {
+    "automatic": "failed",
+    "manualUserConfirmation": "Installation receipt confirmed by user October 7; explicit manual opening not separately confirmed. Running process and schema readback independently confirmed.",
+    "postLaunchReadback": {
+      "schema": 5,
+      "revision": 1660,
+      "activeSetStatus": null,
+      "pieces": 5,
+      "passages": 44,
+      "sessions": 30,
+      "historicalSets": 44,
+      "uniqueAttempts": 255,
+      "allPreviousAttemptSetSessionIdentifiersRetained": true,
+      "allPreviousAttemptsAnd45InkRowsExact": true,
+      "profilePrivacyPreferencesExact": true,
+      "inkRows": 56,
+      "newInkRows": 11,
+      "newInkRowsActive": 7,
+      "newInkRowsTombstoned": 4,
+      "completedSetArchived": true,
+      "newCompletedSetRewardRows": 1,
+      "pageBookmarkUpdated": true,
+      "activityAttribution": "not inferred; separate from byte-exact installation snapshot"
+    },
+    "deviceReportsPraeludeRunning": true
+  },
+  "destructiveWorkaroundsUsed": false,
+  "macAppOrDataChanged": false,
+  "physicalFeatureAcceptance": "Pencil/audio/freeze/long-session/actual-two-device acceptance remain separate",
+  "userInstallationConfirmation": {
+    "date": "2026-10-07",
+    "confirmed": true,
+    "scope": "user confirms update reached iPad; no sustained physical-feature acceptance supplied"
+  }
+}

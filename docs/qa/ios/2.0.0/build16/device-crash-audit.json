@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-12",
+  "scope": "read-only systemCrashLogs listing and selected copies for the explicitly requested personal iPad",
+  "matchingPraeludeReports": 9,
+  "reportDates": "2026-10-07 through 2026-10-10",
+  "currentBuild15OrOctober12CrashFound": false,
+  "copiedReports": 3,
+  "historicalFindings": [
+    {
+      "build": 8,
+      "date": "2026-10-09",
+      "type": "EXC_BAD_ACCESS/SIGSEGV",
+      "stack": "PencilKit updateTiles / performUndo / NSUndoManager / touch Undo",
+      "cameraOrVisionFrames": false
+    },
+    {
+      "build": 7,
+      "type": "CPU resource warning",
+      "termination": false,
+      "cameraOrVisionFrames": false
+    },
+    {
+      "build": 10,
+      "type": "disk-write resource warning",
+      "termination": false,
+      "cameraOrVisionFrames": false
+    }
+  ],
+  "conclusion": "These historical reports do not explain the reported Build15 camera preview crash. Exact physical crash cause remains unproven.",
+  "rawDiagnosticDirectory": "releases/ios-build16-camera-diagnostics (ignored; not in Git)"
+}

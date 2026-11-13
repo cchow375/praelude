@@ -1,0 +1,39 @@
+{
+  "status": "PASS unsigned generic arm64 Release compile and scoped package inspection",
+  "command": "xcodebuild -project ios/Praelude.xcodeproj -scheme Praelude -configuration Release -destination 'generic/platform=iOS' -derivedDataPath ios/DerivedData -resultBundlePath /tmp/praelude-build19-release.xcresult CODE_SIGNING_ALLOWED=NO build",
+  "log_local": "/tmp/praelude-build19-release.log",
+  "xcresult_local": "/tmp/praelude-build19-release.xcresult",
+  "checks": {
+    "identifier": true,
+    "marketing_version": true,
+    "build": true,
+    "arm64": true,
+    "phone_and_tablet": true,
+    "camera_usage_mentions_photo": true,
+    "no_test_plugins": true,
+    "no_debug_fixture_markers": true
+  },
+  "binary_sha256": "ba08abdf60f1532299835ba619734eb00c49c7dcae5f71ad76499d5e4e3b53a2",
+  "binary_bytes": 37582704,
+  "architecture": "arm64",
+  "absent_debug_markers": [
+    "--audit-passage-photo",
+    "Praelude-UI-Tests",
+    "PraeludeUITest:",
+    "UITestFixture"
+  ],
+  "boundaries": "Unsigned compilation/package evidence only. No signer/provisioning/install/launch/preservation/physical-feature acceptance is claimed.",
+  "files": {
+    "AppIcon60x60@2x.png": "6293bc89b6b7c0cebb9a7cf073b8f6196f07179c211522fd3bd4f4013e7769d2",
+    "AppIcon76x76@2x~ipad.png": "10aed3c02ebcd44f5ef16eaf287d1371f324ccb7421e5e7958c3c61558886d61",
+    "Assets.car": "7a5980c9c6c3b2784635c0c19bc29570ee8cd93eddee02c57f8fc5f512d90519",
+    "BodoniModa.ttf": "550f5e34ee0a828d7941b1fe9bc58b34e5260d3f33a61532e6d0a0114e79a5cf",
+    "Bravura.otf": "cdf0f893ee1fdb64b7f6713d71ee0dcfc349c0ac01429a8e451b01a9e79f5f3b",
+    "Info.plist": "1f283dd9d5b675ddbb065cab8eca8fc5061460e4c976ff506539e4af92c02f8d",
+    "PkgInfo": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0",
+    "Praelude": "ba08abdf60f1532299835ba619734eb00c49c7dcae5f71ad76499d5e4e3b53a2",
+    "PrivacyInfo.xcprivacy": "16b0d52b45ebcc61dd6c31e3bbfb08d906b32e40ebac47a732526d1cce67ab2c",
+    "swift-crypto_Crypto.bundle/Info.plist": "f96c744d9118be9ff683f13c95828cbe121716e6869d8ec6ca79e060a1b66f48",
+    "swift-crypto_Crypto.bundle/PrivacyInfo.xcprivacy": "42fb8a30dd8d7ba0900e1bf17fe64ed8c12cfdb8a9c791ab6b4e1eceb0f299c0"
+  }
+}

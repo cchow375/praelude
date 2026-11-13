@@ -1,0 +1,18 @@
+{
+  "archivePath": "releases/ios-build17-camera-verified-final4-20261012",
+  "manifestSHA256": "dda486e1841c4fe71ba894c61ea3a7a5b6d4255608ce28affbcf8d55bc0d36ff",
+  "archives": {
+    "Praelude-build17.app.zip": {
+      "bytes": 8795308,
+      "sha256": "e8aea0d2e80a84085f48f61749d9fcb388f826df35ca0eea753af1087200d9c8",
+      "fullInventoryReadbackExact": true
+    },
+    "Praelude-build17.dSYM.zip": {
+      "bytes": 15263147,
+      "sha256": "de78c57a4a789486c25607c6f98dd7c27ec20e416209f55b84d63539f8d5ae61",
+      "fullInventoryReadbackExact": true
+    }
+  },
+  "executableSHA256": "c7e330d8a20c8f989ac21076c62ec415b7a0a64c99d65baba211ee85b5b28eab",
+  "boundary": "Generic Release app/dSYM archival readback; no install or physical acceptance"
+}

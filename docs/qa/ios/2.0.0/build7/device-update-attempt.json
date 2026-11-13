@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-07",
+  "attempts": [
+    {
+      "stage": "initial connection",
+      "result": "selected device unavailable before backup/build/install",
+      "installationAttempted": false
+    },
+    {
+      "stage": "connection after user readiness",
+      "result": "cached device tunnel still disconnected; actual USBHost inventory and native Xcode Devices showed iPad; subsequent guarded refresh proceeded",
+      "destructiveConnectionWorkaround": false
+    },
+    {
+      "stage": "guarded refresh",
+      "result": "installed2.0.0/build7; complete pre/post preservation passes; automatic launch fails",
+      "installationSucceeded": true,
+      "preservationVerified": true,
+      "launchVerified": false
+    },
+    {
+      "stage": "subsequent read-only inspection",
+      "result": "Praelude running; installedbuild7/schema5/revision1660 readback; independent post-launch preservation audit passes",
+      "userScreenConfirmation": "not supplied",
+      "physicalFeatureQuality": "not claimed"
+    }
+  ]
+}

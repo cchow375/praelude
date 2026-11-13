@@ -1,0 +1,287 @@
+{
+  "capturedUTC": "2026-10-12T01:36:59.968527+00:00",
+  "scope": "Independent read-only union-key comparison of disposable simulator Today passage name and decimal goal editing; actual save/relaunch/reopen evidence. No physical devices or installations.",
+  "test": {
+    "method": "ScoreFocusUITests.testTodaySessionEditPaddingSavesNameAndGoalWithoutStartingPractice",
+    "result": "passed",
+    "durationSeconds": 53.575,
+    "actionRetries": 0,
+    "screenshotsIndependentlyInspected": true
+  },
+  "artifact": {
+    "app": {
+      "built": {
+        "sha256": "2e6cbc1000cfd515c1bf5d21c1e3df90d3ab0c7187e78c9cb9d526d7245b515a",
+        "size": 43434632
+      },
+      "installed": {
+        "sha256": "2e6cbc1000cfd515c1bf5d21c1e3df90d3ab0c7187e78c9cb9d526d7245b515a",
+        "size": 43434632
+      }
+    },
+    "testBundle": {
+      "sha256": "234c48d8beadde61f255c430942e85a69231f3a1af2fd5b95e689ea282f15a46",
+      "size": 1856544
+    },
+    "testSource": {
+      "sha256": "c3aa0c1642f64690f0533d1aa323453742fa8615781b7c31002c427bb49fc40e",
+      "size": 14379
+    }
+  },
+  "inputs": [
+    {
+      "basename": "fresh13-audit-before.json",
+      "bytes": 46277,
+      "sha256": "e11878b9db1ee6176de5b32d16ead066e70ea6a4ad4f582e8a71bf676d62499f"
+    },
+    {
+      "basename": "library.json",
+      "bytes": 46300,
+      "sha256": "35f676aa2e93ae82674e390299e32b3869b81bbcb070ef5cd7036a9a484a7668"
+    }
+  ],
+  "comparison": {
+    "algorithm": "Recursive comparison over the union of object keys, positional array records, and all scalar values. Added keys are counted.",
+    "schemaBefore": 5,
+    "schemaAfter": 5,
+    "revisionBefore": 6,
+    "revisionAfter": 8,
+    "allDifferences": [
+      {
+        "path": "$.passages[0].performanceTempo",
+        "kind": "added"
+      },
+      {
+        "path": "$.passages[0].title",
+        "kind": "changed"
+      },
+      {
+        "path": "$.passages[0].updatedAt",
+        "kind": "changed"
+      },
+      {
+        "path": "$.revision",
+        "kind": "changed"
+      },
+      {
+        "path": "$.rewardsState.rank",
+        "kind": "changed"
+      },
+      {
+        "path": "$.rewardsState.updatedAt",
+        "kind": "changed"
+      }
+    ],
+    "targetEdit": {
+      "titleChanged": true,
+      "updatedAtChanged": true,
+      "performanceTempo": {
+        "baselineKeyPresent": false,
+        "afterValue": 112.5
+      }
+    },
+    "startupNormalization": {
+      "rankBefore": "Unranked",
+      "rankAfter": "Prelude",
+      "updatedAtChanged": true,
+      "sourceReason": "RewardsRuntime.celebrateRankUpIfNeeded reconciles the derived rank snapshot after the DEBUG fixture before-snapshot is written; reward ledger remains empty."
+    },
+    "allArrayIDsOrderAndCountsUnchanged": true,
+    "arrayCounts": {
+      "badges": {
+        "before": 0,
+        "after": 0
+      },
+      "bookmarks": {
+        "before": 0,
+        "after": 0
+      },
+      "breakPointTaps": {
+        "before": 0,
+        "after": 0
+      },
+      "coldGrades": {
+        "before": 0,
+        "after": 0
+      },
+      "desktopImports": {
+        "before": 0,
+        "after": 0
+      },
+      "folders": {
+        "before": 0,
+        "after": 0
+      },
+      "goals": {
+        "before": 0,
+        "after": 0
+      },
+      "history": {
+        "before": 0,
+        "after": 0
+      },
+      "inkStrokes": {
+        "before": 0,
+        "after": 0
+      },
+      "instruments": {
+        "before": 1,
+        "after": 1
+      },
+      "milestoneEvents": {
+        "before": 0,
+        "after": 0
+      },
+      "notebookEntries": {
+        "before": 0,
+        "after": 0
+      },
+      "pageEdits": {
+        "before": 0,
+        "after": 0
+      },
+      "passages": {
+        "before": 2,
+        "after": 2
+      },
+      "pieces": {
+        "before": 2,
+        "after": 2
+      },
+      "recordings": {
+        "before": 0,
+        "after": 0
+      },
+      "rewardLedger": {
+        "before": 0,
+        "after": 0
+      },
+      "routines": {
+        "before": 0,
+        "after": 0
+      },
+      "ruleEvents": {
+        "before": 0,
+        "after": 0
+      },
+      "scoreLinks": {
+        "before": 0,
+        "after": 0
+      },
+      "sessions": {
+        "before": 0,
+        "after": 0
+      },
+      "setlists": {
+        "before": 0,
+        "after": 0
+      },
+      "stampAnnotations": {
+        "before": 0,
+        "after": 0
+      },
+      "tags": {
+        "before": 0,
+        "after": 0
+      },
+      "textAnnotations": {
+        "before": 0,
+        "after": 0
+      },
+      "warmupExercises": {
+        "before": 180,
+        "after": 180
+      }
+    },
+    "originalTargetKeysRetained": true,
+    "targetFieldsExceptNameGoalAndUpdatedAtExact": true,
+    "otherPassageEntireRecordExact": true,
+    "otherTopLevelFieldsExact": [
+      "badges",
+      "bookmarks",
+      "breakPointTaps",
+      "coldGrades",
+      "desktopImports",
+      "folders",
+      "goals",
+      "history",
+      "inkStrokes",
+      "instruments",
+      "milestoneEvents",
+      "notebookEntries",
+      "pageEdits",
+      "pieces",
+      "preferences",
+      "profile",
+      "recordings",
+      "rewardLedger",
+      "routines",
+      "ruleEvents",
+      "ruleSettings",
+      "schemaVersion",
+      "scoreLinks",
+      "sessions",
+      "setlists",
+      "stampAnnotations",
+      "tags",
+      "textAnnotations",
+      "warmupExercises"
+    ],
+    "activeSetKeyPresentBefore": false,
+    "activeSetKeyPresentAfter": false,
+    "practiceRecorded": false,
+    "byteEqualityClaim": false
+  },
+  "visualEvidence": {
+    "savedTodayScreenshot": "48D9A743-9752-459E-B0E8-E34E81776B13.png",
+    "reopenedEditorScreenshot": "70F2579F-09BC-4F19-8F64-EBCBDD111DCF.png",
+    "observations": [
+      "Saved target name and Goal 112.5 BPM are readable on Today.",
+      "Reopened editor shows saved name, enabled goal switch, and 112.5.",
+      "Today shows zero repetitions and zero completed sets; other passage remains visible unchanged."
+    ]
+  },
+  "limitations": [
+    "Simulator and synthetic library only; no physical interaction, microphone, camera, audible metronome, sync, or sustained reliability acceptance.",
+    "Final4 ran with explicit interaction tracing, confirmed from the actual saved JSONL for both matching app processes. Its diagnostics may perturb timing; no natural latency claim is made. The separate provenance originally describing this case as trace-disabled is inaccurate.",
+    "Later final5 runtime helper/discovery behavior differs from current compiled source; runtime loaded-image provenance remains under investigation. This comparison establishes actual file deltas and visible save/reopen, not resolution of that mismatch."
+  ],
+  "traceEvidence": {
+    "enabled": true,
+    "sourceFlags": [
+      "--uitesting",
+      "--audit-taps"
+    ],
+    "rawLogNSLogLinesAbsent": true,
+    "actualSavedTrace": {
+      "basename": "praelude-build15-context-final6-trace.jsonl",
+      "sha256": "f37cdf6ae8e0fedfa2be1522318002454e86dd2aa429472dedd17442eca23daf",
+      "bytes": 447360
+    },
+    "matchingRunAppProcesses": [
+      {
+        "pid": 88921,
+        "records": 162,
+        "enabledRecords": 1,
+        "touchPhases": {
+          "touch.began": 5,
+          "touch.ended": 5
+        },
+        "firstEventUTCSeconds": 1791768234.0289478,
+        "lastEventUTCSeconds": 1791768265.170299
+      },
+      {
+        "pid": 88972,
+        "records": 51,
+        "enabledRecords": 1,
+        "touchPhases": {
+          "touch.began": 2,
+          "touch.ended": 2
+        },
+        "firstEventUTCSeconds": 1791768269.025214,
+        "lastEventUTCSeconds": 1791768281.190559
+      }
+    ],
+    "basis": "Both app PIDs match the final4 raw log before/after relaunch, and both emit audit.enabled and actual touch records at the corresponding timestamps. Missing NSLog output does not establish disabled tracing."
+  }
+}

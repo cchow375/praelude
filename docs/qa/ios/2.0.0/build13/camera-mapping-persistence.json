@@ -1,0 +1,11 @@
+{
+  "boundary": "Read-only disposable synthetic iPad simulator preferences after fresh5 selection and app relaunch; no physical device or live-camera acceptance",
+  "preferenceKey": "ios.faceGestures",
+  "settings": {
+    "nod": "previousPage",
+    "grin": "nextPage",
+    "allowVerdicts": false,
+    "shake": "sloppy"
+  },
+  "plistSHA256": "66dcc918e919e6e3017f0148fa2896d709dbf47f5be68e63d130ab9d1d9d530b"
+}

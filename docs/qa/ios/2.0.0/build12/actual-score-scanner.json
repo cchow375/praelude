@@ -1,0 +1,93 @@
+{
+  "kind": "read-only actual-score scanner check",
+  "production_scanner_sha256": "a6260779d8afa35f4a0951719d12cd359cf92626cec4a506dfc305d3c1d47676",
+  "method": "Production scanner and ScoreGeometry source compiled as temporary macOS driver with UIKit/UIImage changed to AppKit/NSImage and the macOS cgImage accessor. Same PDFKit thumbnail size, Vision accurate OCR, no language correction, numeric-confidence filter and coordinate transforms. Actual local device-backup PDFs read only; no generated or copied score images saved.",
+  "scope": "Five actual owned PDFs, one current bookmarked source page each, including an oversized ~5556x7738-point page. Host macOS execution; not iPad/UIKit UI or physical acceptance.",
+  "backup_schema": 5,
+  "backup_revision": 2264,
+  "confirmed_measure_anchors_in_actual_library": 0,
+  "results": [
+    {
+      "score": "score_1",
+      "page": 17,
+      "source_points": [
+        592,
+        823
+      ],
+      "rendered_points": [
+        1366,
+        1900
+      ],
+      "numeric_hints": 4,
+      "invalid_regions": 0,
+      "elapsed_seconds": 1.691
+    },
+    {
+      "score": "score_2",
+      "page": 9,
+      "source_points": [
+        647,
+        864
+      ],
+      "rendered_points": [
+        1400,
+        1867
+      ],
+      "numeric_hints": 0,
+      "invalid_regions": 0,
+      "elapsed_seconds": 1.253
+    },
+    {
+      "score": "score_3",
+      "page": 2,
+      "source_points": [
+        647,
+        864
+      ],
+      "rendered_points": [
+        1400,
+        1867
+      ],
+      "numeric_hints": 0,
+      "invalid_regions": 0,
+      "elapsed_seconds": 1.355
+    },
+    {
+      "score": "score_4",
+      "page": 13,
+      "source_points": [
+        626,
+        874
+      ],
+      "rendered_points": [
+        1361,
+        1900
+      ],
+      "numeric_hints": 1,
+      "invalid_regions": 0,
+      "elapsed_seconds": 1.224
+    },
+    {
+      "score": "score_5",
+      "page": 2,
+      "source_points": [
+        5556,
+        7738
+      ],
+      "rendered_points": [
+        1364,
+        1900
+      ],
+      "numeric_hints": 1,
+      "invalid_regions": 0,
+      "elapsed_seconds": 0.382
+    }
+  ],
+  "limits": [
+    "Numeric OCR hints have not been checked against true measure numbers; page numbers and fingerings remain possible.",
+    "Two pages return no numeric hints, so manual confirmation is essential.",
+    "No user map is created or saved; actual end-to-end manual map acceptance remains open.",
+    "These are host OCR/render times, not page-turn latency or touch-to-frame measurements."
+  ],
+  "private_input_files_changed": false
+}

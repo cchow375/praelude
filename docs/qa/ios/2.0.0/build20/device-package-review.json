@@ -1,0 +1,113 @@
+{
+  "package_audits": {
+    "ipad": {
+      "date_utc": "2026-10-17T00:50:20.286195+00:00",
+      "scope": "Independent read-only audit of actual device-helper Build20 signed Release artifact for exact selected refresh target",
+      "target_form_factor": "ipad",
+      "status": "PASS",
+      "checks": {
+        "one_expected_local_signing_team": true,
+        "ipad_preflight_prior_stable_bundle_build18": true,
+        "phone_preflight_prior_stable_bundle_build19": true,
+        "expected_target_is_requested_physical_form_factor": true,
+        "stable_bundle_identifier": true,
+        "marketing_version_2_0_0": true,
+        "build_20": true,
+        "built_for_iphoneos": true,
+        "phone_and_tablet_families": true,
+        "photo_camera_usage_description": true,
+        "speech_and_microphone_usage_descriptions": true,
+        "deep_strict_signature": true,
+        "signature_team_matches_local_team": true,
+        "signature_identifier_matches_bundle": true,
+        "signature_not_adhoc": true,
+        "entitlement_team_matches_local_team": true,
+        "entitlement_app_identifier": true,
+        "development_device_entitlement": true,
+        "profile_team_matches_local_team": true,
+        "profile_app_identifier": true,
+        "profile_exact_selected_target_included": true,
+        "profile_development_entitlement": true,
+        "profile_and_binary_application_entitlements_agree": true,
+        "profile_unexpired_at_audit": true,
+        "signer_certificate_extracted": true,
+        "signer_is_authorized_by_profile": true,
+        "signer_codesigning_trust": true,
+        "signer_has_valid_local_signing_identity": true,
+        "arm64_only": true,
+        "matching_arm64_dsym": true,
+        "no_debug_fixture_markers": true,
+        "only_expected_release_and_signing_resources": true,
+        "no_symlinks": true,
+        "no_test_plugins": true,
+        "no_personal_library_score_or_recording_files": true,
+        "current_source_matches_candidate_manifest": true,
+        "binary_and_dsym_unchanged_during_readonly_audit": true
+      },
+      "checks_passed": 37,
+      "checks_total": 37,
+      "binary_sha256": "5c02d0362eb2057d68cdae6bb0a02fe1b8815e7da500eeef75e193700e2ed9f7",
+      "binary_bytes": 37766624,
+      "architecture": "arm64",
+      "binary_and_dsym_uuid": [
+        [
+          "45663E3A-E760-3DF2-988B-01B44447B063",
+          "arm64"
+        ]
+      ],
+      "dsym_sha256": "219d6d4274a32adcf62dff1c1151d6e29c0731a980610a3f597dec60907207e7",
+      "profile_expiration_utc": "2026-10-23T23:42:03+00:00",
+      "debug_markers_checked": 22,
+      "debug_markers_present": [],
+      "resource_file_count": 13,
+      "resource_paths": [
+        "AppIcon60x60@2x.png",
+        "AppIcon76x76@2x~ipad.png",
+        "Assets.car",
+        "BodoniModa.ttf",
+        "Bravura.otf",
+        "Info.plist",
+        "PkgInfo",
+        "Praelude",
+        "PrivacyInfo.xcprivacy",
+        "_CodeSignature/CodeResources",
+        "embedded.mobileprovision",
+        "swift-crypto_Crypto.bundle/Info.plist",
+        "swift-crypto_Crypto.bundle/PrivacyInfo.xcprivacy"
+      ],
+      "unexpected_resource_count": 0,
+      "artifact_local": "/Users/c3/praelude/ios/DeviceDerivedData/Build/Products/Release-iphoneos/Praelude.app",
+      "dsym_local": "/Users/c3/praelude/ios/DeviceDerivedData/Build/Products/Release-iphoneos/Praelude.app.dSYM/Contents/Resources/DWARF/Praelude",
+      "raw_audit_local": "/tmp/praelude-build20-device-audit/ipad",
+      "source_manifest_local": "/Users/c3/praelude/docs/qa/ios/2.0.0/build20/source-sha256.json",
+      "source_files_checked": 309,
+      "boundaries": "Artifact evidence only. Installation, launch, schema and library preservation, same-account convergence and physical features are separate acceptance records. No device or backend call is made. Device, team, certificate and profile identities remain private.",
+      "private_archive": {
+        "status": "PASS",
+        "archive_local": "/Users/c3/praelude/releases/ios-personal/build20-ipad-20261017T005027Z/signed-app-and-dsym.zip",
+        "copied_app_local": "/Users/c3/praelude/releases/ios-personal/build20-ipad-20261017T005027Z/Praelude.app",
+        "copied_dsym_local": "/Users/c3/praelude/releases/ios-personal/build20-ipad-20261017T005027Z/Praelude.app.dSYM",
+        "file_count": 16,
+        "uncompressed_bytes": 111867861,
+        "archive_bytes": 25256938,
+        "archive_sha256": "1d7dfa80665d49cedd57980c531c3f7bceb1342a76da3332efc030dd72fca557",
+        "full_filename_size_sha256_readback_exact": true,
+        "no_symlinks": true,
+        "directories_mode_700_files_mode_600": true
+      }
+    }
+  },
+  "status": "PASS",
+  "scope": "Independent completed package and backup-copy audits only; absent target/scope entries are untested.",
+  "retained_incomplete_copy_attempts": [
+    {
+      "target": "ipad",
+      "status": "INCOMPLETE_NOT_A_PRESERVATION_PASS",
+      "local_copy": "/Users/c3/praelude/releases/ios-device-backups/20261017T004949Z-a0478329",
+      "files_present": 2,
+      "bytes_present": 208657,
+      "complete_backup_manifest_present": false,
+      "boundary": "This retained copy cannot establish full owned-file preservation. No device query or launch made by verifier."
+    }
+  ]
+}

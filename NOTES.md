@@ -1,20 +1,479 @@
 # NOTES
 
-## Mobile is the primary product (2026-11-13)
+## Native source received on the second Mac (2026-11-13)
 
-- **Christian's scope correction:** the main Praelude app is native iOS/iPadOS for iPhone and iPad. Treat the prepared Tauri Mac checkout as the separate secondary client, not completion of mobile setup. Immediate priority is recovering missing mobile source (B116), then fresh build/signing and real-device acceptance.
-- **Status is a dated handoff, not current device proof:** September 14 records describe 1.1.0/build2/schema2, scoped simulator checks and iPad installation/file preservation; controlled launch/migration and physical acceptance remain open. The recorded profile expired September 21. No present device state was queried in this review.
-- **Recovery evidence:** GitHub advertises only `main` and `v7/plan-c`, with no `ios/` history; the documented `124707d` is unresolved. Repository listing found only `cchow375/praelude` for this project, last pushed September 13. Targeted local name/path searches found no other source copy. The mobile work may remain unpublished on the original machine because its recorded work is September 14; that is an inference, not a verified source location.
+- **Available source:** `origin/main` advances from `6447c65` to `00cf2b0`, supplying `ios/`, `supabase/`, `124707d`, full native2.0.0/build21/schema5 history and18iOS tags. The prior source absence is resolved. Native iPhone/iPad is primary per Christian; Mac remains separate.
+- **Local environment:** Xcode26.6/iOS26.5SDK and runtime are present. Core556executed/1skip/0fail, services2340, helpers57 and unsigned simulator build pass. Independent selected native runtime verification passes2/2: same-card Score/Counter/Clean/Undo87.177s and PDF import/copy/reopen0.022s. No physical-device, signing, backend or personal-data changes. See `docs/qa/ios/second-mac-setup-2026-11-13.md`.
+- **Reconciliation:** preserve local setup history on `archive/pre-ios-update-20261113`, receive the newer upstream manual into the editable vault, then sync. Prior vault Markdown remains in ignored logs. Preserve upstream finding IDs; local setup source/advisory/contrast findings formerly B116/B117/B118 become B175/B176/B177.
+- **Earlier Mac setup:** Node25.9/npm11.12.1 and rustupRust1.100 pass doctor; frontend2614/1skip, nativeMac1134/20ignored and frontend build passed before this fetch. Existing Mac app-data bytes stayed identical. Local `.zshenv` sets the documented vault override to `Desktop/christians universe/Piano Practice/Praelude`. See dated Mac setup QA; it does not accept mobile behavior.
 
-## This Mac development setup (2026-11-13)
 
-- **Canonical clone:** `/Users/christian/praelude`, `main`, imported from `cchow375/praelude` at `6447c65`. No product source, lockfile, schema or installed app changed during setup.
-- **Toolchain observed:** macOS 26.6.2/arm64, Xcode 26.6, Node 25.9.0, npm 11.12.1, rustup-managed stable Rust/Cargo 1.100.0. Rustup configures Cargo in the local shell. The project's historical Node/Rust pins/evidence are retained; these are this Mac's verified versions.
-- **Vault spelling is machine-local:** this Mac uses `Desktop/christians universe`, while the historical default contains an apostrophe. Local `.zshenv` sets the documented `PRAELUDE_PROJECT_VAULT` override; no tracked script is hardcoded to the new machine.
-- **Existing personal state is outside setup:** the legacy app-data directory exists, but no Praelude application is installed in system/user Applications. A normal native dev launch opens that DB and may migrate it. Tests use temporary fixtures and live UI review uses `dev:mock`; no production-identity native launch was performed during setup. Before/after byte hashes stay in ignored logs, with no personal database in Git.
-- **Mobile source availability gap (B116):** the local vault contains September `ios/`/`124707d` handoff notes, but neither advertised GitHub branch has `ios/`, and GitHub cannot resolve that commit. Preserve those historical notes while explicitly scoping this clone to the available Mac source; source recovery is separate work.
-- **Dependency advisory boundary (B117):** November 13 `npm audit` reports 10 advisories (3 moderate, 7 high) in the existing lockfile. Setup does not run `npm audit fix` or rewrite versions. Review/update the affected dependencies as a separate checked maintenance change.
-- **Verification:** doctor/locked setup and production build pass; frontend 2,614 passed/1 skipped, native 1,106 unit passed/18 ignored plus 28 integration passed/2 ignored, with four workers. The debug native executable compiles. Independent live mock Today/Pieces/Score/Warmups/Studio navigation passes; a PDF fixture range error falls back successfully. Low Warmups contrast is a follow-up observation (B118). Personal-state before/after byte hashes match. See `docs/qa/setup-2026-11-13.md`.
+- **2026-11-13 handoff verified:** source/linkage fix708ef97 is published with all18 iOS tags.
+  An anonymous fresh GitHub clone reads matching main,348iOS files/303Swift files and exact
+  project regeneration. Standard app/test builds pass without overrides; independent hosted SDK
+  tests execute4/0fail/0skip and the disposable simulator is deleted. Raw evidence stays in ignored
+  `releases/ios-source-handoff-2026-11-13/`; QA records retain the initial failures separately.
+
+- **2026-11-13 iOS source handoff:** all 303 Swift files and complete native project/test/assets/
+  dependency inputs are tracked in the existing repository. `origin/main` initially lags local
+  `main` by 177 commits; committing locally is not a current GitHub backup. GitHub visibility is
+  public despite older manual wording; Christian explicitly chooses to retain public visibility
+  and push there. Keep `ios/` in this repository alongside backend migrations and the manual.
+  `ios/docs/NEW_MAC_SETUP.md` covers iOS-only cloning/Xcode setup without Node/Rust. Signing and
+  private practice files remain excluded. Clean-clone verification is recorded with this handoff;
+  it does not install or accept any physical-device feature.
+
+- **2026-11-13 clean Debug linker repair (B174):** `-framework Helpers` depends on stale package
+  artifacts and fails with a fresh DerivedData directory. Removing only that flag still fails
+  hosted test linkage because app/test duplicate package products become separate dynamic
+  wrappers. Keep the app's original four pinned products; hosted tests resolve their package
+  symbols through TEST_HOST/BUNDLE_LOADER instead of linking duplicate products. Regenerate the
+  project. Do not add package-internal object paths, cache detection or linker overrides. Standard
+  `build-for-testing` passes; full core serial rerun passes after the initial heartbeat timing
+  failure. Preserve each run's scope in `docs/qa/ios/source-handoff-2026-11-13.md`.
+
+- **2026-10-18 Build21 phone refresh / active iPad hold:** actual phone helper preserves3files/3,939,591bytes and schema5/revision1780 exactly; independent38/38 package,311source and6/6 preservation checks pass. Automatic launch is declined, so real opening/catch-up remains separate. After Release clean, iPad pre-copy stops on size mismatch before build/install; retained partial131passages/revision7205 contains an active set. Do not retry until explicit paused/idle readiness. No destructive workaround or queue rewrite.
+
+## October 12 — Build16 physical finding and Build17 response work
+
+User confirms preview toggle responsiveness, but rejects recognition quality (~10% estimate) and localizes ~1second freeze to score page/rep actions. Landmark-only synthetic passes did not establish real recognition. The current personal iPad is ARFaceTrackingConfiguration-capable; use its runtime capability gate rather than device-name logic. ARKit and AVFoundation must never own the same camera simultaneously. Pose/mesh/display orientation, capture timestamps, bilateral grin coefficients and cancellation need independent checks. Synchronous PracticeStore JSON preparation and downstream reward/rule writes are actual hot paths; move preparation offMainActor while preserving context/revision CAS and write-before-publication. Do not claim exact device latency/accuracy improvements until physical feedback.
+
+## October 12 — Build16 delivered after explicit device readiness
+
+The next guarded refresh succeeds after Christian confirms unlocked/open/idle readiness. Exact full13-file/19,919,467byte preservation passes before/after/after user launch, schema5/revision3477 unchanged, no active set. Automatic launch denial again occurs after successful install; real user open plus running-process readback and full postlaunch backup establish launch separately. The actual installed helper executable af3d3e49c4719e676509a0a9f0aaa73ef6b2b2d369ba65128580280cc1f36f5e differs from the prior failed-attempt a193 artifact; both retain their scoped records. Full readback archived under releases/ios-build16-camera-helper-installed-20261012. No migration/reset/restore/termination occurs. B169/B170 need actual camera feedback. See docs/qa/ios/2.0.0/build16/personal-ipad-install.json.
+
+## October 12 — Build16 guarded delivery failure
+
+A valid helper artifact does not establish device installation: first install fails after a verified13-file backup; status still reports Build15. Retry then times out copying backup (CoreDevice7000/POSIX60), before installation. Preserve the incomplete copy and wait for explicit unlocked/open/idle readiness; do not infer a locked device or retry without readiness. Actual helper artifact passes50/50 independent checks. See docs/qa/ios/2.0.0/build16/personal-ipad-install.json.
+
+## October 12 — camera preview and recognition contracts (Build16)
+
+- `VNFaceObservation.pitch` is populated by rectangle detection; landmark-only requests can omit it. Run rectangle revision3, then pass inputFaceObservations into landmarks and retain rectangle pose. Missing pose/lip/eye metrics are per-expression availability, never proof no face exists.
+- Never use synchronous `.main` capture notification delivery while camera/preview graph operations can contend. Capture and shutdown run in the background; view-backed preview session/mirror/rotation changes run on MainActor, matching Apple current AVCam. A logical FIFO awaits main acknowledgement before the next capture operation, without blocking either executor. Callbacks hop asynchronously to MainActor. Retain the owner until physical shutdown completes; publish enabled/session only after start completes. A native semaphore regression reproduces the old synchronous notification wait.
+- Camera permission can outlive rotation. Initial worker frame revision must equal the latest service revision; stale frames cannot rebuild calibration. Pause/resume of the same active-set ID must refresh verdict eligibility. Explicit set/page/context changes reset motion, unrelated speech-listening updates do not.
+- Preview geometry uses actual captured aspect, not an assumed VGA ratio; prefer720p where supported. Clamp finite face bounds before pixel-index conversion. Recover missing metrics only from a stable window relaxed against old neutral, preserving all existing baseline values exactly.
+- Command-first mappings retain old Codable keys/defaults and make reassignment explicit. UI-test preferences use an isolated key. The final DEBUG fixture simulates capture/startup/measurements and preview controls only. iOS Simulator reports AVFoundation-11800/underlying-12782 when an empty session is configured/attached (even without explicit startRunning); Mac empty-session success did not generalize. Retain those failed fixtures and use real-device acceptance for preview graph/live-video, mirroring/rotation, recognition and freeze behavior. B169/B170 remain open until physical confirmation.
+
+## October 12 — personal Build15 guarded delivery
+
+Christian's explicit request lifts the prior hold only for the plugged-in personal target. Guarded refresh from68d667f validates all241 prepared-source hashes, exact profile target inclusion, same-bundle2.0.0/build15 installation and13 files/19,420,130bytes unchanged. Schema5/revision3423 and completed active-slot set remain exact. Helper device rebuild changes the executable from the generic package to e176ae5ad22e32766d665127791b9984f12d02e54134ce26de228af1560f88ea; audit the actual installed artifact rather than citing the generic hash. Profile expires2026-10-17T16:14:24Z. Automatic launch fails after installation/preservation pass, so helper exit1 is not installation failure. First process readback is not running; Christian then confirms open and the next process query sees it running. Full post-launch backup20261012T163008Z-91208583 is still exact across all13 files/19,420,130bytes, schema5/revision3423 and every original record/profile/privacy/preference. No migration occurs. Friend remains held/build12; Mac/import/physical acceptance are unchanged. Private backup folders stay excluded; sanitized proof is docs/qa/ios/2.0.0/build15/personal-ipad-install.json.
+
+- **Build15 affected-flow checkpoint completed October12; prepared for device validation, installation HELD.** Final19 actual44pt Edit padding/name112.5/Save/process-relaunch passes94.063s; independent visible-UI final24 also passes and proves only intentional passage fields/revision changed. Height-only HUD layout formerly preserved fit-relative zoom and shrank absolute2.433236→2.364990. Preserve absolute manual scale only for same-width height changes, excluding explicit refits and short-landscape entry/exit; at-fit follows fit. Final20 actual zoom64.577s, two mounted native cases0.123s/0.022s and independent real pinch/pan/arm70.062s pass, exact absolute2.4332361227405377 across927→901pt. Named final18/19/22 initial-tap failures are upstream simulator cancellation: virtual digitizer removed while touching/locked; final22 began→cancelled173ms/noended before forwarding. One120ms same-center HARNESS contact/no retry passes20 delivery-checked plus10 untraced launches;20began/20ended/0cancelled,30correctarms/protectedstate,0live-contact teardown in OS logs. Do not act on cancelled touches. Independent normal navigation/Focus/Cancel/Close/relaunch passes; manual landscape casing-only attempt unaccepted, prior actual rotation/native scopes retained. Generic Release signing29/independent40 checks and full archive readback pass;65 diagnostic markers absent, profile expiry2026-10-17T16:14:24Z. Simulator appf18c220c…/runnerbd8fbeee…, signed Releaseb3c21602…,241 source hashes match. Checkpointios-v2.0.0-build15-device-validation; original failed candidate tag untouched. Both iPads untouched; physical recognition/Pencil/camera/click/OS/sustained acceptance and unmatched historical failures remain open. See docs/qa/ios/2.0.0/build15/README.md.
+
+- **Historical bounded Build15 final18 verification is complete and failed.**316 total/313 pass/2 fail/1 live-account skip; native308/0 failures15.960s, actual UI6/8 pass. Ink86.400, repeated double/triple167.412, actual rotation/Sidebar/Focus/saved ink179.912, New Text dictation Cancel80.870, Voice Check Back112.620 and saved-note dictation Cancel106.990 pass. The normal one-tap-per-process case fails on launch5 after4 passes(105.004s): correct settled/full paper, center410,523.5, Whole piece unchanged. The all-saved hit-route hardening is insufficient; no cause is inferred from a focused native TextView. The zoom case actually arms the correct passage after real pinch/pan but fails its final absolute-scale predicate(69.327s), with viewport927→901pt and missing full failed scale/minimum values. Retain the failed assertion; do not invent exact fit-relative preservation. User requests the bounded report and no diagnostic/scope loops; all uncompiled arm-shape/new-diagnostic changes are reverted to exact final18 source. The small armed-pencil target remains unrepaired. No final19, fresh current-binary manual acceptance, build15 Release audit or physical-device actions. Both iPads stay last-verified12 under hold. See `docs/qa/ios/2.0.0/build15/README.md`.
+
+- Historical build15 final13: B168 direct Cancel/Mute/Off/Picker and armed Finish/Save/reopen/start/fresh Clean pass on frozen11ec source; fullnative308/1skip/0fail. Two actual initial saved-box single taps fail before NewText/Back speech flows (Whole piece unchanged), reopening B155; cause untraced. Rotation fails before rotation on incorrect PDFKit markup-state fixture, now corrected to actual app reading controls. 10UI7pass3fail; neither iPad updated. See functional-final13 evidence.
+
+## Earlier October 11 — build15 functional-flow checkpoints and explicit install hold
+
+- **The human hold overrides standing installation preferences.** Christian explicitly requests continued repairs/testing and no install on either iPad. Keep that hold after checks pass until he lifts it. Both iPads last verified build12; this candidate keeps native2.0.0/schema5 and Mac11.1.0/schema21 unchanged.
+- **Trace input only by explicit opt-in.** DEBUG InteractionAudit requires both --uitesting and --audit-taps, synchronously forwards the original UIWindow event exactly once, and asynchronously records redacted touch ancestry/state with bounded storage. Extra native gesture targets now require the same flags. Normal acceptance runs omit tracing; successful traced PKSelectionGestureView leaves do not explain historical B155 no-ops.
+- **A success banner can mean zero executed tests.** Audit6 has a matching installed runner containing both intended methods, yet executes0. Explicit enumeration reports2 enabled methods; audit7/8 actually execute1 each. Always verify executed count. Audit8's eight box-double/Cancel cycles plus triple/ordinary editor pass185.061s; all185 original records remain deeply equal apart from startup rank/timestamp and revision6→7. No history or passage mutation.
+- **Recovery must be reachable on arrival.** The neutral mic attention badge opens Hands-free, but audit3 fails because the recovery section sits below ten command examples. Put existing error/Enable/status/Retry before examples. Do not hide the original error or silently activate input.
+- **Audio notifications must not synchronously wait on the UI actor.** MetronomeService used NotificationCenter queue:.main, unlike the speech helper. Engine start/stop may occupy the UI actor while its worker posts configuration changes. Use the existing copied-context asynchronous handoff; retain the originating notification center for observer cleanup. A private-center service-registration regression avoids resetting the app-wide audio engine.
+- **Mute changes retire unfinished input.** Retain microphone ownership/capture, renew recognition on both transitions and discard staged audio. Otherwise a final for muted words can deliver after unmute. Nested Hands-free destinations also need their own score-action gate: a `.voice` sheet enum alone does not identify the visible root. Recheck both supported actions and dispatch; restore previously enabled score input after a manual recognition check releases ownership.
+- **The first attempt uses its armed tempo.** Voice/Space click start must prepare active-set BPM or the armed start BPM, rather than reuse the metronome's previous standalone BPM. Simulator engine/state assertions do not establish physical click audibility.
+- **Frame an icon target inside its label.** The organizer's Edit button appears as a13.5×13.5 AX target despite a44pt image frame. Explicit44pt rectangle content shape plus plain button style belongs inside the label. Check actual padding taps and AX minimums for both organizer/review edits. The legacy Today test also needs its current Edit name and goal label, not Rename. A final snapshot does not explain the separate goal-toggle coordinate failure during keyboard/sheet movement; record/tap the settled native switch for the stronger contract.
+
+- **Undo availability is live context.** First ordinary touch Clean must expose voice Undo without opening another screen. Refresh after successful writes and derive undoability; same-set Undo-only changes retain the current utterance/capture/staged audio so a multi-verdict final can complete. Native308 and actual two-cycle touch Clean→voice Undo pass; physical recognition remains unproved.
+- **Audit containers must not obstruct their own target.** A synthetic safe-area strip outside NavigationStack overlapped its final settings row. DEBUG simulated-voice now gives NavigationStack bounded space above a sibling strip. Normal/Release layout is unchanged. Count readback must accept SwiftUI's exact combined AX label Clean, 1, while checking the protected ledger; missing a separate AX child is not a production count failure.
+- **Trace observers can change timing.** Native-controller cold reflection before touch forwarding took591ms in a cancelled Sidebar diagnostic. Move it after forwarding and detailed recognizer snapshots after ended/cancelled. Final7 low-perturbation trace passes the full ink/relaunch flow; this does not establish a cause for the earlier normal Sidebar failure. Always retain untraced repeated navigation and binary scope.
+- **Match the running test contract, not only stored bytes.** Final5 executes removed helper behavior and omits new methods despite matching built/installed plugin hashes. Removing only the disposable simulator runner and rebooting the simulator enables the new methods in final6. The cache/runtime cause remains unknown; enumerate and verify executed method names, failure text and actual traversal.
+- **Keep active-session exits reachable.** End practice was below the520pt visible menu and did not appear after bounded drags. The same existing destructive action now comes first in Current practice whenever active != nil; its confirmation/gates remain. A view-finding failure does not identify UIKit scrolling cause. Actual confirmation/dismissal/preservation is required before acceptance.
+
+- **A repeated native Sidebar pass is not a repair.** Final3 normal Show no-op remains valid even after64 native actions/4 launches pass. Regular iPad controls now own44pt rectangular targets and assign visibility directly; compact retains native controls. Initialization/guarded Close use detailOnly. Toggle handlers do not navigate/reset markup. Verify actual rotation/focus/ink and process-relaunch before accepting this narrower changed path.
+- **Back has a different ownership order than Done.** Actual final9 Back returns Hands-free but says Voice is off; root appearance can precede check disappearance. Do not consume a pending resume while the temporary owner remains. Observe owner release, recheck current root/sheet/scene/prior opt-in and restore prior Mute without stealing ownership. Explicit Off/score exit/background cancel the pending return. The failed actual Back regression must pass after the repair.
+- **Dictation is a temporary speech owner.** Actual enabled score voice → Rename → Dictate → Cancel fails prior score ownership/listening restoration in final11 (63.117s). Snapshot prior score opt-in/Mute before presenting an editor; restore only after it closes and releases ownership, on the same visible score. Never activate previously off input or steal another owner. Direct text dictation shares this source gap; its actual return boundary needs a separate check.
+- **Use the true menu clip for whole-row containment.** End final9 is visibly first and fully contained (224pt row/224pt clip), but a5pt helper inset produces a214pt clip, falsely rejects it and issues an unnecessary drag which dismisses the menu. Remove the containment inset, keep drag coordinates interior and guard missing-container frames. This exact geometry proves a fixture error, not a new End action failure.
+
+Verification is recorded per frozen binary in docs/qa/ios/2.0.0/build15/functional-flows.md. Final10 End89.430s/Back105.815s/Mute170.141s and native308/1 skip/0 failures16.283s pass. Final12 owned44pt64-tap/4-launch Sidebar450.429s and independent ink/relaunch77.545s pass; rotation fails before action at the PDF label/value fixture and is corrected. B168 narrow handoff source is frozen; actual Cancel/Mute/Off/note/picker/Save checks, corrected rotation, fresh live verification and generic signed package remain pending; both iPad installations stay explicitly on hold.
+
+## October 11 — functional audit and passage dictation intent
+
+- **Bind intent to every editor presentation.** ScoreWorkspace's region triple tap set a persistent dictation flag; Cancel/Save dismissed only the passage. Dock/menu/running-HUD rename reused true. Build14 routes all four paths through one helper assigning passage and explicit intent (ordinary false), plus dismissal cleanup. Baseline live repro is blocked by navigation; source confirmation is independent, actual successor combined regression remains unaccepted: fresh6 selects a box and saves dock-name/108.5 goal, then box double tap fails to open the editor. Fresh4 reached the target triple/denial/ordinary flow but had the global-query error described below. All failures remain.
+- **Scope editor assertions to the editor.** Fresh4's global no-error query matched red permission text on the underlying score while the ordinary Rename form was clean/focused. Keep the strict editor assertion within the form containing passageRenameField. The actual remaining score caption is a separate user-facing defect: final build14 replaces it with a neutral attention badge on the existing44pt mic button; error taps open Hands-free details/recovery. No extra score row or silent capture/error clearing.
+- **Test scope is not a feature verdict.** Build13 real drawing/save/reopen and other scoped UI passes coexist with camera-menu, review-queue and sidebar tap failures. Camera detector tests use synthetic measurements; voice recognition/capture paths are injected. No real speech-over-piano, face/light/orientation/false-action, audible-click or sustained physical acceptance exists.
+- **Audit protected state and report bootstrap separately.** Synthetic review baseline precedes RewardsRuntime startup. Opening materializes reward ledger entries from seeded grades and normalizes rank; original grades/schedules/practice remain exact. Do not call this all-record or byte preservation. Fresh9 priority pixels show two due URGENT rows and one future nonurgent Tough row, separately from the failed All passage reviews opening.
+
+## October 11 — build13 native input contracts
+
+- **PKCanvas setters do not reset all native drawing state.** Actual simulator first draw1→two-finger Undo0→next draw2 reproduces physical feedback before disk save. Replace native canvas at Undo/Redo with retained independent history/exact stroke cache/source basis; retire old delegate/recognizers and reapply PDF pinch priorities. Avoid blanket rejection of non-tool edits, which can break lasso menu cut/paste.
+- **Recognition finalization must keep the next utterance.** Bounded audio-request handoff keeps capture running while waiting up to4s for final text; transient failures retain explicit opt-in/owner/context and retry four times before a visible manual Retry. Stale generations/duplicate finals cannot write history. Timed repeated verdict segments require distinct ordered acoustic gaps; text repetition alone never multiplies reps. Physical audio remains open.
+- **Camera gestures are optional player input.** One main-actor camera owner is claimed across score windows before requesting permission; matching-owner release and generation guards fence stale grants. Front-camera video-only Vision runs on one serial queue, bounded10Hz/drop-late; frames are discarded locally. Fresh neutral calibration is required every session/rotation, failed recalibration revokes old baseline, complete gestures return to neutral with dwell/cooldown, single-face/light/size/confidence/stale-frame/context gates suppress dispatch. Rep actions have separate opt-in and running-set/focus guards. No perfect mapping guarantee or physical evidence yet. Permission prompts may inactivate a scene; only background/score exit tears down capture, with inactive actions fenced.
+- **Urgency is a factual readout.** Saved review dates and latest self-reported cold grade determine priority, including Learning after lapse. Future due dates remain future; lateness creates no grade. Passage goal uses existing performance_tempo, future-set drafts refresh, active snapshots/history remain exact. First-attempt click is actual transient preview with idle cleanup. No schema change or desktop parity implied.
+
+
+## October 11 — friend build12 preservation and launch boundary
+
+The exact friend’s iPad (6) guarded refresh on October10 preserves all3 owned files/38,874,123 bytes and schema5/revision85 exactly under independent rehashing. The user confirms opening. A read-only process query fails before post-launch backup; subsequent exact-device status is unavailable. Retain user-confirmed opening separately from unverified running-process/readback and physical acceptance. Evidence: `docs/qa/ios/2.0.0/build12/friend-ipad-install.json`, `friend-signed-release.json`. Personal data was never copied.
+
+## October 10, 2026 — build12 candidate contracts
+
+- PDF page changes must still defer outside representable updates (build7 watchdog contract).
+  Bookmark serialization/write is now debounced250ms so page layout can begin first; score exit
+  and background flush the last pending bookmark. A sudden kill inside that window may retain the
+  previous bookmark, while practice/ink checkpoints retain their original durable-before-feedback gates.
+- Keep two clean detached overlay histories, plus current/dirty pages. PDFKit can detach during zoom;
+  destroying the canvas each time destroys value Undo/Redo. Clear on source/layer/page-edit changes.
+- Raw PencilKit pen width clamps at about25.659 points in the native probe. Scaling a Bold tool by a
+  huge PDF width can collapse distinct stops; canonical canvas coordinates with source-space storage
+  require exact old-stroke/persistence/zoom checks. Never call a tool-width formula verified without PK.
+- Full-tempo references and per-event hands are additive optional metadata; old records are never
+  retroactively rewritten. Sync support depends on the existing opaque tempo_step payload, while
+  piece target/planning fields, aliases and control position retain explicit local-only boundaries.
+- Focus gates rep/history input without completing/pausing the stored set or stopping voice capture.
+  Repaired speech requires confirmation and pending suggestions are scoped to the current set/context.
+
+- Old set-level hand labels and unspecified variants must not support negative coverage judgments.
+  A chosen hand check requires per-event attribution; a chosen variant check requires known method
+  on all included rows. Otherwise show incomplete attribution/reasons, while preserving counts.
+- Expanded note inspectors use opaque semantic systemBackground/label colors for readable rescue
+  text. Saved arbitrary RGBA colors remain on the score/preview/export. Never put saved white text
+  on a fixed yellow inspector surface. Palette tools scroll within half the score (44pt header minimum).
+- Selected reading-mode finger hits need the overlay route to avoid PDFKit text recognizers claiming
+  double-tap rename. Claim only definite direct touches in visible selected/emphasized regions;
+  preserve Pencil/unresolved, writing, note, crop and read-only priorities. Actual UI2 verifies
+  both selected-region and dock-title double-tap rename/save/reopen without starting practice.
+- Two automatic-style buttons in the same SwiftUI Form row can both run. Transparent then Yellow
+  produced an opaque note on ordinary and huge-score UI2. Give each action its own explicit button
+  style and full44-point label; test both directions and persisted state rather than weakening On/Off.
+- More44pt icons can widen a vertical ScrollView beyond the phone. Phone1 at largest text exposes
+  a466pt control viewport in a402pt app, placing Annotate at x414. The mode row now uses horizontal
+  ViewThatFits with a two-row navigation/actions fallback. Scrolling vertically cannot fix width.
+
+- Do not infer actual rotation from XCUIDevice orientation requests or screenshot filenames. Phone2
+  remained portrait; require app/PDF width>height before claiming landscape. AX hidden note-panel
+  controls can exist with0x0 frames, so presence alone does not prove interception.
+- Fresh2 valid-coordinate taps remain unexplained; fresh3 passes same-app strict focus/note flows.
+  A newly compiled test helper is not exercised merely because its strings appear in the product:
+  inspect the actual run log/runner provenance and preserve earlier fixture scope.
+- Historical revision2264's paused set is not current readiness. October10 read-only preflight first
+  observes a running set/size change and refuses backup; after user idle confirmation, full backup
+  verifies revision2848 with a completed set. Use each fresh guarded snapshot as authority.
+
+- Build12 guarded refresh from459081c preserves all13 owned files/15,674,360bytes at schema5/rev2848
+  including62history+1completed active-slot set. Actual helper binary9c4ea713… differs from initial
+  generic8bdbf412… and independently passes exact-device/signature/dSYM checks. OS launch denial is
+  separate from installed-build/full-file success; user confirms opening and readback remains2848.
+
+- Build12 post-launch retention is exact for the library/records/scores/profile/privacy/preferences.
+  Two Sync files change (+3,933bytes) after opening; keep that result separate from all13files
+  being byte-exact before→after installation. Do not claim all-file equality across launch.
+
+- Launching the new note-background encoder can append annotation upserts without rewriting the
+  library: observed original4,641queue entries retained+5upserts, all1,695snapshot keys retained,
+  five region.textStyle values gain onlybackgroundColor. Preserve this wire-only delta in audits;
+  queue presence is not proof of server delivery or real two-device convergence.
+
+## October 10 — build11 note contracts and friend’s first install
+
+- **Text size is relative to a canonical 595-point page width.** PDF media-box units vary greatly between real scores; a fixed source-point font becomes unreadable on the oversized Prokofiev scan. `TextAnnotationStyle.referencePageWidth` is595; default size20, supported range12–48. Shared `TextAnnotationRenderer` keeps overlay/export text appearance tied to original page width, including crop transforms. Native2 passes the strict ordinary/oversized glyph-mask comparison; physical readability remains unverified. The initial renderer fails at0.169 overlap against greater-than0.95. Keep fonts/layout in canonical595-point space and scale the CGContext; source-unit-dependent font layout breaks visible consistency.
+- **Styling is optional data, not a library migration.** `TextBoxAnnotation` decodes absent `style` as readable defaults and retains every original field. Opening a legacy schema5 file must leave its bytes and revision unchanged. Invalid or nonfinite font sizes fail validation before publication. Eight new core tests cover old/new JSON, save/reload/backup/restore, sync/tombstone clocks and atomic rejection; full core420 passes.
+- **Extend existing JSONB, never assume an undeployed SQL column.** `AnnotationSyncRow` keeps its SQL-column set unchanged; `region` retains x/y/width/height and optionally nests `textStyle`. `NormalizedRect` readers ignore that extra key; stamps keep their exact prior shape. This follows the deployed `annotations.region jsonb` contract and its unchanged text/stamp discriminator constraint. Older clients can read the text/geometry but discard unsupported styling when rewriting a note; actual two-device style convergence remains unverified.
+- **Visible row width must match its hit area.** Build11 iPad1 passes ordinary note creation/corner resizing but tapping plain-label whitespace does not open formatting. The full44-point row now has `contentShape(Rectangle())`. Floating-panel overlap also takes priority over note-corner hits, covered by a sixth native interaction test. Fresh review accepts the repairs; native2 passes all63 selected tests, including overlap. Both original iPad1 UI cases fail formatting; iPad2 later executes zero tests; actual iPad3 passes ordinary but fails oversized save/relaunch.
+- **A successful test command can execute no tests.** iPad2 reports `TEST SUCCEEDED` with zero tests; it is not acceptance. iPad3 actually runs2 cases: ordinary passes59.990s, oversized still has size20 after relaunch instead of24 because Save never dismissed/committed. Resolve the durable note before editing, pin the exact save error, and retain compare-and-swap protection. Do not infer that an unsaved draft was persisted or that stored styling was lost. Later iPad5 validates the final oversized flow and native64, while ordinary final UI times out before note entry.
+- **Final-source evidence is mixed; first install is not preservation evidence.** iPad5 native64 passes5.446s; oversized UI passes1131.493s; ordinary fails184.170s before note entry amid host load144. The friend’s exact `iPad (6)` now has build11 as a fresh generic empty install, prior app absence verified. No prior owned inventory exists to compare and no personal data was copied; the friend’s initial automatic launch is denied and process readback false. Christian later confirms opening it; unavailable-device initial-library and physical note acceptance remain unverified. The personal iPad subsequently receives same-source build11 via guarded refresh: independent review proves13 files/13,568,473 bytes, revision2264 and the paused active set exact. Personal launch/post-launch checks remain pending.
+- **Recheck the actual helper-built artifact.** The incremental targeted Release omits CodeSign and fails sealed `Assets.car`/`embedded.mobileprovision`; a clean Release fixes it without certificate/key/profile bypasses. The helper rebuild changes the executable hash, so repeat strict signature/profile/target/privacy/dSYM checks after it. Actual installed helper executable `ce2373e0e3a61116072ddddbd8e9e219f6faa8d025a528f7683a577d12daf0cd` independently passes; profile expires October17 at16:14:24 UTC. The source/tag and sanitized evidence are in `docs/qa/ios/2.0.0/build11/friend-ipad-install.json` and `friend-signed-release.json`.
+
+## October 10 — build10 installed; qualified physical improvement
+
+**Installed iPad: native2.0.0/build10/schema5, source `b22d4bf`. Scoped native/UI checks and guarded installation pass; the user reports qualified improvement after the selection/Cancel comparison. Macv11.1.0/schema21 is unchanged.** After accepting the earlier named interactions, the user reports that Prokofiev passage creation has no visible corner dots and lags badly, while Beethoven handles are smooth. That earlier acceptance does not establish consistency across scores. This new defect is B146.
+
+Confirmed PDF metadata differs sharply: Prokofiev page10 is5609.6×7764.01 points; Beethoven page4 is626.76×874.92 points. The old overlay's minimum content scale of1 defeats its4-million-pixel cap on the larger page, permitting about43.55 million pixels;8-source-point handles shrink below1 screen point. These identify page-size-dependent rendering and handle-visibility defects. Overlay/state repairs are implemented and two fresh source reviews find no new blocker. Final ordinary/oversized selection UI passes on both iPad and iPhone, including blank/drawn Cancel, Undo/Redo/save and adding a second box to a saved passage, canceling, then reopening the original one-box baseline. All48 selected native checks pass on phone; iPad passes42 existing plus6 new checks across the recorded runs. Four independently accepted screenshots show consistent handles/borders and unclipped Cancel/Done. These are scoped checks, not a full-suite or performance-rate claim; earlier failures and the zero-test run remain in QA. Build10 is installed. Christian now replies “good it works better” to the selection/Cancel comparison. This is qualified improvement, not measured latency or zero-defect acceptance. The raster cap does not bound total PencilKit cache/RAM; the pre-existing cropped-resize limitation when the opposite edge is hidden remains.
+
+The user also reports that selection Cancel does not work (B147). The installed repair makes explicit Cancel immediately discard only the draft and return to the score, preserving any saved baseline; navigating away retains its separate confirmation guard. Actual UI on both devices passes empty/drawn Cancel and verifies a saved passage retains its original one-box baseline after canceling an added second box.
+
+**Installed build10 checkpoint:** source `b22d4bf3e25ff7309ff55ad3b700d5bb5f2713ea`, tag `ios-v2.0.0-build10-candidate`, is installed by guarded same-bundle refresh. Independent complete pre/post audit verifies all13 owned files/13,350,814 bytes identical by filename, size and SHA-256. The preserved schema5/revision2198 snapshot has6 pieces/57 passages/54 historical sets/35 sessions/317 attempts/270 ink rows (213 active)/2 stamps/2 notes and no active set. Actual post-helper strict signing and app/dSYM checks pass; profile expires October16 at23:56:11 UTC (7:56 PM EDT). Automatic launch was denied, but a subsequent read-only process inspection confirms build10 running; this is not attributed to a user opening confirmation. Independent post-launch retention at October10 14:58:32 UTC also passes: all13 files/13,350,814 bytes and the complete schema5/revision2198 ledger are identical across all three snapshots, including profile/privacy/account/preferences, sync files and source PDFs. There is no active set or added persisted activity; authorship is not inferred. Christian subsequently reports “good it works better” in the selection/Cancel comparison; retain that qualified improvement without inferring every edge case or sustained reliability.
+
+**Next steps:** retain the qualified selection/Cancel improvement and verify the separate sticky-note repair (B148). Installation, running-process observation and complete post-launch preservation pass. Preserve the earlier build9 acceptance and failure history. Evidence and pending checks: `docs/qa/ios/2.0.0/build10/selection-consistency.md`.
+
+## Historical October 10 — build9 named physical interactions accepted
+
+**Installed iPad: native2.0.0/build9/schema5 from `2de2444`. Launch/readback and named physical interactions pass. Broader acceptance remains scoped below. Mac:v11.1.0/schema21 unchanged.** On the iPad Pro12.9-inch (3rd generation, iPad8,5), iOS18.7.8, the prior build8 report was that the score cannot zoom while ink pans, Clean takes about one second, scrolling/menu/mode changes and warmup exit are delayed, passage selection updates about once every four seconds, and Pencil use crashes. These are physical observations, not accepted performance limits.
+
+A45-second physical build8 Time Profiler capture records18.293 seconds of main-thread sampled CPU time, including12.276 seconds in `syncAll`. Instruments identifies14 hang/microhang intervals, the longest2.0187 seconds. The leading stack is `String(format:)` → `Data.praeludeHexLiteral` → `InkStrokeSyncRow` → `enqueueLibrarySnapshot` → scheduled `syncAll`. Inclusive samples overlap; hang duration is not measured touch-to-frame latency. These are build8 measurements, not evidence of build9 improvement. Sanitized evidence is `docs/qa/ios/2.0.0/build9/build8-physical-performance.json`.
+
+Installed build9 source repairs: PDFKit owns page pan/zoom while the drawing canvas stays fixed; bounded app-owned drawing-value history replaces native tile Undo registrations; durable practice sync entries batch in parent-before-child order with debounced draining and account/revision-scoped snapshot reuse; a byte lookup replaces per-byte NSString formatting while retaining the existing hex wire format. Core412 and full native258 (1 live-account skip,0 failures) pass before the final gesture-priority change; two iPad practice/selection UI cases also pass. The earlier actual pinch failure is retained in QA. Undo now waits for the native pinch recognizer to fail and cannot recognize simultaneously. All14 targeted native interaction tests and fresh source review pass after that change. Actual UI5x pinch raises PDF scale to2.3177427145 from minimum1.0255516841 with the ink stroke retained; independent before/after pixel review accepts score/ink alignment and the settled palette. Actual two-finger Undo passes in Draw and reading. Two attempts to place the zoomed two-finger tap through XCTest fail because the target lies in a clipped viewport; this does not establish a production failure or a pass. The final gesture UI passes70.518 seconds: actual stroke, two-finger Undo in Draw/reading, Redo, mode change, strict real PDF pinch with unchanged ink, toolbar Undo/Redo at zoom, Done and saved ink after relaunch. Physical two-finger Undo at zoom remains pending. Source is frozen. Signed device build9 Release and strict app/profile/team/device/signer-trust and Release fixture/debug-exclusion checks pass. The same-bundle profile expires October16 at23:56:11 UTC (7:56 PM EDT). Independent signed-artifact verification and guarded installation also pass. Build9 is installed and running; independent post-launch preservation passes. On October10, the user confirms score pinch-zoom, Pencil marks → Done, two-finger Undo, passage selection and button response: “Those actions work and feel responsive.” These named interactions are user-accepted on source `2de2444`; measured latency, Undo specifically while zoomed, microphone/two-device behavior and sustained or week-long reliability remain unverified.
+
+**Installed build9 checkpoint:** source `2de2444a782cb54a5cd31966ecc33257e4511dd0`, tag `ios-v2.0.0-build9-candidate`, is installed through the guarded same-bundle refresh. Independent review verifies all13 owned files/12,960,329 bytes identical by filename, size and SHA-256 before launch. Schema5/revision2167 retains6 pieces/53 passages/54 set IDs (53 historical plus1 paused active set)/35 sessions/317 attempts/259 ink records (202 active)/2 stamps/2 notes. The paused set is preserved; it is not a running set or an empty active slot. Actual post-helper Release signing/profile checks pass; expiry remains October16 at23:56:11 UTC (7:56 PM EDT). iOS denied automatic launch, then the user confirmed opening build9 and read-only process inspection confirmed it running. Independent complete post-launch readback at October10 00:57:50 UTC (October9 8:57:50 PM EDT) verifies the same13 files/12,960,329 bytes unchanged, schema5/revision2167 and every original record including the paused set. Undo specifically while zoomed and sustained practice remain unverified. Both build9 traces completed but were effectively idle: the45-second trace has12 all-thread samples/5 main-thread CPU milliseconds; the120-second trace has15 all-thread samples/8 main-thread samples (8 milliseconds). Neither reports potential hangs, but neither proves active score gestures or a speedup; foreground lifecycle is unknown. The October10 user confirmation accepts the named actions separately from these inconclusive traces. Evidence: `docs/qa/ios/2.0.0/build9/personal-ipad-install.json`.
+
+**Next steps:** continue practice with the accepted interactions; separately verify combined zoomed Undo, microphone/two-device paths and sustained use. Capture active-use profiling if a latency issue recurs. Preserve the paused set and keep installation/preservation separate from physical acceptance. No week-long or zero-defect claim is supported.
+
+Evidence and planned checks: `docs/qa/ios/2.0.0/build9/responsiveness-regressions.md`; the separate Undo repair ledger is `docs/qa/ios/2.0.0/build9/undo-repair.md`.
+
+## October 9, 2026 — native build8 installed repairs and unresolved physical failure
+
+Source is 2.0.0/build8/schema5, INSTALLED — PHYSICAL FAILURE REPORTED; the physical iPad now runs build8, with a new physical failure under diagnosis. Mac v11.1.0/schema21 is unchanged. Final native/Release results and failed attempts belong in `docs/qa/ios/2.0.0/build8/usability-review.md`. Six physical build7 watchdog reports (three each from October 7 and October 9) and a 90-second CPU report identify the same SwiftUI responder/AttributeGraph cycle: synchronous `PDFView.go(to:)` in `PagedScoreView.updateUIView` removes a focused overlay while SwiftUI is already updating. Matching-dSYM symbolication establishes this path; it does not attribute every reported freeze or the separate microphone complaint. Build8 defers and coalesces PDF reconfiguration until that update unwinds, explicitly observes the state its deferred coordinator reads, and retains failed-checkpoint guards. Detailed evidence is in `docs/qa/ios/2.0.0/build8/crash-analysis.md`.
+
+Verification checkpoints: 406 core tests, 2,211 deterministic service assertions and 57 Python helper tests pass. The final native run executes 245 tests with 1 live-account skip and 0 failures in 16.881 seconds; the mounted-scene fixture proves window identity before its strict crop/zoom checks. UI15 passes the complete actual sticky create/hold-drag/double-tap-edit/relaunch/triple-tap/permission-denied recovery flow in 59.539 seconds on the same final production source. Phone3 passes accessibility portrait/landscape in 71.631 seconds, with four independently accepted screenshots. Earlier scoped passes cover exact 72→88 BPM goals, hands, grading/Undo, movement editing/navigation, warmup Finish, score continuity, markup and two-finger Undo/Redo. Source review and scoped layout review pass; source is frozen. The 45-item QA report preserves UI13–15 native frame failures, earlier UI failures, stale-runner evidence and the test-fixture correction instead of replacing them with a blanket pass. Build8 is installed; the user reports a physical failure, and no week-long teacher trial has occurred.
+
+- **Idle preparation must never publish from a worker.** `replaceInkPreparedAsync` captures immutable state and expected ink, merges/validates/encodes off the UI actor, then rechecks revision and original ink before one synchronous atomic write and state publication. It retries unrelated revision changes within a bounded loop. No suspension is allowed between the final compare-and-swap and publication. Page/layer/mode/exit saves still use the synchronous checkpoint; this is not a full asynchronous persistence rewrite.
+- **A completed checkpoint may be older than the live Pencil canvas.** `PagedScoreView.Coordinator` tracks document/layer/page, save epoch and edit generation. Idle completion can update its saved baseline but may only clear dirty/pending state for the same generation. Explicit flush cancels suspended preparation and saves the latest canvas. Failed saves retain recoverable pending ink; an unchanged failure does not spin every 600 ms. Preparation/cancellation/new strokes/transition failure require race regressions, not only static assertions.
+- **PDFKit hierarchy changes must leave the SwiftUI update stack first.** Matching build7 dSYM symbolication of all six physical watchdogs identifies `updateUIView` calling `PDFView.go(to:)`, followed by focused-overlay removal and a SwiftUI responder/AttributeGraph cycle; the 90-second CPU report agrees. Queue/coalesce the latest configuration on the next UI turn, suppress transient navigation notifications, discard dismantled work and defer overlay-provider cleanup. Deferred reads must use explicit observation for tool settings, drawing policy and externally saved ink; losing SwiftUI dependency tracking caused the hosted8 failures. Hosted9 passes the full 241-test suite (1 live-account skip). Failed checkpoints must still prevent page, document and display-mode mutation.
+- **Keep source coordinates and score geometry stable.** Native PencilKit canvases render current/inactive layers at score zoom; palette drag/collapse changes overlay placement, not PDF layout. Clamp the palette to the actual usable viewport, cap its internal scroll height, and keep practice/Done reachable at short height and accessibility text sizes. Two-finger Undo and multi-tap text actions retain explicit visible alternatives.
+- **Movement practice is a validated snapshot, not a fabricated passage.** `startSet(_:scoreSectionID:)` validates the current piece's saved section and rejects an unknown section or mixed passage/section target. It generates a boxless title/source-range snapshot using the section ID, without storing a Passage or inventing attempts. Caller-supplied ordinary snapshots remain ignored. Existing practice DTO/backup fields carry the immutable target; there is no schema or sync-column addition. Arm drafts use typed piece/passage/section keys to avoid cross-target UUID collisions. Actual saved passages retain their original identity and cold-attempt rules.
+- **Tempo gestures should not persist each sample.** `TempoDial` previews drag state locally and commits on release. Exact/tap entry is a cancelable draft. A centered numeric field can put its caret before the existing value; native focus selects the value so typing replaces it instead of producing an invalid concatenation. The same `SelectAllNumberField` now serves movement pages after a native test reproduced 21 instead of 2. Page numbers stay string drafts until Save; blank/invalid/zero endpoints disable Save, and external stepper changes update a focused field. Label multiple tempo fields by role so UI tests and VoiceOver cannot confuse the start and goal controls. Swift's isolated method-reference conversion caused an IRGen failure in a `Binding` setter; explicit `{ adjustTempo($0) }` closures compile safely.
+- **Trace actual gesture recognition rather than inferring from replay helpers.** Sticky-note UI5/6/7 failures exposed that UIKit zeroes pan translation at recognition and overlay single taps can compete with parent double/triple recognizers. Capture touch origin before that reset and set recognizer priority explicitly; readonly mode must not move or edit notes. The updated native regression and unchanged touch replay must both support the repair. UI8 passes all 13 selected native tests and trace/geometry confirms the note moves to the requested location, yet double-tap editing there still fails in UI8/9. UI10 did not reveal the palette, while unchanged UI11 reached the editor failure again and identified the winning one-tap recognizer. The local note multi-tap owner repair now passes UI12 actual drag/double-tap/edit/relaunch (52.404 seconds). Preserve the failed UI8/9/11 evidence. Later note accessibility and triple-tap additions fail UI13 frame/target checks. UI14 passes the full actual touch and permission-denied recovery flow in 71.060 seconds but retains two native zoom-frame assertions; UI15 repeats the complete actual sticky triple-tap/recovery flow successfully in 59.539 seconds. Native245/1 live-account skip still has two frame assertions failing in one case, now with a zero frame. A detached test fixture is suspected; the test now asynchronously mounts a real UIWindowScene/window and asserts overlay.window identity before applying the transform. Only the test fixture changed after the UI15 production source. The final strict native run now passes245 tests/1 live-account skip/0 failures in16.881s; mounted-scene/window identity and crop/zoom assertions pass. A source or hosted pass alone is not full touch acceptance. Header glyph fonts are explicit so Dynamic Type does not expand score/palette controls beyond their 44-point targets; UI7 largest-text portrait/landscape passes.
+- **Essential selection exit must not scroll away with practice controls.** Phone1 exposed an accessibility-size Done failure after goal and warmup Finish passed. `selectionTools` now sits outside the scrolling `practiceDock`; both share the original 60% viewport-height budget so pinned actions do not silently consume extra score space. `ViewThatFits` reflows narrow large-text actions to two rows. Independent source review and actual iPad UI12 accessibility portrait/landscape pass (67.236 seconds); Phone2 reaches selection Done in both orientations, then exposes a separate annotation viewport failure. The UI12 full native checkpoint is243 tests with1 live-account skip/0 failures. Its incorrectly named rename selector did not execute that test; Phone2 explicitly runs `testActualDoubleTapSelectedPassageOpensRenameAndPersists` and passes in52.388s.
+- **Budget tool content as well as the score rectangle in short drawing windows.** Phone2 accessibility reached selection Done in both orientations but then left only3 pixels for palette tools: score63/footer202 of337 workspace. Apply the30% footer cap only when writing in a short window; preserve60% for reading/selection. A fixed13-point palette header title fits alongside44-point icons while the actual tool-body text retains Dynamic Type. Explicit12-point Cancel/Done spacing and6-point action padding prevent their labels crowding together. Phone3 actual accessibility portrait/landscape now passes in 71.631 seconds. Four independently accepted screenshots show the usable tool viewport and separated, pinned Cancel/Done controls; the lower body and practice controls scroll at the largest text size.
+- **Drawn note chips need real accessibility elements.** `ScoreNoteAccessibilityElement` keeps stable note identity, the current visible text/hint and a page-local frame that UIKit converts through live PDF zoom. Refresh on note/geometry/layer/permission changes, not individual ink samples. Activation rechecks current note visibility/readonly state and opens the real note panel; deleted, hidden or cropped-away stale references cannot act. Retain the native canvases and expanded panel as accessibility containers. UI13 exposes stale screen-frame assertions and a missing actual triple-tap target. The follow-up computes screen frames dynamically and appends only visible attached overlay containers to the PDF native accessibility traversal, preserving the native elements and guarding hidden ancestors. UI14 passes the complete actual sticky create/hold-drag/double-tap-edit/relaunch/triple-tap/permission-denied recovery flow in 71.060 seconds. Its native suite executes 245 tests with 1 live-account skip and the same 2 zoom-frame assertion failures in one case; all other native cases pass, including PDF accessibility publication and hidden-wrapper guards. The aggregate does not pass. UI15 repeats the complete actual sticky triple-tap/recovery flow successfully in 59.539 seconds. Native245/1 live-account skip still has two frame assertions failing in one case, now with a zero frame. A detached test fixture is suspected; the test now asynchronously mounts a real UIWindowScene/window and asserts overlay.window identity before applying the transform. Only the test fixture changed after the UI15 production source. The final strict native run now passes245 tests/1 live-account skip/0 failures in16.881s; mounted-scene/window identity and crop/zoom assertions pass.
+- **One microphone owner, recoverable unavailable input.** Free dictation reuses `SpeechCommandService` and does not auto-save text. Callback generations and explicit UI-actor hops reject canceled/stale work. Permission, available input, format, interruption and owner checks apply before capture; leaving an editor cancels only its own microphone session. These mechanisms do not prove a physical reported crash is closed.
+- **Named on-demand device connections need a read-only probe.** `device.py` may ask for details on the exact uniquely named device to activate Apple's tunnel, then applies normal readiness/identity gates. It never substitutes another device or resets the app. Three regressions bring helper tests to 57; signing, pre/post complete-file preservation and app acceptance remain separate.
+
+**Installed build8 — physical Undo crash remains open:** native2.0.0/build8/schema5 from `a23cdec4f4f9acf42e8e5c724b6a386430dddca5` is installed. Independent review verifies all13 owned files/12,788,247 bytes unchanged by filename, size and SHA-256 before launch. Automatic launch was declined; the user opened the app. The23:59:40 UTC readback retains schema5/revision2086 (from2079),6 pieces/51 passages/50 sets/31 sessions/304 attempts/255 ink records (199 active)/2 stamps/2 notes. Original records remain exact except one piece page bookmark; profile/privacy/account/score data are exact. This readback precedes the23:59:53 UTC crash and is not post-crash retention proof. The user reported failure at19:59:56 EDT. Matching build8 dSYM identifies main-thread `EXC_BAD_ACCESS` at0x10 in `PKTiledView.performUndo` tile update, reached through the two-finger Undo action; this is distinct from the build7 PDF watchdog. Exact user sequence remains pending and the crash is unclosed. Signed Release checks pass, with profile valid through October16 at23:56:11 UTC (7:56 PM EDT). Sanitized evidence: `docs/qa/ios/2.0.0/build8/personal-ipad-install.json`. Mac v11.1.0/schema21 is unchanged.
+
+**Next steps:** obtain the exact user sequence and reproduce the confirmed native two-finger Undo crash before accepting its repair. Keep the23:59:40 UTC readback separate from post-crash retention. Keep physical Pencil, microphone, large-score and sustained-use acceptance open; do not treat installation as task completion.
+
+## October 2, 2026 — 2.0 candidate transfer and practicality
+
+Native source now2.0/build3/schema3; stale vault/current-mobile summaries were reconciled.
+Desktop import is a one-way reviewed snapshot. Preserve original Mac sets/contracts rather than
+replaying them through native rules, because counters/status/rewards are not semantically identical.
+Export uses SQLite read-only backup + integrity/FK checks; integer IDs have stable native namespaces.
+Edition IDs and size/mtime fingerprints gate visual box/ink mapping; PDFs are content-addressed SHA256.
+Receipts exclude export timestamps for idempotence. All original rows remain local; no raw database
+or absolute-path settings go to Supabase. Missing scores/unsupported filesystem assets are reported.
+Native backups now retain recording bytes and Mac archives; raw210MB/encoded280MB limits are enforced.
+Backups with audio/archive payloads use version2 so older readers refuse before destructive replacement;
+ordinary backups without those new fields retain version1 compatibility.
+Full paginated sync pulls intentionally trade traffic for correctness until the server provides an
+arrival/change sequence; client dates cannot safely bound late offline events/remote Undo.
+SwiftPM and CoreSimulator require normal host access; sandbox-only manifest errors are environment
+failures. Use exact scoped native QA evidence; no connected device/account flow was established.
+
+**Next steps:** hardware import/update, actual two-device sync, server page/file clocks and desktop adapter.
+
+
+## Physical update installed (2026-09-14, 20:56 EDT; launch pending)
+
+**Installed September 14 at 20:56 EDT:** after the user confirmed the iPad was ready, the
+complete pre-update backup passed. The helper rebuilt/signed Release and installed **1.1.0/build2**
+over the same app identifier. The complete post-install copy matches both owned files (one ledger
+and one PDF) by name, size and SHA-256. The pre-launch ledger remains schema1 with no active set.
+Both private backups are retained. Automatic launch was denied; the exact security/lock cause is
+unproven. The user was asked to unlock and tap Praelude, completing Developer App trust only if
+prompted. Launch, schema2 migration and physical-feature acceptance remain separate open gates.
+No uninstall, restore, reset, termination, Mac app replacement or Mac data change occurred.
+
+The installed product is the helper's fresh `ios/DeviceDerivedData` Release rebuild, not an
+assumption that the earlier preserved app has the same executable hash. The QA install record
+tracks its actual artifact. Raw device data, backup manifests and identities remain outside Git.
+
+## Historical physical update retries (2026-09-14, 20:50–20:52 EDT)
+
+**Update attempt, September 14 at 20:50–20:52 EDT:** the user-requested refresh stopped at
+its full pre-install backup, before building, installing or launching. Xcode's **Download
+Container** also failed with CoreDevice7000/POSIX1 while reading a SplashBoard snapshot cache;
+its partial cache copy contains no verified practice folder. A subsequent read-only status check
+then reported 1.0.0/build1. These failures did not prove the iPad was locked. The requested
+unlock/open-app interaction preceded the later successful backup/update recorded above. No uninstall, restore, reset or termination was performed.
+
+The current source is `124707d`, tag `ios-v1.1.0-candidate.1`. This attempt did not rebuild or
+replace the signed artifact. The Xcode fallback used a private temporary destination; no private
+file names, device identifiers or container content belongs in Git. The QA attempt manifest records
+only sanitized outcomes. Corrected the living roadmap's stale independent-lane source label to
+1.1/schema2; historical installed 1.0/schema1 and Mac v11.1/schema21 boundaries are unchanged.
+
+## Mobile handoff and native update safety (2026-09-14, 1.1 candidate verified; device backup hold)
+
+- **Mobile work has a local entry point without splitting Git.** `ios/AGENTS.md`,
+  `ios/docs/DEVELOPMENT.md`, `INSTALL_ON_IPAD.md`, `ROADMAP.md` and the optional editor workspace
+  define native-only context, module ownership, checks, free signing and seven-day renewal.
+  The same repo owns Mac and mobile; their product versions and data stores remain independent.
+  The editor workspace uses explicit process tasks and argument arrays, mobile-relative cwd, and a
+  sequential generate/check default build. Device status and refresh are separate named tasks;
+  opening the workspace triggers no build, install or background command.
+- **Explicit deployment is data-preserving and fails closed.** `ios/scripts/device.py` prints
+  help without contacting Xcode; devices/status are read-only. Install/refresh use subprocess
+  argument arrays, Apple's JSON devicectl interface, local automatic signing and exact app ID.
+  Existing Application Support/Praelude (ledger plus Scores) is copied to an ignored timestamped
+  private backup with file hashes. Running sets, invalid/changed ledgers, failed copying, profile
+  mismatch/expiry and fixture-bearing binaries block installation. Independent review found that
+  ledger-only post-install checking missed PDF loss/mutation. The helper now takes a second full
+  copy after installation and compares every file name, length and SHA-256 before launch. A
+  mismatch or failed copy retains the backups and explicitly reports installed-but-unverified
+  status. Exactly two full copies are allowed per refresh, with a small pre-install ledger recheck.
+  No uninstall, reset, silent identity change, active-set termination or raw signing/device log output is permitted.
+  Twenty-eight fake-device tests currently pass, including PDF-only deletion/same-size mutation,
+  post-install copy failure and an initially empty library gaining files; native deployment is a separate gate.
+- **Actual device-copy probe is incomplete, not falsely accepted.** Read-only devicectl inventory,
+  details and installed-app queries pass for 1.0.0/build1. The app-owned tree has a readable schema1
+  ledger, no active set, and one PDF. Single-ledger copy passes. Two authorized full-copy probes
+  fail reading that PDF with CoreDevice7000/underlying POSIX1 EPERM, despite readable/0644/non-symlink metadata. Lock-state
+  fields passcodeRequired=true/unlockedSinceBoot=true are observations, not a proven lock predicate.
+  The helper correctly stops; no install/launch/termination occurred. Wait for device unlock/access
+  before retrying the complete copy and hashes. Failed copies stay in ignored local probe folders.
+- **Original visual targets and annotated PDF export are separate candidate features.**
+  Progress session history opens `RecordedPassageView` with the set's saved passage snapshot,
+  read-only against its score; shortcut edits/deletion do not rewrite those boxes. `ScoreExport`
+  creates a separate PDF with flattened ink but no practice boxes, leaving source PDFs and editable
+  PencilKit data untouched; `ScoreShareView` delegates Files/sharing/Print to the system sheet.
+  Three iPad hosted export tests now pass, including rotated/cropped render alignment; native
+  share/Print flows and physical output remain pending.
+  Source guards address unfinished box drafts and unsaved ink; adaptive teardown retains pending
+  drawings in shared state under active verification. `ios/docs/USING_MOBILE.md` documents current
+  controls without claiming installation or physical acceptance.
+- **1.1 QA remains scoped to the actual run.** Core29/services2,166/helper28 and 36 hosted tests
+  on both simulators pass. iPad9 final-toolbar selection passes finger 59.497 s, meter 61.653 s and
+  Focus 23.719 s; iPad7 supplies boxes/AX markup. Phone3 supplies finger/backup/Focus and Phone2 the
+  other four UI cases. Five targeted iPad and seven phone scenarios pass across runs; Phone4's final
+  toolbar recheck passes 91.652 s/84.624 s, and exact-source signing passes. iPad8 passed 36 hosted and Focus 29.081 s
+  but failed UI entry/Reset virtualization; it remains a failed bundle, not an all-green rerun.
+- **Phone gesture arbitration fixes actual missing input.** Phone2's drawing contained zero
+  strokes. PDF pan now waits for the PencilKit drawing recognizer; Phone3 passes 52.960 s with
+  visible pre-Undo/after-Redo ink, plus backup 62.827 s and Focus 24.024 s. iPad9 finger persistence
+  also passes after the toolbar change. The older blank iPad6 image has an unresolved cause;
+  it does not establish a persistent rendering defect. Physical Pencil precision is separate.
+- **Reward and preview evidence is actual native output.** The saved-passage thumbnail now crops
+  around the target union so selected notation is recognizable. A native video shows the earned
+  Clean 1-of-5 response at 28.0–28.5 s and absent by 29 s, with score/verdict controls unobscured; a
+  synthetic frame is preserved in the 1.1 QA screenshots. These images do not establish physical
+  Pencil, audio/haptics, or printing acceptance.
+- **Toolbar hit targets now have iPad interaction evidence.** iPad8's centered Annotate press
+  did not enter drawing with a 40×36 image frame. Close/Annotate/Metronome/Options now use 44×44
+  frames and rectangular hit regions; iPad9 finger entry/persistence passes. Offscreen and virtualized
+  form controls caused separate meter-test failures; bounded swipes and explicit reveal guards
+  precede the passing iPad9 meter case. Phone4 passes the final toolbar on iPhone (finger 91.652 s, meter 84.624 s).
+- **Final signed 1.1 candidate is preserved and verified.** The frozen-source two-job Release
+  build passes version 1.1.0/build2, arm64/iOS17/both families. Production inputs stayed stable;
+  strict signature, signed entitlements/profile/device inclusion and fixture exclusion pass.
+  Executable SHA-256 is `f472faa3ddc85949bc9b3c4ab5d1734a2dd19ff42c00328307e9b5a2ee58dd12`. All nine files are byte-verified at ignored
+  `releases/ios-personal-1.1.0/Praelude.app`; the old 1.0 full tree and earlier 1.1 snapshot are retained.
+  Profile expiry remains 2026-09-21 21:24:58 UTC. The public manifest records a dirty source snapshot,
+  exact command and hashes; private logs/input maps stay beside the ignored app. The final build
+  includes gesture/toolbar corrections. No device query/install/launch/backup retry was performed during that earlier artifact build;
+  the later physical update is recorded separately above.
+- **Current handoff documentation names the actual mobile lane.** `ios/README.md` now describes
+  the 1.1/schema2 source, module/workspace links, helper28 and current acceptance rather than
+  presenting the 1.0 baseline as current. `docs/NEW_MAC_SETUP.md` points directly to the dedicated
+  installation/renewal guide and explicit workspace/helper tasks. Shipped Mac/Windows records and
+  historical native 1.0 manifests remain unchanged.
+- **Historical pre-install boundary after scoped implementation gates.** Native Score/Pencil,
+  schema2 migration and audio-feedback changes have recorded core/hosted/scoped UI/build evidence.
+  Complete app-owned PDF copying failed EPERM at that boundary. The later successful backup and
+ 1.1 installation are recorded above; physical launch/features remain separate. Mac data
+  and shipped records stay unchanged. Apple PDFPageOverlayViewProvider and forScore references
+  inform the design; they do not establish broad feature parity or physical Pencil/audio acceptance.
+
+## Historical native iPhone/iPad 1.0 candidate (2026-09-14)
+
+- **The native app is an independent target, not a mobile Tauri skin or Mac-data migration.**
+  `ios/Praelude.xcodeproj` builds SwiftUI/PDFKit for iOS/iPadOS17+ with candidate identity
+  `com.christian.praelude.ios`, version 1.0.0/build1. The installed Mac stays v11.1.0/schema21.
+  Native schema1 JSON and sandbox-relative score copies never access `codakiller.db`, legacy
+  Mac paths or Keychain services. The current status is DEVELOPMENT CANDIDATE, with
+  physical-device/distribution/full-parity gates open under B115; `ios/README.md` owns exact current evidence.
+- **Cable installation passes; first launch awaits developer trust (2026-09-14).** A free
+  Personal Team signed Release 1.0.0/build1 with the connected iPad included in its verified
+  profile, fixtures/test plug-ins excluded, and expiry 2026-09-21 21:24:58 UTC. After an earlier
+  device-unavailable attempt, devicectl installation succeeded at 17:51 EDT; the installed app
+  listing confirms 1.0.0/build1 on iPad Pro 12.9-inch (3rd generation), iPadOS 18.7.8. Developer
+  Mode is enabled. First launch was denied by a security/trust message; Developer App trust
+  under Settings → General → VPN & Device Management is the next step. Launch and feature QA
+  remain unaccepted. The signed app stays at ignored `releases/ios-personal/Praelude.app`;
+  sanitized `docs/qa/ios/personal-ipad-install.json` records install separately from launch.
+  Personal Team profiles need rebuilding/reinstallation after seven days. Signing/account/team/
+  device identifiers and assets remain local. Historical unsigned evidence and Mac app/data
+  are unchanged.
+- **Personal signing is local configuration.** `ios/Signing.xcconfig` optionally includes ignored
+  `ios/Signing.local.xcconfig`; both generated Debug/Release configurations use the shared wrapper.
+  The local file supplies `DEVELOPMENT_TEAM` and is restricted to the owner; no team identifier
+  appears in the tracked wrapper/project/generator. The optional include resolves without a local
+  file for portable unsigned/simulator work. Repeated project generation is byte-identical;
+  build-settings checks pass with the local team and with the local file absent. A full Release
+  build using only the local config, without a command-line team override, also passes.
+- **The iOS handoff needs full Xcode.** Command Line Tools and the Mac bootstrap do not install
+  an iOS SDK or simulator runtime. Repo AGENTS/README/CLAUDE and `docs/NEW_MAC_SETUP.md` link to
+  `ios/README.md` for the separate native build/tests/signing workflow.
+- **The UI is content-first and uses system containers.** iPhone Today/Pieces/Progress tabs,
+  compact-width adaptation, iPad sidebar and explicit system score windows replace desktop
+  floating panels. Accessibility text sizes use full-width tabs after simulator review found
+  sidebar wrapping. Initial sidebar presentation and Close score use `.automatic` so iPadOS
+  chooses the layout for the current window; explicitly opening a score still selects `.detailOnly`.
+  Setup variants/routines and passage editing navigate within one focused sheet.
+  Goals and calendar are optional toolbar destinations. Plain system colors/typography and large
+  verdict controls use no decorative gradients. Apple HIG materials/sheets/windows and forScore
+  page/performance precedents are cited in `ios/DESIGN.md`; they informed the design rather than
+  supplying copied app UI.
+- **Accessibility acceptance needs visible text, not only hit-target measurements.** Maximum
+  Dynamic Type on iPhone exposed verdict text outside its button backgrounds in landscape,
+  truncated page labels, and a PDF area that collapsed in portrait despite 44-point hit checks.
+  The candidate fix preserves the requested text size: only at accessibility sizes, the practice
+  panel scrolls within at most 60% of the workspace/520 points, reserving score space above.
+  Verdicts use intrinsic text heights, omit decorative icons and place Clean first; passage
+  navigation uses an icon and page indices remain untruncated. Independent native iPhone PNG
+  review verifies contained labels, all three verdicts reachable by scrolling, readable page
+  indices and visible score area in both orientations. Post-fix geometry/PDF/interaction/metronome
+  checks passed; six obsolete child-StaticText selectors failed because SwiftUI exposes combined
+  button labels. The corrected combined-label iPhone test passes (63.975 seconds), as does the
+  strengthened iPad case (55.432 seconds). Independent PNG review verifies both orientations.
+  These accepted regressions do not make the entire phone UI suite green.
+- **Backup UI acceptance differs by simulator family.** The final iPad combined export/cancel/
+  restore case passes (71.983 seconds). An earlier phone run logged all three Settings callbacks,
+  export plus native grabber dismissal, and Restore Recents plus Cancel; its obsolete Browse-only
+  picker assertions failed. The corrected final phone rerun instead failed at initial Settings
+  navigation (37.965 seconds), before either picker, so the complete phone case stays unaccepted.
+  Provider-aware Cancel/grabber and `DOC.browsingRoot Source:` selectors are harness corrections;
+  no production picker routing changed. A manual CUA attempt failed to capture the correct
+  Simulator window and activated no app controls, so it supplies no manual acceptance evidence.
+- **Settings has an explicit touch target.** A plain button with a 44×44 content shape and stable
+  `appSettings` identifier improves the target boundary. Source review passes, but it is not a
+  proved cure for intermittent automated input. The score empty state now says “No score attached”
+  instead of generic promotional copy.
+- **Every human verdict is durable before reward.** The Foundation core projects a saved event
+  ledger, validates candidate state and references, then atomically replaces the JSON before
+  publishing observable state. Event IDs are idempotent; Undo retains original events with undo
+  metadata. Damaged/newer stores refuse ordinary writes and misleading fallback exports. Native
+  setups have one active/paused set, count
+  targets of 1–100 and tempos of 20–300 BPM. Total plays is fixed-tempo/variant-free; Again preserves a
+  variant stage's progress. Separate sessions preserve piece attribution and date boundaries.
+- **Native media paths differ from desktop helpers.** PDF import copies security-scoped Files
+  content into owned UUID filenames after PDFKit validation. Backup includes referenced PDFs;
+  restore stages new filenames and validates before replacing the library. Bounds are 100 MB/2000
+  pages per imported PDF, 200 MB referenced score payload per export, 280 MB encoded restore file,
+  and 64 MiB core JSON. Failed restore cleans staged files; backups are not Mac schema21 imports.
+- **Read-only recovery is explicit and preserves evidence.** The original unreadable/newer-format
+  regular, nonsymlink ledger is copied to `library-preserved-<UUID>.json` and byte-verified before
+  a deliberately selected, validated backup replaces it atomically. Preservation or write failure
+  leaves the store read-only. Export rejects the unreadable fallback instead of producing a
+  misleading empty backup; a legitimate new empty library can export normally. The preserved
+  original remains available after recovery. Core Date encoding uses Foundation reference-date
+  values to avoid the rounding drift observed with millisecond conversion.
+- **Metronome and speech are native, with an explicit hardware boundary.** A precomputed PCM bar
+  loops on AVAudioEngine's sample clock; UI beat polling does not schedule ticks. Audio-session
+  coordination and interruption/route handling keep optional speech/output ownership explicit.
+  Voice opt-in is Score options → Hands-free commands → Enable hands-free; Off appears in
+  practice controls only while listening. The in-app guide and native tutorial use that exact flow.
+  Speech requests permission only after opt-in, requires on-device US English recognition, and
+  dispatches only final exact phrases; there is no cloud fallback and no piano grading. Hardware
+  reliability, audio/voice overlap and musician ergonomics need real iPhone/iPad evidence.
+- **A dispatched XCTest pinch does not prove PDF zoom.** Early small synthetic pinches returned
+  successfully without changing notation size. Native scale diagnostics showed a valid zoom range;
+  the initial fit-only diagnosis was not supported. A realistic larger finger spread changed
+  PDFKit scale from 1.240418 to 2.869110 (2.31×) on the same page, and independent screenshot
+  review confirmed crisp enlarged notation. Keep an actual scale/notation-growth assertion;
+  gesture dispatch alone is insufficient acceptance. This is simulator evidence, not device QA.
+- **Native effort levels are not the Mac Studio.** Actual focused time/completed-set milestones
+  derive XP; each native level is 100 XP. No furnishing ownership, coins, ranks, or personal profile
+  is migrated. Daily views group sessions by their start date. Unported desktop scope includes
+  full warmups/history repair, advanced mastery/demotion/parked-set policies, PDF markup/Pencil,
+  cloud mapping, Listen Back and account sync. Assistant remains OFF/ON HOLD.
+- **Verification is target-specific.** Direct `swiftc -typecheck` against the real simulator SDK
+  passes for the native UI/core/services. Sandboxed Xcode macro plugins initially returned
+  `swift-plugin-server ... malformed response`; the authorized typecheck passed. Subsequent full
+  Swift 6 compilation and unsigned Release arm64 device build pass for both families/iOS 17+.
+  The core has 22 passing tests and deterministic service checks have 2,041 passing assertions.
+  All 13 native app-hosted tests pass on each iPhone and iPad simulator, including PDF recovery.
+  All eight distinct iPad UI scenarios pass across regression runs, including the final three-case
+  suite; seven of eight phone scenarios pass, including the corrected AX case. Complete phone
+  backup UI remains open. The final exact-source unsigned arm64 Release build passes: version
+  1.0.0/build1, iOS17 minimum, device families1/2; fixture flags and test plug-ins are absent.
+  `docs/qa/ios/device-build.json` records executable SHA-256
+  `346a9de01b35d478a0a27a554e125610ebc959a57c5cc31f940088d7783d7871` and source digest.
+  At that earlier unsigned-build gate, checks found zero valid signing identities and zero
+  connected physical devices; the later Personal Team signing event above is separate evidence.
+  DEBUG fixtures use a separate UI-test store; normal first launch remains blank and the Release
+  executable excludes fixture code. An unsigned device build does not establish physical acceptance.
 
 ## Project portability (2026-09-13)
 
@@ -3375,3 +3834,131 @@ clippy `--all-targets --all-features` clean, tsc clean.
   2026-08-21 backup and this ship Christian added a piece and practised twice (9→10 pieces,
   1,710→1,814 reps). Rehearsing against the stale copy would have proven nothing about the data
   actually being migrated.
+
+
+## Mobile build4 pianist workflow (2026-10-02)
+
+- Active tempo edits are attempt-boundary events, not changes to the original starting contract.
+  Rewriting startBPM replays ladder achievements and turns a requested64→65 into69; events retain
+  earlier rep BPM, Undo and earned progress. New sets clear these events and normalize their ceiling.
+- Cold grade/start/first rep and visual joins are single ledger transactions. Save failures retain
+  idle/selected state and source passages. Reusing visual region IDs would break snapshot identity.
+- User choices carry forward; R5 auto defaults only apply to an initial setup. Fixed-total tempo
+  equals current tempo; clean-streak end tempo uses the effective ceiling after manual adjustments.
+- Schema4 migration preserves the exact pre-upgrade file. Backup version3 protects optional tempo
+  event history from older decoders; cloud tempo JSON remains readable by older clients that ignore
+  optional keys, so mixed-version live convergence is unaccepted.
+- Ordinary PCM reconfiguration rotates the current bar rather than restarting beat1. Audio-session
+  changes resume at elapsed phase, but OS route/capture changes can cause a brief output gap;
+  real-device metronome/locked-screen/voice-over-piano acceptance remains separate.
+- System Glass is availability-gated at iOS26; the connected iPad runs18.7.8 and uses Material.
+  SF interactive typography and an opaque accessibility fallback replace ornamental control text.
+- USB/Xcode availability did not initially imply CoreDevice DDI readiness. Opening Xcode and letting
+  device preparation finish resolved it; do not bypass the helper's full backup/readiness gates.
+- Parallel stale native builds exhausted memory and yielded mixed incremental linker objects after
+  source edits. Terminating xcodebuild alone can leave compiler children; inspect full `ps -ww` args
+  and match only the task's exact derived paths. Final tests serialize builds, and the device helper
+  bounds Xcode/Swift compiler jobs to two without changing optimization or product behavior.
+- Build4 guarded physical installation completed19:14 EDT: all seven original library files match
+  pre/post copies exactly; no import/reset. Automatic launch was denied. Never infer first launch or
+  schema4 migration from install success; user unlock/trust/open remains separate.
+- After the initial automatic-launch denial, Christian opened build4 without a trust prompt. Read-only
+  device copy confirms schema4 and the three existing pieces/ten historical sets; no cause is inferred
+  for the earlier launch denial. Mac import and piano/two-device acceptance remain separate.
+
+## Mobile build5 score and sync contracts (2026-10-02)
+
+- UIKit can hit-test before event.allTouches contains the Pencil. Let PencilKit's pencilOnly policy route unresolved hits; known direct fingers retain PDF pan/pinch. Paper-white scores require light canvas/render traits as well as literal ink colors. First-responder changes belong outside UIViewRepresentable refresh; source/display page numbers must be translated before choosing a canvas.
+- Stamp placement is preview/resize/confirm, with no durable write before Place; note editors and preview stamps retain drafts on failed saves. Source PDF identities and normalized source-page geometry survive movement ranges and crop/reorder tools.
+- Vision numeric hints are reviewed data, not measure recognition. Exact bar regions or full-system ranges are confirmed explicitly; partial box coverage cannot acquire invented precise measure labels.
+- Swift UUID.uuidString is uppercase; storage owner policies compare canonical lowercase auth.uid text. Normalize owner/record path components; reuse immutable file names for content changes. Private covers join PDFs/recordings with retries and account-deletion cleanup.
+- New columns require old payload preservation, while known nullable keys require explicit JSON nulls on clears. Normalize sent/acknowledged rows alike to prevent outbound snapshot echoes. Preferences have one authoritative LWW clock; normalize the nested cache to it on decode.
+- Idempotent remote adoption must avoid a ledger write/revision bump. Otherwise a revision-based debounce can trigger endless full sync. Local edits during an in-flight sync request a follow-up pass.
+- Schema5 preserves exact schema1–4 originals; backupv4 protects organization/preferences/deletion metadata from older decoders. This is a native shared backend contract; Tauri/native integration remains a separate adapter, and original Mac archives stay local/backed up.
+
+- Build5 review follow-up: confirmed measure maps label older passage/history geometry only on display, without rewriting snapshots. Thumbnail caches use actual pixel bytes (48MB page/32MB passage budgets). Sliders sit outside horizontal chip scrollers; native size grow/shrink/one-confirmation regression passes. A new-device HUD starts collapsed; an explicitly saved expand/collapse choice remains device-local.
+- Attaching an account is not a profile edit: preserve its clock and hydrate the account before draining guest/default profile writes. Normalize nullable avatar defaults and queued rows alike. Editor baselines isolate deliberate field changes from stale pre-hydration values. Stage core/privacy intent together before local save, surface failure without dismissing, and retain account-bound intent across same-owner sign-out. Retrying a reverted draft must replace abandoned staged values; a different owner must never inherit that intent or queue.
+- Build5 requested personal iPad update (October2) passes strict signing and exact preservation of all10 owned files/5,774,773bytes from build4. Automatic launch was declined; a direct schema5 read later proves the new reader ran, with the exact schema4 original retained. Independently reviewed later revision868 includes additive passage/ink/note edits and navigation/account hydration changes; all prior practice contracts/attempts/ink/stamps and ownership/privacy remain intact. Do not describe post-launch account/user edits as pure migration or infer physical Pencil acceptance from added ink.
+
+- **2026-10-02 native practice width/height:** user’s build5 hardware feedback confirms that compact outer padding alone was insufficient: the760pt dock cap and stacked72pt verdict/52pt secondary rows wasted iPad width. Build6 removes that cap, uses44pt secondary/transport and horizontal52pt verdict targets, and measures running control widths before selecting1/2/3rows. Accessibility text keeps natural wrapping within the existing bounded score footer scroll. No practice/storage/sync semantics change; native geometry/action acceptance is tracked in `docs/qa/ios/2.0.0/compact-practice.md`.
+
+- **2026-10-03 compact-control native verification:** six scoped iPad and two phone cases pass across runs. iPad setup dock bounds143pt and running100pt in both orientations;44pt secondary/transport and52pt verdicts retain actual first-attempt save, Clean/Undo and stable score frames. Accessibility uses bounded scrolling and complete More options visibility. Initial simulator rotation mismatches required restarting the synthetic environments; one phone frame was43.999999pt, so assertions allow0.01pt numerical tolerance. Fixed progress wrapping and informational voice-flash hit interception; no practice/storage/sync changes. Exact evidence: `docs/qa/ios/2.0.0/compact-practice.md`.
+
+- **2026-10-03 build6 initial device attempt:** guarded refresh stopped at its first data copy, before build/install. Keep the failed copy and wait for explicit device readiness before retrying; no destructive fallback or lock/trust diagnosis from the generic copy error. Installed build5 remains.
+
+- **2026-10-03 requested build6 shipment retry:** sandbox device inventory fails; host access verifies the fresh11-file/6,212,619byte backup (schema5/revision883, no active set). Independent full manifest/byte review passes. Release reaches codesign then errSecInternalComponent; the exact selected identity also fails signing a temporary executable outside the sandbox. Selected identity/certificate validity/trust and default-keychain unlocked/readable/writable checks pass. Native Xcode Debug has an unrelated Helpers linker failure. No trust/ACL/credential changes or device installation occurred; do not infer a specific keychain cause. User local Terminal retry may expose a signing prompt. Public sanitized boundary: `docs/qa/ios/2.0.0/build6/device-update-attempt.json`; private diagnostic/backup stays outside Git.
+
+- **2026-10-03 connected-device build6 retry:** new backups153955/154800 verify11files/6,212,619bytes identical to070136, schema5/revision883/no active set. Current diagnostics report No Accounts and invalid certificate. Fresh code-signing trust now returns CSSMERR_TP_CERT_REVOKED for both matching local certificates, superseding the earlier success; identity enumeration and unexpired dates are insufficient. GUI account/Personal Team exist, but another certificate is Not in Keychain with create/export/delete unavailable. Download Manual Profiles completes without visible error; guarded retry still fails. Ask which Mac holds the valid signing key; no key export/revocation/trust/credential change or device installation occurred. Public attempt retains both historical and fresh results rather than overwriting the earlier observed truth.
+
+- **2026-10-03 other-Mac signing recovery:** user reports certificate likely created on another available Mac. Reuse its encrypted PKCS#12 identity (certificate plus matching private key), transfer locally and import into destination login keychain. Provisioning downloads cannot restore a missing private key. Apple export/import workflow is recorded in INSTALL_ON_IPAD; `.p12` is already Git-ignored. User handles passwords/export/import locally; completion and fresh trust/signing verification remain pending before guarded deployment. No agent key export/import or certificate/trust change occurred.
+
+- **2026-10-03 root signing recheck:** root independently matches the earlier codesign fingerprint internally and verifies both local public certificates with default and required live OCSP codeSign policies; all return CERT_REVOKED. Native Xcode Build For Profiling uses existing Release config/physical iPad: compilation succeeds, but actual app fails strict signature verification with CERT_REVOKED. No Run/install issued. Earlier desktop Debug linker failure could not test signing. Xcode auto-normalized scheme formatting and two launcher identifiers; tool-created rewrite restored after checking no other semantic differences. Transfer is one option, not the only recovery path; coordinate any replacement with the other Mac. No agent private-key export/import or certificate revocation; cause is unproven.
+
+- **2026-10-03 supplied identity import:** native Keychain Access File Import Items targets login; user reports no password prompt. Independent current inventory finds3 identities:1 new trusted/unexpired same-team identity,2 older revoked. Guarded fresh backup173552 passes, but build fails with No Accounts/profile-certificate mismatch. Native Download Manual Profiles retains the sole matching app/team/device profile excluding the new trusted certificate. Do not rerun unchanged builds or assume key import repairs provisioning. Native Release Build For Profiling requested from user because CUA menu indices repeatedly fail after reset/reconnect; no Run/install. Private key/password content stays outside Git; no trust override/revocation.
+
+- **2026-10-03 weekly provisioning renewal:** Personal Team profile lifetime is7days; certificate revocation/missing private key/membership are separate failures. Previous currentlocalprofile expiresOctober9, olderlocalpackageexpired; installed-profileexpiry unavailable. Nativeauto-signingreset still yieldedrevokedsignature. Reversiblyarchivingprecisely matchingcachedprofile outsideGit + projectreopen producesfreshprofile createdOct3 17:55:53UTC, expiresOct10 17:55:53UTC; independentsameapp/team/device/development/2trustedcertificate checks pass. NativeBuildForProfiling shortcutCmdShiftI works whenmenuAXclickfails. Tool-generatedprojectnormalization/localoverrides restoredaftersemanticequivalence checks. codesign+SecurityAgent wait forlocalMacpasswordauthorization; ComputerUse forbidsSecurityAgentaccess, no bypass. Do not confuse profileissuance withactualsignature/install/preservation/launch.
+
+- **2026-10-03 renewed build6 update completed:** actual signed Release passes strict signature/profile/team/device checks; same-bundle guarded update installs2.0.0/build6. Complete11files/6,212,619bytes preserved exactly, independently reviewed history/ownership/privacy intact. Automatic launch declined; user confirms open and direct read shows schema5/revision883. Fresh Personal Team profile expiresOct10 17:55:53UTC. Renewal is routine provisioning; keep physical feature and real two-device acceptance separate. Public proof: build6/personal-ipad-install.json; private backups180209/180241 remain excluded.
+
+
+## Mobile build7 stability repair (2026-10-06)
+
+- PencilKit movement callbacks may be frequent; marking dirty and saving after tool idle avoids serializing/replacing an in-flight canvas. Lifecycle flushes remain synchronous and required. Pending failed snapshots are not authoritative over a newer dirty live canvas.
+- Raw stroke point fingerprints exceed the persisted8KiB limit for normal long strokes. Keep compatible short unmasked keys; versioned SHA256 bounds long keys. Include clipping-path geometry/fill rule to preserve partial erasure. Hash/map ink diffs retain ordered duplicate consumption, tombstones and full caller ordinals.
+- Merged PKDrawing bytes are volatile across reconstruction. Cache writes must not be observed SwiftUI state; evict only old pages, pin live and failed-save exact baselines. Unreadable nonempty rows must never be represented as nil/blank: readonly recovery preserves originals.
+- PDFKit worker renderers own documents; never share the displayed document on another executor. UIKit generated manuscript pages stay on MainActor through thumbnail creation, passing only UIImage across actors. Decoded image byte costs and pixel bounds matter more than entry counts.
+- Reward catch-up batches individual append-only entries into one transaction per category. Store indexes are built after uniqueness rejection; malformed inputs fail validation before trapping conversions or overflowing totals. Tuner admits one analysis window across restarts; canceled/old-account pulls cannot publish rows/cursors. File SHA256 uses cancellable background chunks and rechecks ownership before network/receipt writes.
+- Annotated sharing captures an immutable saved snapshot and yields between pages; cancellation closes/removes partial copies. A complex page/final write and full JSON persistence/import/backup still block synchronously. Higher-refresh iPhone opt-in is capability enablement, not measured120fps acceptance.
+- QA: docs/qa/ios/2.0.0/build7/stability.md distinguishes simulator regression, compile failures, source repairs and physical/account gates. No physical update or personal-data mutation is part of this source repair.
+
+- Build7 native stamp-switching reproduced a100%CPU freeze:2,214 main-thread sample ticks stay in overlay refresh→canvas.setUserInteractionEnabled(false)→resignFirstResponder→repeated UIView/UIResponder._setFirstResponder. Keep PKCanvasView responder eligibility unchanged; route non-ink and readonly input in overlay hitTest. Hosted actual-PDF hierarchy and native Place→Pen→Done regressions cover the fix; physical Pencil remains distinct. Cover request cancellation uses individual locked waiter IDs and object-identity completion checks, so one canceled viewer cannot kill another or remove a same-key replacement.
+
+- Build7 live-meter native regression exposed Array bounds trapping in a retained SwiftUI beat row. Capture accent values in enumerated row snapshots; never read a resized model array from an old row. Background auto-pause status observers can be delivered after reactivation: preserve only the same set’s already-playing retained click, never restart explicit Stop; clear on manual running/resume, ended/absent/changed sets. Music stamp glyphs have explicit geometry and must not scale a second time with DynamicType; expose picker button labels independently of hidden glyph children.
+
+- A root bottom safe-area inset outside compact TabView can cover UIKit’s tab bar. Native Warmup Close→More opened the resume banner instead, confirmed by video. Place the retained strip on each tab’s content inside NavigationStack, with an inset on pushed compact destinations; sidebar keeps its root strip. An inset outside NavigationStack leaves its List unaware of the strip, so its final row cannot scroll fully clear. Tests must assert banner.maxY <= tabbar.minY, then actually navigate to Rewards. In short landscape annotation, fit the stave width using actual post-toolbar PDF bounds, preserving original page/ink geometry; temporary automatic width zoom restores prior portrait ratio unless a user pinch opted out.
+
+- A full-height warmup VStack with center Spacers and fixed content overflowed short landscape, placing Close at y-12.7. Anchor header/dock and make center readout and failure messages scrollable with available-height minimum for normal portrait centering. XCTest fatal Objective-C assertion stops Swift defer orientation restoration; each UI launch must reset portrait, and intentional landscape cases rotate afterwards. Scroll concrete content viewport, never a whole window gesture beginning over native tab chrome.
+
+- Final annotation rotation checks wait for actual window orientation and stable PDF bounds, reveal Done in the bounded tray, and require its entire44pt frame inside both tray and window. `isHittable` alone accepts partially clipped controls; screenshot review caught this.
+
+- Strict phone rotation reached a fully visible Done but its final press did not change mode; plain icon labels advertised44pt layout without an explicit hit shape. Add Rectangle contentShape after each44pt mode-label frame, retaining actual native exit as the gate.
+
+- Build7 final gates: Core394/service2,211/Python54 pass; hosted215 per form factor with1 live-account skip/zero failures; phone8 UI plus strictrotation41.408s; iPad4 UI plus metronome95.031s corrected offscreen query. Fresh unsigned arm64 iPhoneOS Release2.0.0/build7 excludes fixture arguments/diagnostics/test plug-ins. Independent final source/screenshots pass scoped review. Failed native aggregates are retained; no physical install or frame-rate/Pencil/audio/account acceptance. Exact candidate tag and sanitized metadata live in build7 QA.
+
+- 2026-10-07 guarded build7 update installs2.0.0/build7 from3e03330; independent11-file/7,981,365byte preservation (schema5/revision1647,5pieces/44passages/43historical sets/30sessions/255attempts, completed active set) and signed app/profile/signer trust pass. Profile expiresOct10 17:55:53UTC. Automatic launch failed; subsequent device running-process/schema5/revision1660 readback pass. Post-launch review retains255 attempts/44set IDs/30sessions/original45ink records/profile/privacy/preferences; newly observed ink/reward/page activity is separate from exact pre-launch preservation. Initial CoreDevice tunnel stayed disconnected despite USBHost/native Xcode seeing iPad; subsequent guarded refresh succeeded after native Devices inspection. On this Mac the supported profiler type is SPUSBHostDataType; legacy SPUSBDataType returned no devices. No tunnel reset/destructive workaround or credential/key change occurred. Private backups remain excluded; sanitized proof is build7/personal-ipad-install.json.
+
+- **2026-10-07 user receipt and handoff audit:** Christian confirms build7 reached the iPad. Record installation receipt separately from manual-opening and physical-quality acceptance. The build7 session handoff links source3e03330, install documentation2227817, native failures/corrections, final checks and remaining physical/persistence gaps. QA overview now points to build7 rather than stale build5; vault-first living docs and native guides retain historical boundaries. No app/data change in this documentation round.
+
+- Build17 async camera commands retain originating set/page/passage and a camera command context across background preparation. Stop, remap, calibration, rotation or input-gate round trips retire pending context; final post-await side effects also recheck context. Rules retain their originating set across awaits. Confirm only if the asynchronous attempt remains the latest durable attempt, so a newer touch/voice attempt or its Undo cannot revive old feedback. Camera inputs are Clean/Sloppy/Again; Reset is not dispatched by camera. Final atomic replacement and audio-session activation remain main-actor operations with unmeasured hardware latency. SystemBootTime privacy reason35F9.1 covers local elapsed timers; no raw uptime, face mesh, expression measurements or camera frames are saved/shared.
+
+- 2026-10-12 Build17 personal guarded delivery installs source checkpointios-v2.0.0-build17-candidate/bcc594e. Complete13-file/19,972,391byte library pre/post inventories independently match, schema5/revision3509 with paused set intact. Actual helper Release differs from generic artifact and is independently audited66/66; executable675b0c7f734eaec063477376ca665d2aa9c371c4d907f42a37ef7ed1b5d59629, profileOct17 16:14:24UTC. Automatic launch is denied; manual opening/process/postlaunch readback pending. Generic package67/67 and native331(1skip,0fail) are not physical gesture acceptance. Private backups/identifiers remain excluded; public proofbuild17/personal-ipad-install.json.
+
+- 2026-10-12 Build17 manual-open follow-up: user confirms open, read-only process observes running2.0.0/build17, complete postlaunch backup verified at schema5/revision3513. Compared with postinstall revision3509, only one piece lastPage3→7/lastPageUpdatedAt, revision, Sync outboundSnapshots and queue5947→5955 differ. All other library fields/files exact; paused set and487attempts preserved. This is launch/data verification, not physical face-command acceptance.
+
+- 2026-10-13 Build18 candidate: Quick head looks use signed onset, per-axis measured neutral, separate refractory interval and bounded page-only inference after short tracking loss. AR/Vision yaw is normalized to player-right; pitch-down is calibrated to normal score-reading posture. A .002 face-area head gate replaces .006 global rejection; small 2D lip/eye measurements keep .006 requirements. Same AR image stream supplies sticky Vision fallback; source change clears cached calibration; tracking-only changes retain already recognized commandInFlight input while explicit Off/remap/calibration/rotation/score gates still retire it. This addresses plausible distance failure paths, not a proved sensor cause. User setup: upright,2.5–3feet. Native337/core520/service2340 and independent15 detector checks pass; physical acceptance remains open. Existing saved settings decode to directional mappings; conflicting legacy axes are shown paused. No face data saved/shared.
+
+- Build18 settings migration is versioned decoding, not an eager UserDefaults write: initial legacy reads produce directional mappings in memory; the next actual customization serializes new keys/version. Until then, repeated decoding is deterministic. Existing nod verdict and recognition knobs/opt-in are retained; competing legacy axes are visibly paused.
+
+- 2026-10-13 Build18 first guarded delivery stops at initial copy with CoreDevice7000/remoteservices11001/POSIX1 before build/install. Partial copy20261013T215500Z-8aa1fc94 has no verified manifest. Readback confirms running2.0.0/build17. Cause unproven, no lock-state inference or destructive workaround; explicit unlocked/open/paused-idle readiness requested before retry. Sourceae1c34e and signed generic83edcd72 remain verified, not installed.
+
+- 2026-10-15 Build18 installed: Guarded same-bundle refresh independently preserves all 13 app-owned files/23,655,615 bytes exactly by filename, size and SHA-256 before/after installation. Schema 5, revision 4061 and the full library are retained. No uninstall, reset, restore-over, app-termination workaround or Mac import occurs. See `docs/qa/ios/2.0.0/build18/personal-ipad-install.json`. Automatic launch was declined; manual opening and postlaunch readback remain pending.
+
+- 2026-10-15 Build18 actual guarded helper package: independent66/66 checks pass, all283 source/10resources exact, executable938846ee9907ece62d5c233cb7dc6636415cf289af12075feb273b6ab496a1b9. Historical temporary base auditor was unavailable, so independent read-only equivalent base was recovered and the changed check count/tooling boundary recorded; no generic artifact proof substituted. Full13-file/23,655,615-byte preservation independently rehashed exact. Automatic launch denied; manual open/postlaunch readback pending.
+
+- 2026-10-15 Build18 opened: Guarded same-bundle refresh independently preserves all 13 app-owned files/23,655,615 bytes exactly by filename, size and SHA-256 before/after installation. Schema 5, revision 4061 and the full library are retained. No uninstall, reset, restore-over, app-termination workaround or Mac import occurs. See `docs/qa/ios/2.0.0/build18/personal-ipad-install.json`. Running process and full postlaunch backup are verified.
+
+- **2026-10-16 Build19 paper/phone architecture:** Counter is a device-local presentation of the existing durable set, not another practice engine. A cropped photo is an immutable one-page PDF + ordinary passage, published in one prepared transaction after off-actor processing; failed precommit staging is removed. A fixed photo-folder UUID is unsafe because server UUID primary keys are global: use random library folder IDs and backward-compatible Piece.isPhotoPassage, synced via additive nullable is_photo_passage. Native backup filename remapping must not erase origin. First-region card rendering draws the vector crop directly at <=1200px long edge rather than enlarging a tiny full-page thumbnail. Camera photos reserve the hardware only after asynchronous face-session shutdown; a4s timeout fails safely and later completion remains recoverable.
+
+- **2026-10-16 sync/calendar truth:** hosted migrations28/29 add nullable full-tempo/balance/photo-origin without backfill; omitted older-client keys preserve server values, optional decoding retains missing planning metadata locally. Corrupt sync-state must fail closed rather than reset account ownership around queued writes. Bind transport to queued owner after token refresh; validate downloaded PDF/cover/audio away from UI and never replace a newly local asset. At the implementation checkpoint Christian reported signed out and hosted pieces0; the later phone first-open readback has matching local profile/sync ownership, without proving live authentication or two-device convergence. Recorded-day calendar streak derives from synced effective work using Calendar day arithmetic; rewards/freezes remain separate. Build19 QA records actual tests and open physical/two-device gates.
+
+- **2026-10-16 Build19 final review findings:** PDF metadata can precede private file bytes. Publish a transient matching-URL availability notification after atomic file publication but before transfer-receipt persistence; previews retry without recreating an active practice view, and a receipt error still surfaces independently. Explicit Open score uses a one-shot Score intent and first source page without overwriting phone Counter preference. SwiftUI List artwork needs an explicit image layout; successful decode is not proof of visible pixels. Test both before/after deferred review. Ancestor accessibility IDs can replace leaf IDs, and frames outside a Button label do not enlarge its actual 44pt control. A manually stopped click needs per-set transport override so tempo/status refresh does not restart it.
+
+- **2026-10-16 Build19 iPhone first install:** select the exact newly discovered phone after unlock/computer trust; use ios:install when no prior app exists. Its exit1 here follows successful install/version readback and only reflects automatic launch denial. User opening plus running-process/schema5/revision189 readback pass. First-install preservation/migration is N/A, not an empty hash-match pass. New3-file109,341-byte backup is rehashed, actual helper package35/35 passes, complete16-file app+dSYM archive111,544,953bytes reads back exactly; profile expires2026-10-23T23:42:03Z. No iPad/Mac data or credentials transferred. See Build19 personal-iphone-install.json.
+
+- **2026-10-16 Build20 sync repair:** An enqueued snapshot signature is not proof of server receipt. Legacy guest/offline queues may begin with practice_sessions before their piece ever uploaded; appending a parent-first snapshot at the tail cannot unblock FIFO. Prepend current prerequisite upserts durably once per owner/version, retaining the exact original suffix and clocks. New practice must enqueue prerequisites immediately rather than rely on the800ms library debounce. Pull organization before pieces and merge folder/passage hierarchies atomically, including moved region UUIDs. Owner-only account_preferences has no id. Preserve error causes across LocalizedError/PostgREST wrapping; a backend rejection is not an offline connection. No schema migration or destructive queue repair. See Build20 QA.
+
+- **2026-10-16 Build20 delivery checkpoint:** iPad install/version20 succeeds, but post-install folder copy and a read-only retry stop CoreDevice7000/remoteservices11001/POSIX1 with incomplete private copies. Do not call this a hash mismatch or data-loss finding; no complete after-manifest exists. Actual artifact37/37 and full archive pass. Phone update stops before installation during pre-copy. Await unlocked/connected readiness, retry read-only preservation before launch; retain every failed copy.
+
+- Build20 read-only alternative: an individual-file copy also fails before completing the first file, so changing from directory copy does not resolve this transport/permission condition. Retain that incomplete copy; wait for user device readiness rather than repeat requests or modify saved data.
+
+- **2026-10-18 inbound sync ordering:** A stale outbound set/session rejection can request the complete remote practice graph before normal metadata pulls. A valid new remote set then references a passage absent locally; validation correctly rejects it, queue retention correctly retries, but both together deadlock metadata/assets. Prepare missing score/passage parents before atomic practice adoption; acknowledge neither original queued entries nor practice cursors when preparation/adoption fails. Current phone refresh also exposed an independent invalid incremental package with mismatched Assets.car/mobileprovision seals; archive and clean rebuild with the same bundle/team rather than bypass strict signing.

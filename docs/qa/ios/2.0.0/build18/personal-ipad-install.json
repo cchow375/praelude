@@ -1,0 +1,90 @@
+{
+  "verifiedUTC": "2026-10-15T21:38:43.563121+00:00",
+  "sourceCommit": "ae1c34ed557fa49bbc665362ff64797a0c77f357",
+  "sourceCheckpoint": "ios-v2.0.0-build18-candidate",
+  "userAuthorization": "Explicit request to implement and install quick directional head looks on the personal iPad; friend remains held.",
+  "installedVersion": "2.0.0",
+  "installedBuildReadback": "18",
+  "deliveryState": "installed, running process and full postlaunch backup verified",
+  "automaticLaunch": "denied after successful installation and preservation",
+  "userOpened": true,
+  "launchVerified": true,
+  "runningProcessObserved": true,
+  "backupLocations": [
+    "releases/ios-device-backups/20261015T211427Z-d4983659",
+    "releases/ios-device-backups/20261015T211521Z-462d22b9",
+    "releases/ios-device-backups/20261015T213837Z-c2bcd96c"
+  ],
+  "preservation": {
+    "allInventoriesIndependentlyRehashed": true,
+    "prePostFullInventoryExact": true,
+    "postLaunchInventoryExactToPostInstall": true,
+    "fileCount": 13,
+    "totalBytes": 23655615,
+    "entireLibraryJSONExactPrePost": true,
+    "schema": 5,
+    "revision": 4061,
+    "activeSetStatus": null,
+    "recordCounts": {
+      "badges": 1,
+      "bookmarks": 0,
+      "breakPointTaps": 0,
+      "coldGrades": 52,
+      "desktopImports": 0,
+      "folders": 0,
+      "goals": 0,
+      "history": 90,
+      "inkStrokes": 767,
+      "instruments": 1,
+      "milestoneEvents": 1,
+      "notebookEntries": 0,
+      "pageEdits": 0,
+      "passages": 128,
+      "pieces": 6,
+      "recordings": 0,
+      "rewardLedger": 681,
+      "routines": 1,
+      "ruleEvents": 113,
+      "scoreLinks": 0,
+      "sessions": 54,
+      "setlists": 0,
+      "stampAnnotations": 20,
+      "tags": 0,
+      "textAnnotations": 6,
+      "warmupExercises": 180
+    },
+    "attemptCount": 576
+  },
+  "schemaMigration": "none; schema5 retained after opening",
+  "actualInstalledHelperArtifact": {
+    "archivePath": "releases/ios-build18-camera-helper-installed-20261015",
+    "manifestSHA256": "40f1ebd4bc864d1960716f362feee97580be637ca03a178294e8cb50a5724b9f",
+    "archives": {
+      "Praelude-build18.app.zip": {
+        "bytes": 8811915,
+        "sha256": "4bfb594caee489d21adcc527d4dc7ed6e30ef87c8dad4e9d8e3f0ca4adcbf3b2",
+        "fullInventoryReadbackExact": true
+      },
+      "Praelude-build18.dSYM.zip": {
+        "bytes": 15356999,
+        "sha256": "8e389b2d67f513fb9038d113b60ed9793f8a0524bf0505e8f68a4b455aa91a70",
+        "fullInventoryReadbackExact": true
+      }
+    },
+    "executableSHA256": "938846ee9907ece62d5c233cb7dc6636415cf289af12075feb273b6ab496a1b9"
+  },
+  "helperPackageAudit": "helper-release-independent.json",
+  "physicalAcceptance": "pending natural right/left/down at user-reported upright2.5\u20133feet, recognition reliability, alignment, page/rep response and sustained practice",
+  "otherDevice": "friend held atBuild12, no targeted operation or install",
+  "mac": "v11.1.0/schema21 unchanged; no import",
+  "noUninstallResetRestoreOrTerminationWorkaround": true,
+  "postLaunchComparison": {
+    "changedFiles": [],
+    "changedLibraryKeys": [],
+    "boundary": "Full file comparison. Any changed records require classification; no automatic source or gesture-acceptance inference."
+  },
+  "independentPreservationReport": "helper-preservation-independent.json",
+  "actualHelperPackageChecks": 66,
+  "profileExpiresUTC": "2026-10-17T16:14:24Z",
+  "priorAttempt": "delivery-attempt1.json retains failed pre-install backup on October13."
+}

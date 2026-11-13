@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleDevelopmentRegion</key><string>en</string>
+<key>CFBundleDisplayName</key><string>Praelude</string>
+<key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+<key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+<key>LSRequiresIPhoneOS</key><true/>
+<key>CADisableMinimumFrameDurationOnPhone</key><true/>
+<key>NSCameraUsageDescription</key><string>Use your camera to photograph passages, scan scores or invite QR codes, and optionally turn pages or record your own practice verdicts with face gestures. Only the cropped passage photo is saved and can sync privately to your account; face-gesture frames stay on this device and are discarded.</string>
+<key>NSMicrophoneUsageDescription</key><string>Use your microphone when you choose voice commands, dictate passage names or notes, tune an instrument, or record a take. Praelude never grades your playing.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>Recognize your practice commands, passage names and notes on this device when you tap the microphone. Speech never grades your playing.</string>
+<key>NSContactsUsageDescription</key><string>Match your contacts against other Praelude musicians. Numbers and emails are hashed on this device before anything is sent.</string>
+<key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><true/></dict>
+<key>UIBackgroundModes</key><array><string>audio</string></array>
+<key>UIAppFonts</key><array><string>BodoniModa.ttf</string><string>Bravura.otf</string></array>
+<key>UILaunchScreen</key><dict/>
+<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+<key>UIFileSharingEnabled</key><false/>
+<key>LSSupportsOpeningDocumentsInPlace</key><true/>
+<key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>PDF score</string><key>LSHandlerRank</key><string>Alternate</string><key>LSItemContentTypes</key><array><string>com.adobe.pdf</string></array></dict></array>
+<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.christian.praelude.ios.auth</string><key>CFBundleURLSchemes</key><array><string>praelude</string></array></dict></array>
+</dict></plist>

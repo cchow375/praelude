@@ -1,0 +1,189 @@
+{
+  "package_audits": {
+    "phone": {
+      "date_utc": "2026-10-18T16:00:46.274691+00:00",
+      "scope": "Independent read-only audit of actual device-helper Build21 signed Release artifact for exact selected refresh target",
+      "target_form_factor": "phone",
+      "current_preflight_local": "/tmp/praelude-build21/phone-preflight-private.json",
+      "current_preflight_prior_version": "2.0.0",
+      "current_preflight_prior_build": "20",
+      "status": "PASS",
+      "checks": {
+        "one_expected_local_signing_team": true,
+        "current_preflight_has_existing_stable_bundle": true,
+        "current_preflight_has_prior_version_readback": true,
+        "current_preflight_developer_services_ready": true,
+        "expected_target_is_requested_physical_form_factor": true,
+        "stable_bundle_identifier": true,
+        "marketing_version_2_0_0": true,
+        "build_21": true,
+        "built_for_iphoneos": true,
+        "phone_and_tablet_families": true,
+        "photo_camera_usage_description": true,
+        "speech_and_microphone_usage_descriptions": true,
+        "deep_strict_signature": true,
+        "signature_team_matches_local_team": true,
+        "signature_identifier_matches_bundle": true,
+        "signature_not_adhoc": true,
+        "entitlement_team_matches_local_team": true,
+        "entitlement_app_identifier": true,
+        "development_device_entitlement": true,
+        "profile_team_matches_local_team": true,
+        "profile_app_identifier": true,
+        "profile_exact_selected_target_included": true,
+        "profile_development_entitlement": true,
+        "profile_and_binary_application_entitlements_agree": true,
+        "profile_unexpired_at_audit": true,
+        "signer_certificate_extracted": true,
+        "signer_is_authorized_by_profile": true,
+        "signer_codesigning_trust": true,
+        "signer_has_valid_local_signing_identity": true,
+        "arm64_only": true,
+        "matching_arm64_dsym": true,
+        "no_debug_fixture_markers": true,
+        "only_expected_release_and_signing_resources": true,
+        "no_symlinks": true,
+        "no_test_plugins": true,
+        "no_personal_library_score_or_recording_files": true,
+        "current_source_matches_candidate_manifest": true,
+        "binary_and_dsym_unchanged_during_readonly_audit": true
+      },
+      "checks_passed": 38,
+      "checks_total": 38,
+      "binary_sha256": "0e4e1533537ae7dffe39b744d90f6161872acfdde391d552f969d501796284e2",
+      "binary_bytes": 37805296,
+      "architecture": "arm64",
+      "binary_and_dsym_uuid": [
+        [
+          "FECCDC1F-9895-3386-B8A3-0C8A359CB36A",
+          "arm64"
+        ]
+      ],
+      "dsym_sha256": "fcbede0265476ff78f4ca0dc4079f84425c2f7f8ae40bfbbd2146489375173d6",
+      "profile_expiration_utc": "2026-10-25T15:49:49+00:00",
+      "debug_markers_checked": 22,
+      "debug_markers_present": [],
+      "resource_file_count": 13,
+      "resource_paths": [
+        "AppIcon60x60@2x.png",
+        "AppIcon76x76@2x~ipad.png",
+        "Assets.car",
+        "BodoniModa.ttf",
+        "Bravura.otf",
+        "Info.plist",
+        "PkgInfo",
+        "Praelude",
+        "PrivacyInfo.xcprivacy",
+        "_CodeSignature/CodeResources",
+        "embedded.mobileprovision",
+        "swift-crypto_Crypto.bundle/Info.plist",
+        "swift-crypto_Crypto.bundle/PrivacyInfo.xcprivacy"
+      ],
+      "unexpected_resource_count": 0,
+      "artifact_local": "/Users/c3/praelude/ios/DeviceDerivedData/Build/Products/Release-iphoneos/Praelude.app",
+      "dsym_local": "/Users/c3/praelude/ios/DeviceDerivedData/Build/Products/Release-iphoneos/Praelude.app.dSYM/Contents/Resources/DWARF/Praelude",
+      "raw_audit_local": "/tmp/praelude-build21-refresh-20261018-audit/phone",
+      "source_manifest_local": "/Users/c3/praelude/docs/qa/ios/2.0.0/build21/source-sha256.json",
+      "source_files_checked": 311,
+      "boundaries": "Artifact evidence only. Installation, launch, schema and library preservation, same-account convergence and physical features are separate acceptance records. No device or backend call is made. Device, team, certificate and profile identities remain private.",
+      "private_archive": {
+        "status": "PASS",
+        "archive_local": "/Users/c3/praelude/releases/ios-personal/build21-refresh-2026-10-18-phone-20261018T160048Z/signed-app-and-dsym.zip",
+        "copied_app_local": "/Users/c3/praelude/releases/ios-personal/build21-refresh-2026-10-18-phone-20261018T160048Z/Praelude.app",
+        "copied_dsym_local": "/Users/c3/praelude/releases/ios-personal/build21-refresh-2026-10-18-phone-20261018T160048Z/Praelude.app.dSYM",
+        "file_count": 16,
+        "uncompressed_bytes": 111980354,
+        "archive_bytes": 25288877,
+        "archive_sha256": "08ad2440fb009e947594613b2b4d50b4f2c5e790d61da31605e545b50e99a4d6",
+        "full_original_artifact_filename_size_sha256_copy_exact": true,
+        "original_artifact_unchanged_during_copy": true,
+        "full_filename_size_sha256_archive_readback_exact": true,
+        "no_symlinks": true,
+        "directories_mode_700_files_mode_600": true
+      }
+    }
+  },
+  "status": "PHONE_PASS_IPAD_HELD_ACTIVE_SET",
+  "scope": "October 18 signing refresh: independent completed package and backup-copy audits only; absent target/scope entries are untested.",
+  "backup_preservation": {
+    "phone": {
+      "audited_utc": "2026-10-18T16:00:56.054859+00:00",
+      "status": "PASS",
+      "checks": {
+        "before_manifest_independently_valid": true,
+        "after_manifest_independently_valid": true,
+        "no_symlinks_in_either_snapshot": true,
+        "every_filename_size_sha256_exact_across_install": true,
+        "full_library_json_exact_across_install": true,
+        "schema5_before_and_after": true
+      },
+      "before": {
+        "local_backup": "/Users/c3/praelude/releases/ios-device-backups/20261018T155803Z-1a286e73",
+        "file_count": 3,
+        "bytes": 3939591,
+        "recomputed_actual_files_match_manifest": true,
+        "no_symlinks": true,
+        "schema": 5,
+        "revision": 1780,
+        "active_set_present": false,
+        "counts": {
+          "pieces": 6,
+          "passages": 129,
+          "history": 94,
+          "sessions": 58,
+          "inkStrokes": 1088,
+          "stampAnnotations": 20,
+          "textAnnotations": 6,
+          "folders": 0,
+          "tags": 0,
+          "pageEdits": 0,
+          "scoreLinks": 0
+        }
+      },
+      "after": {
+        "local_backup": "/Users/c3/praelude/releases/ios-device-backups/20261018T160040Z-fb73cf39",
+        "file_count": 3,
+        "bytes": 3939591,
+        "recomputed_actual_files_match_manifest": true,
+        "no_symlinks": true,
+        "schema": 5,
+        "revision": 1780,
+        "active_set_present": false,
+        "counts": {
+          "pieces": 6,
+          "passages": 129,
+          "history": 94,
+          "sessions": 58,
+          "inkStrokes": 1088,
+          "stampAnnotations": 20,
+          "textAnnotations": 6,
+          "folders": 0,
+          "tags": 0,
+          "pageEdits": 0,
+          "scoreLinks": 0
+        }
+      },
+      "boundaries": "Independent rehash of retained private helper copies. Device installation/version/process and later sync changes require separate records. No device or backend call made."
+    }
+  },
+  "retained_incomplete_backup_attempts": [
+    {
+      "target": "ipad",
+      "status": "PREINSTALL_BACKUP_INCOMPLETE_NO_BUILD_OR_INSTALL",
+      "local_partial_copy": "/Users/c3/praelude/releases/ios-device-backups/20261018T160113Z-5741fb19",
+      "complete_manifest_present": false,
+      "files_present": 13,
+      "bytes_present": 10694822,
+      "helper_failure_reason": "Unexpected copied file size; full stable snapshot verification did not pass.",
+      "source_of_delivery_gate": "Root reports helper stopped before build/install and observed concurrent editing/practice.",
+      "boundary": "Retained partial copy is not a complete backup or preservation pass. No verifier device/backend call was made; iPad remains at prior Build20.",
+      "partial_library_readback": {
+        "schema": 5,
+        "revision": 7205,
+        "passages": 131,
+        "active_set_present": true,
+        "boundary": "Readback from a non-validated partial snapshot only."
+      }
+    }
+  ]
+}

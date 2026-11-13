@@ -1,0 +1,99 @@
+{
+  "scope": "Independent CUA exact disposable iPad simulator, old compiled app before latest Undo-context changes",
+  "executable_sha256": "78ffecee457712e0514caa8854bb9d89f341809cf1d1b087ccf486e9620722bc",
+  "utc_finished": "2026-10-12T00:52:00.920835+00:00",
+  "actual_actions": [
+    {
+      "action": "Show sidebar",
+      "window_point": [
+        130,
+        264
+      ],
+      "result": "Sidebar visible"
+    },
+    {
+      "action": "Pieces",
+      "window_point": [
+        215,
+        489
+      ],
+      "result": "Pieces grid visible"
+    },
+    {
+      "action": "Practice study card",
+      "window_point": [
+        799,
+        559
+      ],
+      "touch_window_point": [
+        549,
+        282
+      ],
+      "result": "root.openPiece action/flush/assignment traced; actual score visible; immediate CUA screenshot preceded navigation completion"
+    },
+    {
+      "action": "Score options",
+      "window_point": [
+        1093,
+        266
+      ],
+      "result": "Native menu visible"
+    },
+    {
+      "action": "Menu scroll attempts",
+      "result": "CUA wheel no visible scroll; instantaneous drag tracked destination row and entered Performance; no menu scrolling acceptance"
+    },
+    {
+      "action": "Exit Performance",
+      "window_point": [
+        619,
+        950
+      ],
+      "hold_ms": 1000,
+      "result": "Score controls visible again"
+    },
+    {
+      "action": "Mic Off",
+      "window_point": [
+        851,
+        1663
+      ],
+      "result": "Permission-off neutral attention badge; no prompt or permission grant"
+    },
+    {
+      "action": "Mic Needs attention",
+      "window_point": [
+        851,
+        1663
+      ],
+      "result": "Hands-free details visible; permission error + Enable above command examples"
+    },
+    {
+      "action": "Settings scroll attempts",
+      "result": "CUA drag began/ended about8ms apart without visible list scroll; wheel also unchanged; alias editor not reached"
+    },
+    {
+      "action": "Temporary Simulator pointer capture",
+      "result": "No useful scrolling; restored pointer and keyboard capture both0 by native toolbar AX"
+    }
+  ],
+  "alias_focus_reproduction": "NOT REACHED; no field or focus claim; historical real XCTest focus failure remains open",
+  "practice_started": false,
+  "text_typed": false,
+  "camera_or_microphone_acceptance": false,
+  "physical_device_actions": false,
+  "baseline_boundary": "Seeded pre-edit baseline saved after reset and Show Sidebar, before opening piece. Pre-reset snapshot lookup missed actual Application Support path; no pre-reset preservation claim.",
+  "seeded_pre_edit_to_after": {
+    "files_equal": true,
+    "before_files": 2,
+    "after_files": 2,
+    "library_equal": true,
+    "changed_library_top_level_keys": []
+  },
+  "trace_records_for_manual_process": 606,
+  "screenshots": [
+    "01-sidebar.png",
+    "02-card-after-single-click.png",
+    "03-hands-free-recovery-visible.png"
+  ]
+}

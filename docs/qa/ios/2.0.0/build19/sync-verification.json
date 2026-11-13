@@ -1,0 +1,253 @@
+{
+  "date": "2026-10-16",
+  "scope": "Build19 native sync and private asset integrity; hosted additive schema applied. Later iPhone installation is recorded separately; real-account convergence remains unaccepted.",
+  "account_state": {
+    "user_report": "Earlier implementation checkpoint: neither personal iPhone nor iPad signed in.",
+    "hosted_piece_rows_before": 0,
+    "hosted_piece_rows_after": 0,
+    "real_account_two_device_convergence": "NOT RUN; verify the same live account on both devices, library catch-up, roundtrip comparison and offline recovery.",
+    "confirmed_by_user_on": "2026-10-16",
+    "gate_classification": "PERSONAL_ACCEPTANCE_PENDING; not a deployed-backend blockage",
+    "backend_state": "Additive migrations28/29 deployed; hosted SQL fixtures and catalog/RLS checks passed. No backend deployment step is pending for same-account native sync.",
+    "sign_in_policy": "The user signs in locally to the same account on iPhone and iPad. This verification does not collect credentials or sign into a personal account.",
+    "later_iphone_readback": "Installed/opened Build19; local profile owner is well formed and matches sync-state owner. This is not live-session or cross-device convergence evidence. No identity values retained."
+  },
+  "migration_deployment": [
+    {
+      "file": "supabase/migrations/20261016000028_piece_practice_balance.sql",
+      "sha256": "035cec55c60fcce5a48c5e12153f5929fdc3eab70d20aa534b1300b7dbfa1e00",
+      "result": "APPLIED",
+      "tool": "existing authenticated Supabase CLI db query --linked --project-ref <configured-project> -f <file>",
+      "transaction": "metadata-only ADD nullable columns, no defaults/backfill/policy change; 5s lock and 30s statement timeout; PostgREST schema reload notification"
+    },
+    {
+      "file": "supabase/migrations/20261016000029_photo_passage_origin.sql",
+      "sha256": "fd07e24f4fa0c8c56af9c7b287e83b3e36b1741f94edd89cb5d417ca9bb5284b",
+      "result": "APPLIED",
+      "tool": "existing authenticated Supabase CLI db query --linked --project-ref <configured-project> -f <file>",
+      "transaction": "metadata-only ADD nullable columns, no defaults/backfill/policy change; 5s lock and 30s statement timeout; PostgREST schema reload notification"
+    }
+  ],
+  "schema_checks": {
+    "all_sync_rls": true,
+    "append_table_count": 7,
+    "columns": [
+      {
+        "default": null,
+        "name": "full_tempo_bpm",
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      {
+        "default": null,
+        "name": "is_photo_passage",
+        "nullable": "YES",
+        "type": "boolean"
+      },
+      {
+        "default": null,
+        "name": "practice_balance_plan",
+        "nullable": "YES",
+        "type": "jsonb"
+      }
+    ],
+    "fixture_owners_remaining": 0,
+    "planning_checks": [
+      "CHECK (((full_tempo_bpm >= (20)::double precision) AND (full_tempo_bpm <= (300)::double precision)))",
+      "CHECK (((practice_balance_plan IS NULL) OR ((jsonb_typeof(practice_balance_plan) = 'object'::text) AND (practice_balance_plan ?& ARRAY['leftHandPercent'::text, 'rightHandPercent'::text, 'verySlowPercent'::text, 'variantPercent'::text]) AND (jsonb_typeof((practice_balance_plan -> 'leftHandPercent'::text)) = 'number'::text) AND (jsonb_typeof((practice_balance_plan -> 'rightHandPercent'::text)) = 'number'::text) AND (jsonb_typeof((practice_balance_plan -> 'verySlowPercent'::text)) = 'number'::text) AND (jsonb_typeof((practice_balance_plan -> 'variantPercent'::text)) = 'number'::text) AND ((practice_balance_plan ->> 'leftHandPercent'::text) ~ '^[0-9]{1,3}$'::text) AND ((practice_balance_plan ->> 'rightHandPercent'::text) ~ '^[0-9]{1,3}$'::text) AND ((practice_balance_plan ->> 'verySlowPercent'::text) ~ '^[0-9]{1,3}$'::text) AND ((practice_balance_plan ->> 'variantPercent'::text) ~ '^[0-9]{1,3}$'::text) AND ((((practice_balance_plan ->> 'leftHandPercent'::text))::integer >= 0) AND (((practice_balance_plan ->> 'leftHandPercent'::text))::integer <= 100)) AND ((((practice_balance_plan ->> 'rightHandPercent'::text))::integer >= 0) AND (((practice_balance_plan ->> 'rightHandPercent'::text))::integer <= 100)) AND ((((practice_balance_plan ->> 'verySlowPercent'::text))::integer >= 0) AND (((practice_balance_plan ->> 'verySlowPercent'::text))::integer <= 100)) AND ((((practice_balance_plan ->> 'variantPercent'::text))::integer >= 0) AND (((practice_balance_plan ->> 'variantPercent'::text))::integer <= 100)) AND ((((practice_balance_plan ->> 'leftHandPercent'::text))::integer + ((practice_balance_plan ->> 'rightHandPercent'::text))::integer) <= 100))))"
+    ],
+    "row_count": 0,
+    "row_versions": "d41d8cd98f00b204e9800998ecf8427e",
+    "sync_table_count": 22
+  },
+  "row_preservation": {
+    "method": "Before/after count(*) and MD5 of ordered piece id:xmin pairs; no personal columns selected.",
+    "before": {
+      "all_sync_rls": true,
+      "row_count": 0,
+      "row_versions": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "after": {
+      "row_count": 0,
+      "row_versions": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "count_and_versions_equal": true,
+    "limit": "The hosted pieces table was empty; this proves no hosted piece rows were changed, not that local device data has uploaded."
+  },
+  "read_only_queries": [
+    "select count(*) as row_count, md5(coalesce(string_agg(id::text || ':' || xmin::text, ',' order by id), '')) as row_versions, (select bool_and(rowsecurity) from pg_tables where schemaname='public' and tablename in (select table_name from public.sync_tables union select table_name from public.append_only_tables)) as all_sync_rls from public.pieces;",
+    "select table_name, conflict_column, owner_column from public.sync_tables order by table_name;",
+    "select id, public, file_size_limit, allowed_mime_types from storage.buckets where id in ('scores','covers','recordings');",
+    "select pg_get_functiondef('public.sync_upsert(text,jsonb)'::regprocedure);",
+    "select column_name, data_type, is_nullable, column_default from information_schema.columns where table_schema='public' and table_name='pieces' and column_name in ('full_tempo_bpm','practice_balance_plan','is_photo_passage');",
+    "select pg_get_constraintdef(oid) from pg_constraint where conrelid='public.pieces'::regclass and conname in ('pieces_full_tempo_bpm_check','pieces_practice_balance_plan_check');",
+    "select bool_and(rowsecurity) from pg_tables where schemaname='public' and tablename in (select table_name from public.sync_tables union select table_name from public.append_only_tables);"
+  ],
+  "private_buckets": {
+    "scores": {
+      "public": false,
+      "file_size_limit": 209715200,
+      "mime_types": [
+        "application/pdf"
+      ]
+    },
+    "covers": {
+      "public": false,
+      "file_size_limit": 15000000,
+      "mime_types": [
+        "image/png",
+        "image/jpeg"
+      ]
+    },
+    "recordings": {
+      "public": false,
+      "file_size_limit": 104857600,
+      "mime_types": [
+        "audio/mpeg",
+        "audio/mp4",
+        "audio/wav",
+        "audio/x-m4a",
+        "audio/aac"
+      ]
+    }
+  },
+  "hosted_sql_tests": {
+    "file": "supabase/tests/07_piece_practice_balance.sql",
+    "sha256": "6c313f67a14cd5bf5f2edd3e42f53ce2f28b96efdc48e238b587a8ab8dcdb8c6",
+    "result": "PASS, exit 0, transaction rolled back, zero fixture owners remaining",
+    "checks": [
+      "full-tempo/plan/photo-origin roundtrip",
+      "older-client omission retains new columns",
+      "explicit nil tempo and zero plan and false marker clear",
+      "out-of-range tempo rejected",
+      "invalid separate-hand sum rejected",
+      "missing plan keys rejected",
+      "JSON-null and JSON-string percentages rejected",
+      "other owner cannot read or overwrite"
+    ],
+    "retained_initial_failure": {
+      "result": "FAIL, SQL 23502 null title in synthetic invalid-update fixture",
+      "cause": "sync_upsert attempts INSERT before ON CONFLICT and still requires mandatory insert columns; fixture omitted title.",
+      "fix": "Provide required synthetic title on each update fixture. No product code changed to weaken validation.",
+      "raw_log_local": "/private/tmp/praelude-build19-sync-sql07.log"
+    },
+    "final_raw_log_local": "/private/tmp/praelude-build19-sync-sql07-final.log"
+  },
+  "core_tests": {
+    "command": "swift test --package-path ios --scratch-path /private/tmp/praelude-sync-integrity-build19",
+    "result": "PASS",
+    "tests": 537,
+    "skipped": 1,
+    "failures": 0,
+    "duration_seconds": 3.471,
+    "raw_log_local": "/private/tmp/praelude-sync-integrity-build19-full-final.log",
+    "skip_boundary": "Live account smoke is opt-in and not performed.",
+    "targeted_sync_tests": {
+      "tests": 63,
+      "failures": 0,
+      "duration_seconds": 0.929,
+      "raw_log_local": "/private/tmp/praelude-sync-integrity-build19-verified.log"
+    }
+  },
+  "retained_intermediate_core_failure": {
+    "raw_log_local": "/private/tmp/praelude-sync-integrity-build19-frozen.log",
+    "result": "Compiler rejected PracticeStore.swift modified during shared build; rerun only after the source stabilized.",
+    "root_contract_regression": "Root full run initially had two assertions expecting full_tempo_bpm to remain local. Updated regression to the new synced contract while retaining old missing-key preservation."
+  },
+  "native_tests": {
+    "status": "PASS final phone-final6 hosted run, including all11 storage tests and asset-availability regression",
+    "required_suite": "PraeludeAppTests/StorageIdentityTests",
+    "cases": [
+      "refreshed credentials match expected queue/storage account",
+      "large-file hashing and staging run on worker",
+      "complete bytes published atomically",
+      "late cloud download never replaces a newly local score",
+      "empty/malformed PDF/image/audio rejected without staging debris",
+      "valid PDF/JPEG/WAV pass validation before publication",
+      "asset-availability event follows new publication before receipt persistence, including receipt-write failure, with no event for existing/rejected/invalid assets"
+    ],
+    "limit": "Simulator tests cannot establish real-network two-device behavior or physical capture/audio latency.",
+    "tests": 11,
+    "failures": 0,
+    "duration_seconds": 0.047,
+    "full_app_hosted_suite": {
+      "tests": 360,
+      "skipped": 1,
+      "failures": 0,
+      "duration_seconds": 16.159,
+      "suite_duration_seconds": 16.265
+    },
+    "raw_log_local": "/tmp/praelude-build19-phone-final6.log",
+    "xcresult_local": "/tmp/praelude-build19-phone-final6.xcresult",
+    "source_boundary": "Final service and StorageIdentityTests source, including normalized test path filtering and synchronous publication-before-receipt proof, passed this hosted run.",
+    "expected_current_storage_test_count": 11,
+    "previous_native4_evidence": {
+      "tests": 10,
+      "failures": 0,
+      "duration_seconds": 0.066,
+      "raw_log_local": "/tmp/praelude-build19-native4.log",
+      "boundary": "Original storage suite before the asset-availability followup."
+    },
+    "suite_duration_seconds": 0.05
+  },
+  "repairs": [
+    "Fail closed on corrupt sync account-state file, preserving original queue and state bytes; unsafe clear/rebind/drain/pull blocked.",
+    "Bind actual PostgREST and Storage clients to expected owner after session refresh.",
+    "Background download file write/hash/validation, followed by account check and no-overwrite atomic publication.",
+    "Sync full tempo, practice coverage plan and stable photo-origin flag with legacy omission preservation."
+  ],
+  "untested": [
+    "Same-account sign-in on both physical devices",
+    "Private photo/PDF/cover/recording upload and fresh-device download",
+    "Offline edit/relaunch/reconnect and remote Undo on physical devices",
+    "Concurrent whole-record LWW conflicts, real device clocks and simultaneous active-set use",
+    "Actual capture, metronome, streak UI and sustained performance acceptance"
+  ],
+  "sync_storage_source_sha256": {
+    "ios/Praelude/Core/SyncDTO.swift": "a770e7a26c73173f9af18173ad079e5d770b664d89e0c10e556ecf60cc3bf648",
+    "ios/Praelude/Core/SyncEngine.swift": "28f2c701ce5cc148d8707dada4db450a9f5b335528863e2e705f20816d1f684f",
+    "ios/Praelude/Services/SupabaseServices.swift": "c50363a936275fefd9ed3f673ed007e5501f4fda8048bb8b1bf7cad6ef920693",
+    "ios/Praelude/Services/PostgRESTSyncTransport.swift": "9eb354d439a2e719dc63b37a8cc94a578a8edaede85e83f7a5ce4179cfbaa9a3",
+    "ios/Praelude/Services/ScoreAndRecordingStorage.swift": "f10cedf7035138b029ef7af35604d2adcf151c5ae6f1077c208acb4de8c4fdd5",
+    "ios/PraeludeAppTests/StorageIdentityTests.swift": "7534075efc95dbb836d5af1f6ed263129e00f204f5ae2b7c71fe80c8d67cded5"
+  },
+  "asset_availability_followup": {
+    "status": "PASS final phone-final6 native hosted verification",
+    "defect": "Card metadata could arrive before PDF bytes; unchanged task identity left Preview unavailable until a later metadata/navigation change.",
+    "repair": "Post MainActor transient Notification.Name.praeludeLibraryAssetAvailable with destination URL after successful new publication, before receipt persistence; matching card views retry.",
+    "semantics": "Local asset availability only, not a Synced/receipt-completion signal; no persisted or remote event. Receipt failures still surface transfer error after the valid file becomes visible.",
+    "native_regression": "testAssetAvailabilityFollowsNewPublicationEvenWhenReceiptPersistenceFails validates complete-byte ordering, event despite receipt failure, and no event for existing/rejected/invalid files.",
+    "source_parse": "PASS; git diff --check PASS",
+    "prior_ordering": "Initial root proposal waited for receipt persistence; revised after review demonstrated receipt failure could otherwise leave a valid newly local image unavailable.",
+    "personal_acceptance_boundary": "Hosted storage11 and view-pixel tests pass. Earlier user report was signed out; later iPhone readback has matching local profile/sync ownership. Verify the same live account, full asset/history catch-up and offline recovery separately.",
+    "native_regression_result": {
+      "test": "StorageIdentityTests.testAssetAvailabilityFollowsNewPublicationEvenWhenReceiptPersistenceFails",
+      "result": "PASS",
+      "duration_seconds": 0.007
+    },
+    "hosted_view_pixel_result": {
+      "test": "PassageArtworkArrivalTests.testVisibleCardAndZoomRecoverOnlyWhenTheirOwnPDFPublishes",
+      "result": "PASS",
+      "duration_seconds": 0.602,
+      "boundary": "Hosted synthetic card/zoom pixel test; no real-account or physical-device convergence claim."
+    },
+    "retained_fixture_failure": {
+      "raw_log_local": "/tmp/praelude-build19-phone-final5.log",
+      "result": "FAIL: seven assertions in one new storage notification test; other hosted storage tests passed.",
+      "cause": "Test observer compared a derived parent URL (directory trailing slash) with a constructed directory URL (no slash). URL equality was false, so the fixture filtered out actual notifications. A Foundation-only reproduction confirmed URL equality false and normalized filesystem-path equality true.",
+      "repair": "Changed only the StorageIdentityTests observer filter to compare standardizedFileURL.path; retained complete-byte, synchronous-before-receipt, receipt-failure and rejected-publication assertions. No production source change was needed for this fixture correction."
+    }
+  },
+  "personal_sync_acceptance_gate": {
+    "status": "AWAITING_SAME_ACCOUNT_VERIFICATION_AND_PHYSICAL_ROUNDTRIP",
+    "backend_blocked": false,
+    "reason": "Earlier user report and hosted-row check predate phone installation. Matching local profile/sync ownership after first open does not establish live authentication or same-account convergence. No backend deployment blocker is inferred.",
+    "required_steps": [
+      "Verify locally that iPhone and iPad use the same live Supabase account; sign in where needed.",
+      "Keep local libraries/backups; allow metadata and private PDF/photo/cover/recording transfer to finish.",
+      "Compare scores, cropped passage cards, annotations, completed practice history, calendar/streak totals and remote Undo across devices.",
+      "Make an offline edit, relaunch, reconnect and verify eventual convergence."
+    ],
+    "independent_status": "Candidate source/native/SQL verification can complete while this separate personal acceptance gate remains open."
+  }
+}

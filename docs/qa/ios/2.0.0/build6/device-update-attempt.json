@@ -1,0 +1,130 @@
+{
+  "recorded_utc": "2026-10-03T07:10:47.302209+00:00",
+  "source_commit": "00375fa",
+  "repository_commit_before_attempt": "41c8548",
+  "target_version": "2.0.0",
+  "target_build": "6",
+  "installed_build_after_attempt": "5",
+  "installation_attempted": false,
+  "verified_backup": "releases/ios-device-backups/20261003T070136Z-4e538abe",
+  "independent_backup_review": {
+    "files": 11,
+    "total_bytes": 6212619,
+    "manifest_hashes_equal_actual_files": true,
+    "symlinks": 0
+  },
+  "pre_update_state": {
+    "schema": 5,
+    "revision": 883,
+    "pieces": 5,
+    "passages": 30,
+    "historical_sets": 24,
+    "sessions": 15,
+    "session_attempts": 114,
+    "active_set_status": null
+  },
+  "blocker": "Release code signing returns errSecInternalComponent",
+  "diagnostics": {
+    "selected_identity_valid": true,
+    "certificate_unexpired": true,
+    "codesigning_certificate_trust_passed": true,
+    "default_keychain_unlocked": true,
+    "minimal_temporary_executable_signing": "same errSecInternalComponent outside sandbox",
+    "native_xcode_debug_build": "unrelated Helpers framework linker failure before signing"
+  },
+  "cause": "unresolved; private-key use authorization not established; no ACL/lock/trust cause inferred",
+  "security_mutations": false,
+  "next_step": "User runs guarded ios:refresh from local Terminal and handles any Mac signing prompt; then verify installed version and complete pre/post bytes.",
+  "connected_retry": {
+    "recorded_utc": "2026-10-03T15:53:29.791383+00:00",
+    "pre_backups": [
+      "releases/ios-device-backups/20261003T153955Z-ca9b1c31",
+      "releases/ios-device-backups/20261003T154800Z-a9fa03f8"
+    ],
+    "files": 11,
+    "bytes": 6212619,
+    "complete_manifests_match_actual_bytes": true,
+    "equal_prior_backup": true,
+    "symlinks": 0,
+    "installed_build": "5",
+    "schema": 5,
+    "revision": 883,
+    "active_set_status": null,
+    "installation_attempted": false,
+    "latest_build_errors": [
+      "No Accounts",
+      "Signing certificate is invalid; may have been revoked or expired"
+    ],
+    "fresh_certificate_trust": "both local matching signing certificates return CSSMERR_TP_CERT_REVOKED; unexpired",
+    "native_xcode_observation": "Existing account and Personal Team present. Another certificate says Not in Keychain. Create Apple Development, export and delete unavailable in inspected menus.",
+    "profile_refresh": "native Download Manual Profiles activity completed without displayed error; guarded retry still fails before installation",
+    "credential_or_trust_mutations": false,
+    "next_step": "Determine which Mac holds the valid signing key and restore a usable same-team development certificate/key pair, then rerun full guarded update."
+  },
+  "key_recovery": {
+    "recorded_utc": "2026-10-03T16:39:25.227247+00:00",
+    "user_report": "certificate likely created on another Mac; source Mac available",
+    "procedure": "existing identity exported as password-protected .p12 on source Mac, locally transferred, imported into destination login keychain by user",
+    "state": "awaiting user export/import confirmation",
+    "agent_key_export_or_import": false,
+    "installation_attempted": false
+  },
+  "recheck_after_user_challenge": {
+    "recorded_utc": "2026-10-03T17:11:07.833597+00:00",
+    "independent_exact_identity_check": "both local Apple Development certificates fail default and required live OCSP codeSign policy with CSSMERR_TP_CERT_REVOKED; one matches earlier codesign fingerprint",
+    "native_xcode_action": "Build For Profiling; existing scheme uses Release; physical iPad selected; no Run/install",
+    "native_release_build": "succeeded",
+    "native_release_strict_signature_verification": "failed CSSMERR_TP_CERT_REVOKED for arm64",
+    "installation_attempted": false,
+    "private_key_export_or_import_confirmed": false,
+    "scheme_change": "Xcode normalized format and two launcher identifiers; tool-created changes restored after confirming no other semantic differences",
+    "conclusion": "native build success does not repair revoked signing; transfer is one recovery path, not established as the only one; coordinate any replacement with the other Mac"
+  },
+  "identity_import_followup": {
+    "recorded_utc": "2026-10-03T17:46:22.515826+00:00",
+    "native_import": "User-supplied PKCS12 selected via File Import Items into login; no password prompt reported",
+    "identity_inventory": 3,
+    "trusted_unexpired_same_team_identities": 1,
+    "older_revoked_identities": 2,
+    "fresh_pre_backup": "releases/ios-device-backups/20261003T173552Z-21b89623",
+    "installation_attempted": false,
+    "build_diagnostic": "No Accounts; provisioning profile excludes new trusted certificate",
+    "profile_download": "completed; matching cached profile still excludes trusted certificate, includes connected device and remains unexpired",
+    "native_release_followup": "User requested Build For Profiling due repeated stale-element menu automation failures",
+    "private_key_export_or_trust_override": false
+  },
+  "weekly_provisioning_renewal": {
+    "recorded_utc": "2026-10-03T18:01:37.623369+00:00",
+    "previous_matching_local_profile_expires_utc": "2026-10-09T22:26:44+00:00",
+    "installed_profile_expiry": "not exposed by inspected device inventory",
+    "native_auto_signing_reset": "same team restored; Release build succeeded but strict signature still revoked",
+    "stale_cache_recovery": "one matching cache profile reversibly archived outside Git; native project reopened",
+    "profile_created_utc": "2026-10-03T17:55:53+00:00",
+    "profile_expires_utc": "2026-10-10T17:55:53+00:00",
+    "independent_profile_verification": {
+      "same_team_and_bundle": true,
+      "connected_device_included": true,
+      "development_enabled": true,
+      "trusted_unexpired_certificates": 2,
+      "revoked_certificates": 0
+    },
+    "native_release_state": "Completed; strict signature/profile/team/device checks pass",
+    "computer_use_securityagent": "prohibited by tool safety policy; no bypass attempted",
+    "project_mutations": "only tool-generated normalization/signing overrides restored after semantic validation",
+    "installation_attempted": false,
+    "next_step": "user authorizes signing locally, then actual Release signature verification and full guarded refresh"
+  },
+  "final_guarded_update": {
+    "installed_build": "6",
+    "installed_version": "2.0.0",
+    "signature_profile_owner_device_checks_passed": true,
+    "pre_backup": "releases/ios-device-backups/20261003T180209Z-5873bf15",
+    "post_backup": "releases/ios-device-backups/20261003T180241Z-c017a436",
+    "independent_complete_preservation": "11 files /6212619bytes exact; history/ownership/privacy intact",
+    "automatic_launch": "declined",
+    "user_launch": "confirmed opened",
+    "direct_postlaunch_schema": 5,
+    "direct_postlaunch_revision": 883,
+    "installation_record": "personal-ipad-install.json"
+  }
+}

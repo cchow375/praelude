@@ -1,0 +1,88 @@
+{
+  "build": 8,
+  "deviceModel": "iPad Pro 12.9-inch (3rd generation), iPad8,5",
+  "os": "iOS 18.7.8 (22H352)",
+  "capture": "45-second Time Profiler attach to running Release app, October 9 2026",
+  "appImageUUID": "602C8770-195E-3C4A-BBB3-A1A4539266E4",
+  "mainThreadSampledCPUMilliseconds": 18293.0,
+  "selectedInclusiveMilliseconds": {
+    "SyncCoordinator.syncAll()": 12276.0,
+    "SyncEngine.enqueueLibrarySnapshot(_:)": 9964.0,
+    "Data.praeludeHexLiteral.getter": 5922.0,
+    "__ResetUDateFormat": 3981.0,
+    "SyncQueue.replace(_:)": 2200.0
+  },
+  "potentialHangs": [
+    {
+      "startSeconds": 0.85989525,
+      "durationSeconds": 1.495796875,
+      "classification": "Hang"
+    },
+    {
+      "startSeconds": 2.357694875,
+      "durationSeconds": 0.418767208,
+      "classification": "Microhang"
+    },
+    {
+      "startSeconds": 2.780862,
+      "durationSeconds": 0.346907875,
+      "classification": "Microhang"
+    },
+    {
+      "startSeconds": 3.964947583,
+      "durationSeconds": 1.463172083,
+      "classification": "Hang"
+    },
+    {
+      "startSeconds": 8.745530583,
+      "durationSeconds": 1.4449065,
+      "classification": "Hang"
+    },
+    {
+      "startSeconds": 10.446267,
+      "durationSeconds": 1.685133916,
+      "classification": "Hang"
+    },
+    {
+      "startSeconds": 12.93841975,
+      "durationSeconds": 1.293877041,
+      "classification": "Hang"
+    },
+    {
+      "startSeconds": 14.232303958,
+      "durationSeconds": 1.205484125,
+      "classification": "Hang"
+    },
+    {
+      "startSeconds": 15.437790166,
+      "durationSeconds": 0.617173167,
+      "classification": "Hang"
+    },
+    {
+      "startSeconds": 16.728496041,
+      "durationSeconds": 2.018702542,
+      "classification": "Severe Hang"
+    },
+    {
+      "startSeconds": 19.802051041,
+      "durationSeconds": 1.479494167,
+      "classification": "Hang"
+    },
+    {
+      "startSeconds": 24.513580166,
+      "durationSeconds": 1.6919725,
+      "classification": "Hang"
+    },
+    {
+      "startSeconds": 27.167120791,
+      "durationSeconds": 1.337089834,
+      "classification": "Hang"
+    },
+    {
+      "startSeconds": 42.0172965,
+      "durationSeconds": 0.306547875,
+      "classification": "Microhang"
+    }
+  ],
+  "note": "Inclusive samples overlap; not additive. Instruments hang classifications are observed intervals, not measured touch-to-frame latency. Private trace and screenshots remain outside Git. No build9 improvement claim."
+}

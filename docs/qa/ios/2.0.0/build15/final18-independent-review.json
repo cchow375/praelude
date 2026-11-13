@@ -1,0 +1,244 @@
+{
+  "status": "NOT_READY",
+  "reviewedAtUTC": "2026-10-12T03:44:52.430770+00:00",
+  "reviewScope": "Independent read-only result, source-hash, attachment and screenshot audit. No new UI actions, builds, diagnostics or device commands.",
+  "result": {
+    "aggregate": {
+      "totalTestCount": 316,
+      "passedTests": 313,
+      "failedTests": 2,
+      "skippedTests": 1,
+      "result": "Failed"
+    },
+    "native": {
+      "executed": 308,
+      "passed": 307,
+      "skipped": 1,
+      "failed": 0,
+      "durationSeconds": 15.96
+    },
+    "ui": {
+      "executed": 8,
+      "passed": 6,
+      "failed": 2,
+      "tests": [
+        {
+          "test": "FreshBuild13UITests/testIndependentUndoNewStrokeRetainsNewLocationThroughSaveAndRelaunch",
+          "result": "passed",
+          "durationSeconds": 86.4
+        },
+        {
+          "test": "SelectedPassageTapUITests/testEightSelectedBoxDoubleTapCancelCyclesThenTripleAndOrdinaryDockEdit",
+          "result": "passed",
+          "durationSeconds": 167.412
+        },
+        {
+          "test": "TapDeliveryUITests/testOwnedSidebarRotationPreservesSavedInkScoreAndFocus",
+          "result": "passed",
+          "durationSeconds": 179.912
+        },
+        {
+          "test": "TapDeliveryUITests/testUnselectedSavedBoxPreservesRealPinchPanAndArmsAtZoom",
+          "result": "failed",
+          "durationSeconds": 69.327
+        },
+        {
+          "test": "VoiceContextUITests/testNewTextDictationCancelRestoresScoreVoiceWithoutSavingNote",
+          "result": "passed",
+          "durationSeconds": 80.87
+        },
+        {
+          "test": "VoiceContextUITests/testOrdinaryVoiceCheckBackRestoresScoreListeningAndPreservesPractice",
+          "result": "passed",
+          "durationSeconds": 112.62
+        },
+        {
+          "test": "VoiceContextUITests/testSavedBoxSingleCenterTapArmsAcrossTenUntracedProcessLaunches",
+          "result": "failed",
+          "durationSeconds": 105.004
+        },
+        {
+          "test": "VoiceContextUITests/testSavedNoteDictationCancelRestoresScoreVoiceAndPreservesStoredText",
+          "result": "passed",
+          "durationSeconds": 106.99
+        }
+      ]
+    }
+  },
+  "provenance": {
+    "reference": "functional-final18-provenance.json",
+    "app": {
+      "sha256": "0cfc86896420bbd925aaa48e10786bd5bf411f43d83f74bfcb13de348164501b",
+      "bytes": 43722232
+    },
+    "runnerPlugin": {
+      "sha256": "61c0da187a5a4a7e5920eb9a98887685e7c562c5df8abc3afc0a8dfe13b9fc74",
+      "bytes": 2265840
+    },
+    "installedMatchesBuilt": {
+      "app": true,
+      "runnerPlugin": true
+    },
+    "currentSourceHashCount": 241,
+    "allCurrentSourceHashesMatchFinal18": true,
+    "sourceHashes": {
+      "ios/Praelude/InteractionAudit.swift": "0550257303a8570e43e977c3957e288ac1d0b2a45c54145142f7c3b10780e855",
+      "ios/Praelude/PraeludeApp.swift": "f71a918e35d9e66d820602aa767c5ea6516d21c962569111b143f2acf93809f5",
+      "ios/Praelude/Views/PagedScoreView.swift": "6eec323b23940f6d91aedbe47b976417db5f1a2227caafd8d3f338458a6f2bc7",
+      "ios/Praelude/Views/ScorePageOverlay.swift": "74e757cf5feeba621bafb4e89ba80fcbe8da0e22a358a23e4c270865ea59269e",
+      "ios/Praelude/Views/ScoreWorkspace.swift": "12f83a1949acdc6dcc0e5b4a6c9917ac2051cd3dbde03834cd832f19dff57940",
+      "ios/Praelude/Views/PracticeArmView.swift": "f2900ab061aef78facc72bc2cd058b019ad678ec4582837f110175a7bc884207",
+      "ios/PraeludeUITests/TapDeliveryUITests.swift": "6dfe5984d94dccb855a546c95d65b7825ceab9b4339ef84fab65580c8cb0e6ad",
+      "ios/PraeludeUITests/VoiceContextUITests.swift": "865a83f94f08f1e909811f0ec9b0248237b985b5e594aaab70ad5e3457678ba0",
+      "ios/PraeludeUITests/FreshBuild13UITests.swift": "3547ade9155ddce420cc204ab6e46eda86c5028ca4d009bb0fabe8d26f33727c"
+    },
+    "normalUntracedRun": true,
+    "retainedTraceUnchanged": true
+  },
+  "savedBoxSingleTapFailure": {
+    "test": "VoiceContextUITests/testSavedBoxSingleCenterTapArmsAcrossTenUntracedProcessLaunches",
+    "classification": "Actual untraced single-tap no-op; cause remains unproved. All-saved finger routing did not establish reliability.",
+    "plannedLaunches": 10,
+    "completedSuccessfulLaunches": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "failedLaunch": 5,
+    "remainingLaunchesNotExecuted": [
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "singleTapCountOnFailedLaunch": 1,
+    "actionRetries": 0,
+    "targetWindowPoint": [
+      410.0,
+      523.5
+    ],
+    "paperFrame": [
+      99.53252032520322,
+      85.99999999999994,
+      620.9349593495936,
+      875.0
+    ],
+    "scoreFrame": [
+      0.0,
+      86.0,
+      820.0,
+      875.0
+    ],
+    "appFrame": [
+      0.0,
+      0.0,
+      820.0,
+      1180.0
+    ],
+    "fixtureSavedBoxFrame": [
+      130.5792682926829,
+      466.62499999999994,
+      558.8414634146342,
+      113.75
+    ],
+    "readinessCompleted": true,
+    "paperHittable": true,
+    "stableDurationRequiredSeconds": 0.4,
+    "fullContainmentTolerancePoints": 0.5,
+    "strictScoreContainsPaper": false,
+    "tolerantScoreContainsPaper": true,
+    "strictAppContainsPaper": true,
+    "targetInsideAppScoreAndFixtureBox": true,
+    "beforeAndAfter": "Whole piece remains visible; intended Evenness and pulse arm state is absent. Page1 and zero ink remain visible.",
+    "eventBoundary": "XCTest log records one synthesized center tap. This normal run has no delivered-touch/action trace, so loss stage is unknown.",
+    "artifacts": [
+      {
+        "exportedFileName": "93443834-4DBA-4348-BEC1-FC1497746C0A.txt",
+        "sha256": "be017cbd6833fd1d624b630edaf9c5cbad976dea39e76763585359b694462105",
+        "description": "Exact failed-launch geometry"
+      },
+      {
+        "exportedFileName": "2A11537C-05D0-4910-A9BF-349A035693B8.png",
+        "sha256": "fcfb6faf014e42f94e9b032f60cb80e3afd16eb8996966b5c3c6e827c39d9553",
+        "description": "Before the single center tap"
+      },
+      {
+        "exportedFileName": "68413827-1345-4556-8FF3-3404CD5CFA76.png",
+        "sha256": "fcfb6faf014e42f94e9b032f60cb80e3afd16eb8996966b5c3c6e827c39d9553",
+        "description": "Failed required armed state: Whole piece remains"
+      },
+      {
+        "exportedFileName": "2EEB75E4-D2AD-4DA9-A8E2-17E1F202CF87.txt",
+        "sha256": "789914d9674b43a0813e27f2f6666e0b8ed02bf2861923db9b3a95fa886aa273",
+        "description": "Failure accessibility hierarchy"
+      }
+    ],
+    "reviewedScreenshot": {
+      "repositoryPath": "docs/qa/ios/2.0.0/build15/screenshots/saved-box-fifth-launch-noop-final18.png",
+      "sha256": "fcfb6faf014e42f94e9b032f60cb80e3afd16eb8996966b5c3c6e827c39d9553"
+    }
+  },
+  "zoomPanFailure": {
+    "test": "TapDeliveryUITests/testUnselectedSavedBoxPreservesRealPinchPanAndArmsAtZoom",
+    "classification": "Combined final predicate failed after correct passage actually armed; not a demonstrated tap no-op.",
+    "actualPinchIncreaseAndPanMovementReached": true,
+    "correctPassageArmedVisible": true,
+    "firstAttemptControlsVisible": true,
+    "pageOneAndZeroInkVisible": true,
+    "singleArmTapCount": 1,
+    "actionRetries": 0,
+    "armTargetWindowPoint": [
+      410.0,
+      549.5081508398014
+    ],
+    "preArmNativeScale": 2.4332361227405377,
+    "preArmNativeMinimumScale": 1.0766550522648084,
+    "preArmScoreFrame": [
+      0.0,
+      86.0,
+      820.0,
+      927.0
+    ],
+    "failedStateScoreFrame": [
+      0.0,
+      86.0,
+      820.0,
+      901.0
+    ],
+    "lastReachedPredicate": "abs(nativeScale - pinchedScale) < 0.01",
+    "limit": "Final full PDF value attachment occurs after the failing assertion and was not produced. Exact post-arm scale, relative zoom and the full zoom-preservation contract are not accepted.",
+    "possibleExplanationNotProven": "The armed dock changes score viewport height; PDF layout source preserves relative zoom when fit changes. This is consistent with, but does not establish the cause of, an absolute-scale predicate failure.",
+    "artifacts": [
+      {
+        "exportedFileName": "641DA0F9-E45A-477D-B1C3-61438F871B7F.txt",
+        "sha256": "3bfc9f168217b214dc7eb0fce7430d30ddd107681dc763c3793f72ae91209316",
+        "description": "Pre-arm target and full native PDF readout"
+      },
+      {
+        "exportedFileName": "988D21FE-0E2E-46D2-8513-297D07BD3223.png",
+        "sha256": "fb7117969404fec8c53ded1f2fb75cde10d65ab92c5e658ae13aeb96484b8091",
+        "description": "Failure screenshot visibly has Evenness and pulse and first-attempt controls"
+      },
+      {
+        "exportedFileName": "EC144559-3070-48C8-AD1C-0818AB1F1891.txt",
+        "sha256": "3e800dc17c6f103a8aabea160b68474618cf7d3b95d1aee56e566840b9a22431",
+        "description": "Failure accessibility hierarchy"
+      }
+    ],
+    "reviewedScreenshot": {
+      "repositoryPath": "docs/qa/ios/2.0.0/build15/screenshots/zoom-passage-armed-final18.png",
+      "sha256": "fb7117969404fec8c53ded1f2fb75cde10d65ab92c5e658ae13aeb96484b8091"
+    }
+  },
+  "acceptanceBoundaries": {
+    "candidateReady": false,
+    "freshCurrentManualVerification": "UNTESTED; handoff postponed and then stopped by bounded-finish instruction",
+    "genericReleaseInThisFinalScope": "NOT_RUN",
+    "physicalIPads": "Untouched by this audit; explicit no-install hold remains",
+    "hardwareRecognitionAudioPencilAndSustainedPractice": "UNVERIFIED",
+    "fullFileOrPracticeDataPreservation": "No new blanket equality claim; this audit only inspects retained synthetic test evidence",
+    "historicalFailures": "Retained; subsequent scoped passes do not erase them"
+  }
+}

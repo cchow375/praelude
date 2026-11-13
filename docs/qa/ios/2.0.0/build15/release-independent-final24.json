@@ -1,0 +1,97 @@
+{
+  "architecture": [
+    "arm64"
+  ],
+  "archiveScriptSHA256": "e49eb8b8713ffc44eedb549ade593c182d7b83982c067ee41808fb675f34e7c4",
+  "auditCorrections": [
+    {
+      "expectedAdditionalPaths": [
+        "swift-crypto_Crypto.bundle/Info.plist",
+        "swift-crypto_Crypto.bundle/PrivacyInfo.xcprivacy"
+      ],
+      "initialCheck": "onlyExpectedBundleResources",
+      "initialResult": false,
+      "reason": "The independent initial path allowlist omitted the expected swift-crypto_Crypto privacy-only SPM bundle. No artifact was changed. Both bundle files were checked against the pinned dependency and package declaration before correcting the allowlist."
+    }
+  ],
+  "boundary": "Independent local audit of the exact generic signed Release artifact and its tested-source/build/live-evidence bindings. Exact physical-device inclusion, data-preserving refresh gates and physical acceptance remain unverified. Archive guard review is source review, not an archive execution.",
+  "build": "15",
+  "bundleFileCount": 13,
+  "bundledFontCount": 2,
+  "checks": {
+    "all241TestedSourcesUnchanged": true,
+    "all65DiagnosticMarkersAbsent": true,
+    "allSignedEntitlementsPermitted": true,
+    "architectureCommandSucceeded": true,
+    "archiveGuardReviewPassed": true,
+    "bundleHasNoSymlinks": true,
+    "bundleVersionBuildPlatform": true,
+    "certificateChainTrustedForCodeSigning": true,
+    "certificatesExtractedPrivately": true,
+    "currentExecutableMatchesAnnouncedRelease": true,
+    "declaredFontsMatchBundledFonts": true,
+    "developmentProfile": true,
+    "deviceArm64Only": true,
+    "dsymUUIDRead": true,
+    "exactArm64DSYMUUUIDMatch": true,
+    "executableUUIDRead": true,
+    "executableUnchangedThroughoutAudit": true,
+    "expectedSwiftCryptoPrivacyBundleMatchesResolvedDependency": true,
+    "genericBuildHasNoPhysicalDestinationOrRegistration": true,
+    "independentLiveReportBoundToTestedSimulator": true,
+    "independentStrictDeepSignature": true,
+    "leafCertificateInProfile": true,
+    "leafHasValidLocalSigningIdentity": true,
+    "localSigningIdentitiesRead": true,
+    "noSeedOrTestPluginOrDebugDylib": true,
+    "oneLocalSigningTeam": true,
+    "onlyExpectedBundleResources": true,
+    "privacyManifestMatchesSource": true,
+    "profileAppIdentifier": true,
+    "profileDecodedLocally": true,
+    "profileTeamMatchesLocal": true,
+    "profileUnexpired": true,
+    "releaseBuildBoundToCurrentBinaryAndSources": true,
+    "rootSignatureReportBoundToCurrentBuildAndBinary": true,
+    "signedDevelopmentPermission": true,
+    "signedEntitlementsRead": true,
+    "signedIdentifiersMatchLocalProfile": true,
+    "signingCertificatePresent": true,
+    "successfulReleaseLogMatchesProvenance": true,
+    "twoExpectedRepositoryFontsPresentExactly": true
+  },
+  "dsymFileCount": 3,
+  "dsymSHA256": "3ca3769e2611e910f832b980a25300a5056acdfd0516a8a21dbdbb5de370d988",
+  "dsymUUIDsMatch": true,
+  "evidenceSHA256": {
+    "independent-live-final24.json": "e8d5dc139a54c9e3b0be92ff8c1246002333d4dd17b4804db0da78b6eafb6574",
+    "release-build-final23-provenance.json": "8861d02b2cbd637fb3298e50c904b7f6dec857b1298401fb6c3ca4f7c5b061e5",
+    "release-signature-final23.json": "471abd966801110dbdf94ce6b08d8819055b67e7f7183b265210a69c5e12d7f9",
+    "tap-input-final23-provenance.json": "7fb22aa80929320f1a4650b9ba27f4b5a8bb5d520a1cf62f839ceb5d18a574be"
+  },
+  "excludedMarkerCount": 65,
+  "executableSHA256": "b3c21602064f27282cf40e0d04f79a2445d6dae2424f179cb6fe4a9c2742f4f8",
+  "expectedDependencyPrivacyBundle": {
+    "dependency": "swift-crypto",
+    "fileCount": 2,
+    "privacyManifestMatchesSource": true,
+    "revisionMatchesResolved": true,
+    "version": "4.5.2"
+  },
+  "failedChecks": [],
+  "fontSHA256": {
+    "BodoniModa.ttf": "550f5e34ee0a828d7941b1fe9bc58b34e5260d3f33a61532e6d0a0114e79a5cf",
+    "Bravura.otf": "cdf0f893ee1fdb64b7f6713d71ee0dcfc349c0ac01429a8e451b01a9e79f5f3b"
+  },
+  "installHold": true,
+  "physicalDeviceActions": "none; no device query, device-json, install, launch, backup, readback or physical acceptance attempted",
+  "presentExcludedMarkers": [],
+  "profileCreatedUTC": "2026-10-10T16:14:24+00:00",
+  "profileExpiresUTC": "2026-10-17T16:14:24+00:00",
+  "profileHoursRemainingAtAudit": 131.02,
+  "recordedAtUTC": "2026-10-12T05:14:18.815979+00:00",
+  "result": "passed",
+  "sourceFilesChecked": 241,
+  "sourceMismatches": [],
+  "version": "2.0.0"
+}

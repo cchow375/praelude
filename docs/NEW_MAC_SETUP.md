@@ -3,10 +3,13 @@
 This guide covers a development checkout. It does not migrate the installed app or Christian's
 personal practice library by default.
 
+For **iPhone/iPad-only development**, follow the [native iOS setup guide](../ios/docs/NEW_MAC_SETUP.md).
+It skips the desktop Node/Rust bootstrap and opens the same repository's Xcode project directly.
+
 ## 1. Get access and clone
 
-Sign in to the GitHub account that can read the private repository. Use either HTTPS with a
-credential helper or an SSH key registered with GitHub, then clone:
+The repository is public by Christian's explicit November 13, 2026 choice. Clone over HTTPS;
+sign in with a credential helper or a registered SSH key when you need to push:
 
 ```bash
 git clone https://github.com/cchow375/praelude.git
@@ -44,6 +47,36 @@ npm run project:check
 
 The setup script runs `npm ci`. Cargo downloads its locked dependencies on the first Rust build.
 No global package install is performed by the script.
+
+### Native iPhone/iPad development
+
+The separate SwiftUI candidate in `ios/` requires **full Xcode**, its **iOS SDK**, and a compatible
+**iOS simulator runtime**. Command Line Tools alone cannot build or run it. Install the needed
+runtime through [Xcode Settings → Components](https://developer.apple.com/documentation/xcode/downloading-and-installing-additional-xcode-components).
+`npm run setup:mac` prepares the Mac/Tauri checkout;
+it does not install Xcode or iOS runtimes.
+
+Open the focused [Praelude Mobile workspace](../ios/Praelude%20Mobile.code-workspace), or the
+[Xcode project](../ios/Praelude.xcodeproj), inside this same Git repository. Follow the
+[current mobile guide](../ios/README.md) and [module/check guide](../ios/docs/DEVELOPMENT.md)
+for generation, native tests and simulator work. No workspace task runs automatically. The target
+supports iOS/iPadOS17+ and uses an independent schema5 sandbox library; this handoff does not
+migrate installed Mac practice data.
+
+A paid Developer Program membership is not required for personal cable testing. The dedicated
+[installation and seven-day renewal guide](../ios/docs/INSTALL_ON_IPAD.md) explains Xcode Personal
+Team sign-in, Developer Mode, conditional developer trust and the explicit safe refresh helper.
+Use `npm run ios:device -- --help` or `npm run ios:status -- --device "YOUR IPAD NAME"` for read-only
+setup checks; `npm run ios:refresh -- --device "YOUR IPAD NAME"` is an explicit build/install action.
+It refuses running sets and requires complete pre/post-install file preservation before launch.
+
+The generated project reads `ios/Signing.xcconfig`, which optionally includes ignored
+`ios/Signing.local.xcconfig`. Keep your own `DEVELOPMENT_TEAM` only in that local file; it is not
+needed for simulator/unsigned work and survives generation. Do not transfer another Mac's
+credentials, certificates, profiles or device identifiers through Git. Signed artifacts and
+private backups are excluded from a clone. See the [current native QA](qa/ios/README.md)
+for signed-snapshot, installed-version and device-backup boundaries; a signed build is not physical
+feature acceptance.
 
 ## 3. Prove the checkout
 
@@ -103,12 +136,12 @@ On the original Mac, `npm run docs:sync` refreshes this mirror from the Obsidian
 `npm run docs:check` proves it matches. On another Mac the checked-in mirror is the safe fallback;
 set `PRAELUDE_PROJECT_VAULT` only if an editable vault copy is also present.
 
-## 6. This Mac's accepted setup — 2026-11-13
+## 6. Earlier Mac setup evidence — 2026-11-13
 
-The checkout is `/Users/christian/praelude`, imported from `origin/main` at `6447c65`. The available
-GitHub source is the Mac v11.1.0 Tauri product. The local vault also contains September mobile
-handoff notes, but GitHub's advertised branches contain no `ios/`, and `124707d` cannot be resolved.
-Recover that source before mobile work; do not infer mobile readiness from the copied notes.
+The checkout is `/Users/christian/praelude`, originally imported at `6447c65`. At that earlier
+check, GitHub omitted the mobile source described in the local notes. The published `00cf2b0`
+handoff now resolves that gap and supplies native 2.0.0/build21/schema5. Follow
+`ios/docs/NEW_MAC_SETUP.md` and [this Mac's mobile QA](qa/ios/second-mac-setup-2026-11-13.md).
 
 This Mac's editable vault is `~/Desktop/christians universe/Piano Practice/Praelude` (no apostrophe).
 Its local `.zshenv` sets the supported `PRAELUDE_PROJECT_VAULT` override, so ordinary

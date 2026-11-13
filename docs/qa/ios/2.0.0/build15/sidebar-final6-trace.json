@@ -1,0 +1,313 @@
+{
+  "scope": "Opt-in DEBUG diagnostic failed initial nativeShow before ink; preforward controller reflection perturbed timing; no cancellation cause or repair proved.",
+  "events": [
+    {
+      "event": "audit.enabled",
+      "pid": 90052,
+      "sequence": 1,
+      "time": 1791768794.415708,
+      "uptime": 623149.3211815833
+    },
+    {
+      "event": "root.appear destination=Today selectedScore=false phoneScore=false rootSheet=false sidebar=true visibility=NavigationSplitViewVisibility(kind: SwiftUI.NavigationSplitViewVisibility.Kind.detailOnly, isAutomatic: true) scene=inactive celebration=false onboarding=false importing=false exporting=false error=false confirmRestore=false confirmLeave=false",
+      "pid": 90052,
+      "sequence": 2,
+      "time": 1791768794.4401731,
+      "uptime": 623149.3456448751
+    },
+    {
+      "event": "root.scene.changed destination=Today selectedScore=false phoneScore=false rootSheet=false sidebar=true visibility=NavigationSplitViewVisibility(kind: SwiftUI.NavigationSplitViewVisibility.Kind.detailOnly, isAutomatic: false) scene=active celebration=false onboarding=false importing=false exporting=false error=false confirmRestore=false confirmLeave=false",
+      "pid": 90052,
+      "sequence": 3,
+      "time": 1791768795.341007,
+      "uptime": 623150.2464677084
+    },
+    {
+      "event": "heartbeat count=1 appState=0",
+      "pid": 90052,
+      "sequence": 4,
+      "time": 1791768795.695791,
+      "uptime": 623150.6012465
+    },
+    {
+      "event": "heartbeat count=2 appState=0",
+      "pid": 90052,
+      "sequence": 5,
+      "time": 1791768796.2062201,
+      "uptime": 623151.1116698334
+    },
+    {
+      "event": "heartbeat count=3 appState=0",
+      "pid": 90052,
+      "sequence": 6,
+      "time": 1791768796.714745,
+      "uptime": 623151.6201875417
+    },
+    {
+      "event": "heartbeat count=4 appState=0",
+      "pid": 90052,
+      "sequence": 7,
+      "time": 1791768797.228246,
+      "uptime": 623152.1336831667
+    },
+    {
+      "event": "heartbeat count=5 appState=0",
+      "pid": 90052,
+      "sequence": 8,
+      "time": 1791768797.802648,
+      "uptime": 623152.7080768334
+    },
+    {
+      "event": "heartbeat count=6 appState=0",
+      "pid": 90052,
+      "sequence": 9,
+      "time": 1791768798.312015,
+      "uptime": 623153.2174380834
+    },
+    {
+      "event": "heartbeat count=7 appState=0",
+      "pid": 90052,
+      "sequence": 10,
+      "time": 1791768798.843957,
+      "uptime": 623153.7493735834
+    },
+    {
+      "event": "heartbeat count=8 appState=0",
+      "pid": 90052,
+      "sequence": 11,
+      "time": 1791768799.375404,
+      "uptime": 623154.2808124584
+    },
+    {
+      "event": "heartbeat count=9 appState=0",
+      "pid": 90052,
+      "sequence": 12,
+      "time": 1791768799.903002,
+      "uptime": 623154.808404
+    },
+    {
+      "event": "native.split phase=touch.before mode=1 preferred=1 collapsed=false presented=false transitioning=false",
+      "pid": 90052,
+      "sequence": 13,
+      "time": 1791768800.220753,
+      "uptime": 623155.1261508333
+    },
+    {
+      "event": "native.navigation phase=touch.before top=NavigationStackHostingController<AnyView> presented=false transitioning=false leftItems=0",
+      "pid": 90052,
+      "sequence": 14,
+      "time": 1791768800.802026,
+      "uptime": 623155.7074166667
+    },
+    {
+      "event": "native.navigation phase=touch.before top=NavigationStackHostingController<AnyView> presented=false transitioning=false leftItems=0",
+      "pid": 90052,
+      "sequence": 15,
+      "time": 1791768800.803671,
+      "uptime": 623155.7090607916
+    },
+    {
+      "event": "touch.began type=0 taps=1 x=32.0 y=54.0 keyWindow=true scene=0 sameWindow=true ancestry=_UIButtonBarButton>ItemWrapperView>PlatterItemView>SubviewContainerView>PlatterGlassView>PlatterContentView>AnimationView>AnimationView>AnimationView>AnimationView>PlatterView>NavigationBarPlatterContainer>NavigationBarTransitionContainer>NavigationBarContentView",
+      "pid": 90052,
+      "sequence": 16,
+      "time": 1791768800.811862,
+      "uptime": 623155.7172524583
+    },
+    {
+      "event": "heartbeat count=10 appState=0",
+      "pid": 90052,
+      "sequence": 17,
+      "time": 1791768800.890353,
+      "uptime": 623155.7957424583
+    },
+    {
+      "event": "touch.cancelled type=0 taps=1 x=32.0 y=54.0 keyWindow=true scene=0 sameWindow=true ancestry=_UIButtonBarButton>ItemWrapperView>PlatterItemView>SubviewContainerView>PlatterGlassView>PlatterContentView>AnimationView>AnimationView>AnimationView>AnimationView>PlatterView>NavigationBarPlatterContainer>NavigationBarTransitionContainer>NavigationBarContentView",
+      "pid": 90052,
+      "sequence": 18,
+      "time": 1791768800.893066,
+      "uptime": 623155.7984546667
+    },
+    {
+      "event": "native.split phase=touch.after mode=1 preferred=1 collapsed=false presented=false transitioning=false",
+      "pid": 90052,
+      "sequence": 19,
+      "time": 1791768800.904434,
+      "uptime": 623155.8098233334
+    },
+    {
+      "event": "native.navigation phase=touch.after top=NavigationStackHostingController<AnyView> presented=false transitioning=false leftItems=0",
+      "pid": 90052,
+      "sequence": 20,
+      "time": 1791768800.9053822,
+      "uptime": 623155.8107704584
+    },
+    {
+      "event": "native.navigation phase=touch.after top=NavigationStackHostingController<AnyView> presented=false transitioning=false leftItems=0",
+      "pid": 90052,
+      "sequence": 21,
+      "time": 1791768800.905458,
+      "uptime": 623155.810847
+    },
+    {
+      "event": "native.split phase=touch.delayed mode=1 preferred=1 collapsed=false presented=false transitioning=false",
+      "pid": 90052,
+      "sequence": 22,
+      "time": 1791768801.308595,
+      "uptime": 623156.2139792917
+    },
+    {
+      "event": "native.navigation phase=touch.delayed top=NavigationStackHostingController<AnyView> presented=false transitioning=false leftItems=0",
+      "pid": 90052,
+      "sequence": 23,
+      "time": 1791768801.309102,
+      "uptime": 623156.2144857084
+    },
+    {
+      "event": "native.navigation phase=touch.delayed top=NavigationStackHostingController<AnyView> presented=false transitioning=false leftItems=0",
+      "pid": 90052,
+      "sequence": 24,
+      "time": 1791768801.309196,
+      "uptime": 623156.2145792501
+    },
+    {
+      "event": "heartbeat count=11 appState=0",
+      "pid": 90052,
+      "sequence": 25,
+      "time": 1791768801.421142,
+      "uptime": 623156.3265241251
+    },
+    {
+      "event": "heartbeat count=12 appState=0",
+      "pid": 90052,
+      "sequence": 26,
+      "time": 1791768801.948234,
+      "uptime": 623156.8536100417
+    },
+    {
+      "event": "heartbeat count=13 appState=0",
+      "pid": 90052,
+      "sequence": 27,
+      "time": 1791768802.4601269,
+      "uptime": 623157.3654960417
+    },
+    {
+      "event": "heartbeat count=14 appState=0",
+      "pid": 90052,
+      "sequence": 28,
+      "time": 1791768803.056079,
+      "uptime": 623157.9614408334
+    },
+    {
+      "event": "heartbeat count=15 appState=0",
+      "pid": 90052,
+      "sequence": 29,
+      "time": 1791768803.5869489,
+      "uptime": 623158.4923045418
+    },
+    {
+      "event": "heartbeat count=16 appState=0",
+      "pid": 90052,
+      "sequence": 30,
+      "time": 1791768804.119786,
+      "uptime": 623159.0251352917
+    },
+    {
+      "event": "heartbeat count=17 appState=0",
+      "pid": 90052,
+      "sequence": 31,
+      "time": 1791768804.650148,
+      "uptime": 623159.5554900834
+    },
+    {
+      "event": "heartbeat count=18 appState=0",
+      "pid": 90052,
+      "sequence": 32,
+      "time": 1791768805.15767,
+      "uptime": 623160.0630054583
+    },
+    {
+      "event": "heartbeat count=19 appState=0",
+      "pid": 90052,
+      "sequence": 33,
+      "time": 1791768805.670804,
+      "uptime": 623160.5761328334
+    },
+    {
+      "event": "heartbeat count=20 appState=0",
+      "pid": 90052,
+      "sequence": 34,
+      "time": 1791768806.200498,
+      "uptime": 623161.10581975
+    },
+    {
+      "event": "heartbeat count=21 appState=0",
+      "pid": 90052,
+      "sequence": 35,
+      "time": 1791768806.712266,
+      "uptime": 623161.6175810418
+    },
+    {
+      "event": "heartbeat count=22 appState=0",
+      "pid": 90052,
+      "sequence": 36,
+      "time": 1791768807.233927,
+      "uptime": 623162.1392362918
+    },
+    {
+      "event": "heartbeat count=23 appState=0",
+      "pid": 90052,
+      "sequence": 37,
+      "time": 1791768807.765542,
+      "uptime": 623162.67084475
+    },
+    {
+      "event": "heartbeat count=24 appState=0",
+      "pid": 90052,
+      "sequence": 38,
+      "time": 1791768808.296092,
+      "uptime": 623163.2013862501
+    },
+    {
+      "event": "heartbeat count=25 appState=0",
+      "pid": 90052,
+      "sequence": 39,
+      "time": 1791768808.824667,
+      "uptime": 623163.7299567501
+    },
+    {
+      "event": "heartbeat count=26 appState=0",
+      "pid": 90052,
+      "sequence": 40,
+      "time": 1791768809.333894,
+      "uptime": 623164.2391762501
+    },
+    {
+      "event": "heartbeat count=27 appState=0",
+      "pid": 90052,
+      "sequence": 41,
+      "time": 1791768809.8882542,
+      "uptime": 623164.7935282917
+    },
+    {
+      "event": "heartbeat count=28 appState=0",
+      "pid": 90052,
+      "sequence": 42,
+      "time": 1791768810.397126,
+      "uptime": 623165.302393
+    },
+    {
+      "event": "heartbeat count=29 appState=0",
+      "pid": 90052,
+      "sequence": 43,
+      "time": 1791768810.90631,
+      "uptime": 623165.8115714584
+    },
+    {
+      "event": "heartbeat count=30 appState=0",
+      "pid": 90052,
+      "sequence": 44,
+      "time": 1791768811.41344,
+      "uptime": 623166.318695125
+    }
+  ]
+}
