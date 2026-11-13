@@ -1,5 +1,15 @@
 # NOTES
 
+## Personal iPhone refresh from the second Mac (2026-11-13)
+
+- **Delivered:** unchanged native2.0.0/build21/schema5 source from published `00cf2b0`, current repo implementation tree at `3cef0ca`. Existing phone21 is refreshed in place and observed running through read-only version/process readback. Personal iPad/friend/Mac are not operated.
+- **Signing:** security executor selects the sole existing Xcode Personal Team matching the sole current non-revoked development identity; only ignored local team config0600 is created. Installed metadata exposes no original team and local profiles were absent; Xcode validates stable bundle ownership and provisions the exact phone. No team alternative, new identity, revocation, key export or trust/account change. Profile expires2026-11-20T22:37:27UTC /5:37:27PM EST.
+- **Data safety:** full pre/post copies preserve all9owned files/10,429,907bytes exactly by name/size/SHA256 before launch; independent rehash passes. Initial aborted audit attempt retains its separate complete backup. Retry uses one fresh pre-copy and one post-copy plus normal ledger recheck. No synthetic writes, deletion, restore-over or active-practice termination.
+- **Retained verification failures:** the first independent public-certificate extraction invocation is wrong, causing a fail-closed stop before install; corrected actual package audit passes46/46. An interim dSYM comparison during cached rebuild fails; final stable comparison reproduces no changed path, with exact binary/currentdSYMuuid agreement. Do not mislabel either as proven package/data corruption.
+- **Final artifact:** complete current signed app+dSYM16file/112,001,604byte private copy and ZIP readback pass; actual app equals the independent full13file manifest. Archive is ignored under `releases/ios-phone-install-2026-11-13/`. Raw signing/device details and backups remain private; sanitized QA is `docs/qa/ios/phone-install-2026-11-13.md`.
+- **Launch boundary:** automatic launch denied generically; later selected-phone process readback confirms runningBuild21 after asking the user to open. No root-cause assumption about denial and no hardware/sync acceptance inferred.
+
+
 ## Native source received on the second Mac (2026-11-13)
 
 - **Available source:** `origin/main` advances from `6447c65` to `00cf2b0`, supplying `ios/`, `supabase/`, `124707d`, full native2.0.0/build21/schema5 history and18iOS tags. The prior source absence is resolved. Native iPhone/iPad is primary per Christian; Mac remains separate.

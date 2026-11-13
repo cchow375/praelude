@@ -1,5 +1,16 @@
 # Praelude — How To Use
 
+## November 13 — Current personal iPhone installation
+
+**Matches: personal iPhone native2.0.0/build21/schema5, refreshed and running 2026-11-13.**
+The current Counter/photo/practice controls are unchanged by this signing refresh. The same app and
+all9owned files/10,429,907bytes are preserved exactly before launch. Its current provisioning
+expires November20 at5:37:27PM EST (22:37:27UTC). Open Praelude normally on the phone; automatic
+launch was denied, and a later read-only process check confirms it running. No hardware or
+real-account two-device acceptance is newly claimed. Use the documented guarded refresh with the
+same account/team/bundle before actual expiry. Personal iPad/friend/Mac were not updated.
+
+
 ## Work on this Mac — source received November 13
 
 Open `/Users/christian/praelude/ios/Praelude.xcodeproj`, **Praelude** scheme, and an iPhone/iPad

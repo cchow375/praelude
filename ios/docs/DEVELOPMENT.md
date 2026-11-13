@@ -1,5 +1,27 @@
 # Developing Praelude Mobile
 
+## November 13 — Personal iPhone refreshed; launch verified
+
+**Last updated: 2026-11-13. Personal iPhone native 2.0.0/build21/schema5 refreshed and observed
+running on this Mac.** The guarded same-bundle refresh preserves all 9 owned files/10,429,907 bytes
+exactly by filename, size and SHA-256 before launch. Independent final package review passes46/46;
+the full signed app+dSYM private copy and ZIP readback pass. Provisioning expires November20 at
+22:37:27UTC /5:37:27PM EST. Automatic launch is denied, but subsequent read-only installed-version
+and process inspection confirms Build21 running. No current real-account sync or hardware-feature
+acceptance is inferred. Personal iPad remains last recordedBuild20/friend12; neither was operated.
+
+One incorrect audit command safely stopped the initial attempt before installation. Corrected
+public-certificate/trust verification passes, and the successful retry uses a fresh complete backup.
+An interim dSYM comparison during rebuild fails; final static comparison reproduces no changed
+path and the exact current dSYM matches the installed arm64 binary. Earlier failures stay in QA.
+No app deletion, reset, restore-over, forced termination, synthetic practice, Mac app/data change,
+new identity, certificate revocation, trust override or signing-account change occurs.
+
+**Next steps:** use Praelude on the iPhone; renew the same-bundle Personal Team signing before
+actual expiry. Real-account phone/iPad convergence, physical camera/audio/gestures/Pencil and
+sustained piano use remain separate. Evidence: repo `docs/qa/ios/phone-install-2026-11-13.md`.
+
+
 ## October 18 — Build21 phone installed; iPad update held for active practice
 
 **Last updated: 2026-10-18. Phone native2.0.0/build21/schema5 installed with exact preservation; manual opening and real sync readback pending. Personal iPad remains Build20; current active practice prevents a safe refresh.** The guarded phone update preserves all 3 files/3,939,591 bytes and the full schema5/revision1780 library exactly by filename/bytes/SHA-256. Independent actual-package review passes38/38, source311/311 and preservation6/6; the complete signed app/dSYM archive is verified. Phone provisioning expires October25 at11:49:49 AM EDT. Automatic launch is declined; the user is asked to open Build21 and leave Settings → Account visible for real catch-up verification.

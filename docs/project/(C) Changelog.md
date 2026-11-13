@@ -1,5 +1,17 @@
 # 📜 Praelude — Changelog
 
+## November 13 — Praelude loaded onto the personal iPhone from this Mac
+
+- **Why:** Christian requested installation on the phone and confirmed cable/unlock/trust and paused practice readiness.
+- **Initial state:** selected exact personal iPhone; Developer Mode/services ready; existing native2.0.0/build21. Sole usable non-revoked identity matches the sole existing Xcode Personal Team. Security executor creates only ignored mode0600 `ios/Signing.local.xcconfig`; no key export, new identity, revocation, trust override or account change.
+- **Preparation:** unsigned arm64 Release build passes. First complete9file/10,429,907byte backup verifies. An incorrect independent certificate-extraction command produces a fail-closed audit checkpoint; the helper stops before installation. The corrected actual package passes46/46. Retry makes a fresh complete backup and reuses an app fully byte-identical to the independently audited package. An interim dSYM comparison during rebuild fails; final static comparison shows no changed dSYM path and a matching binary/dSYMUUID, without establishing a persistent defect.
+- **Installed:** guarded in-place native2.0.0/build21/schema5 refresh succeeds; all9owned filenames/lengths/SHA256 match the fresh pre-install backup exactly in the one complete post-install copy before launch. Both verified copies remain private. No uninstall/reset/restore-over/forced termination, synthetic practice or manual queue change.
+- **Opened:** automatic launch is denied; user is asked to open manually. Subsequent read-only installed-version/process inspection confirms Build21 running. Real sync convergence, private score catch-up and physical features remain separate. Profile expires2026-11-20T22:37:27UTC /5:37:27PM EST.
+- **Independent archive:** final package46/46 and preservation pass; complete signed app+dSYM16file/112,001,604byte private archive passes copy and ZIP readback. ArchiveSHA256 `6a2d474bf3a570708e1ca8bd0776538c163b5cb9db9d9b7043939b6a004a3e3b`. Raw device/signing details, identities, profiles and practice files remain outside Git.
+- **Touched:** vault living manual and `docs/project/`; root NOTES; mobile README/DEVELOPMENT/INSTALL_ON_IPAD/USING_MOBILE/ROADMAP; sanitized installation QA. No local app-feature edits or version/tag bump. Personal iPad/friend/Mac remain unchanged.
+- **Next:** use the phone app, refresh before actual profile expiry, then verify real-account and physical workflows in their own scope.
+
+
 ## November 13 — Published mobile source received on the second Mac
 
 Christian asks to recheck GitHub after publication. Fetch advances `origin/main` from `6447c65`
