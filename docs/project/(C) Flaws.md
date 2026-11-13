@@ -2,15 +2,16 @@
 
 ## B174 — Fresh iOS Debug checkout cannot link package internals
 
-**Source repair, 2026-11-13:** the source-handoff commit updates
+**RESOLVED (source), 2026-11-13, fixing commit `708ef970bc624f90d46eb5db17542812bf4a2b07`:** the source-handoff commit updates
 `ios/scripts/generate-project.py` and its generated Xcode project. A stale manual
 `-framework Helpers` flag expects a framework absent from a clean checkout. Removing it alone
 still leaves undefined Helpers symbols when Xcode dynamically wraps package products shared by
 the app and hosted tests. The repair also removes the hosted test target's duplicate package
 links; `TEST_HOST`/`BUNDLE_LOADER` resolve them through the app. App package products and pins do
 not change. Standard no-override simulator `build-for-testing` passes in the separate checkout.
-Independent runtime verification and publication identity are recorded in
-`docs/qa/ios/source-handoff-2026-11-13.md`. No installed app or physical-feature verdict changes.
+Independent hosted runtime passes 4/4 with no linker overrides. The source commit and all 18
+iOS tags are published; an anonymous GitHub clone matches and regenerates the project exactly.
+Evidence is recorded in `docs/qa/ios/source-handoff-2026-11-13.md`. No installed app or physical-feature verdict changes.
 
 **Next steps:** verify the second Mac's checkout independently; retain the original failed builds
 and the separate initial heartbeat timing failure. Device acceptance remains separate.
@@ -1514,8 +1515,9 @@ Keep C2 open until a clean recipient Mac/account completes the install and first
   **2026-11-13 correction:** GitHub reports this repository is public; Christian explicitly
   chooses to keep it public for the complete iOS source handoff. The local `main` initially has
   177 unpushed commits, so local source availability alone does not prove a current off-disk
-  copy. Publish the full branch after clean-clone checks. The approved Markdown manual is now
-  mirrored under `docs/project/`; the complete vault, private files and build/backup artifacts
+  copy. Full source commit `708ef970bc624f90d46eb5db17542812bf4a2b07` and all 18 iOS tags are
+  subsequently pushed and verified through an anonymous fresh GitHub clone. The approved
+  Markdown manual is now mirrored under `docs/project/`; the complete vault, private files and build/backup artifacts
   remain outside this source backup. Older private-remote wording above records August's state.
 
 - **B76 — Score toolbar top row overlaps at real window widths (v6.0.0, reported from real use

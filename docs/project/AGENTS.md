@@ -207,10 +207,17 @@ load the app's package symbols through `TEST_HOST`/`BUNDLE_LOADER`. The app's fo
 locked dependency versions, architecture settings and signing behavior remain unchanged.
 
 **Verification:** clean-checkout simulator app/test build passes with standard settings and no
-linker override. Serial core: 556 cases, one optional skip, zero failures; deterministic services:
-2,340 assertions; device helper: 57 cases. Initial linker failures and one initial heartbeat timing
-failure remain recorded in `docs/qa/ios/source-handoff-2026-11-13.md`; independent hosted runtime
-verification and final GitHub readback follow before completion.
+linker override, as does the ordinary generic simulator build. Serial core: 556 cases, one optional
+skip, zero failures; deterministic services: 2,340 assertions; device helper: 57 cases. Independent
+hosted PostgREST runtime tests pass 4/4 on a disposable iPhone simulator, then that simulator is
+removed. Initial linker failures and one initial heartbeat timing failure remain recorded in
+`docs/qa/ios/source-handoff-2026-11-13.md`.
+
+**Published and read back:** source/linkage commit `708ef970bc624f90d46eb5db17542812bf4a2b07`
+and all 18 existing iOS checkpoint tags are on GitHub. An anonymous fresh GitHub clone matches
+local `main` exactly, contains 348 iOS files including all 303 Swift files, and regenerates the
+committed Xcode project without changes. The final documentation follow-up records these results;
+the source handoff is complete. Opening/building on the second computer remains the next user step.
 
 **Next steps:** clone or pull `main` on the second Mac, run the simulator checks and continue
 coding. Commit/push on the working computer and pull before switching computers. Existing device

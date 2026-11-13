@@ -1,5 +1,11 @@
 # NOTES
 
+- **2026-11-13 handoff verified:** source/linkage fix708ef97 is published with all18 iOS tags.
+  An anonymous fresh GitHub clone reads matching main,348iOS files/303Swift files and exact
+  project regeneration. Standard app/test builds pass without overrides; independent hosted SDK
+  tests execute4/0fail/0skip and the disposable simulator is deleted. Raw evidence stays in ignored
+  `releases/ios-source-handoff-2026-11-13/`; QA records retain the initial failures separately.
+
 - **2026-11-13 iOS source handoff:** all 303 Swift files and complete native project/test/assets/
   dependency inputs are tracked in the existing repository. `origin/main` initially lags local
   `main` by 177 commits; committing locally is not a current GitHub backup. GitHub visibility is
