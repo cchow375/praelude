@@ -89,6 +89,35 @@ enum UITestFixture {
             }
             try store.addPiece(Piece(title: "Scale practice", composer: "Technique"))
             let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains("--uitesting"), arguments.contains("--audit-daily-plan") {
+                let calendar = Calendar.current, today = calendar.startOfDay(for: Date())
+                let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!.addingTimeInterval(12 * 3600)
+                let piece = store.pieces.first { $0.id == id }!
+                try store.setPracticeReference(100, plan: piece.practiceBalancePlan, for: id)
+                for index in 141...149 {
+                    let passage = Passage(id: UUID(uuidString: "00000000-0000-4000-8000-\(String(format: "%012d", index))")!,
+                        pieceID: id, title: index == 141 ? "Yesterday’s hard-won passage" : "Phrase \(index - 140)",
+                        startMeasure: (index - 141) * 4 + 1, endMeasure: (index - 141) * 4 + 4,
+                        page: (index - 141) / 4 + 1, learningState: .learning,
+                        schedule: PassageSchedule(dueDate: calendar.date(byAdding: .day, value: index == 149 ? 7 : -13, to: today)!))
+                    try store.savePassage(passage)
+                    if index == 141 {
+                        try store.applySyncedColdGrade(ColdGradeRecord(passageID: passage.id, date: yesterday, grade: .shaky, tempo: 75))
+                        var session = PracticeSession(pieceID: id, focus: "Recall fixture", startedAt: yesterday)
+                        let config = PracticeConfiguration(pieceID: id, passageID: passage.id, focus: "Pulse", targetCount: 5,
+                            startBPM: 100, targetBPM: 100, passageSnapshot: passage, fullTempoBPM: 100)
+                        var set = ActiveSet(sessionID: session.id, configuration: config, startedAt: yesterday)
+                        set.attempts = [Attempt(verdict: .sloppy, date: yesterday, bpm: 100)] + (1...5).map {
+                            Attempt(verdict: .clean, date: yesterday.addingTimeInterval(Double($0 * 20)), bpm: 100)
+                        }
+                        set = PracticeEngine.project(set)
+                        set.endedAt = yesterday.addingTimeInterval(100); set.lastCheckpoint = nil
+                        session.endedAt = set.endedAt; session.attempts = set.attempts; session.completedSets = 1
+                        try store.applySyncedPracticeSnapshot(sessions: [session], sets: [set],
+                            attempts: set.attempts.map { (attempt: $0, setID: set.id) })
+                    }
+                }
+            }
             if arguments.contains("--uitesting"), arguments.contains("--audit-review-priority") {
                 let calendar = Calendar.current, today = calendar.startOfDay(for: Date())
                 let fixtures: [(String, String, Int, ColdGrade)] = [

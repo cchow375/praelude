@@ -577,8 +577,11 @@ struct ScoreWorkspace: View {
                 flushBookmark(); _ = markup.flushInk()
                 if phase == .background { resumeScoreVoiceAfterSettings = false; editorVoiceHandoff = nil; cameraActionTask?.cancel(); camera.stop() }
             }
-            if phase == .active { restoreScoreVoiceIfNeeded(); restoreEditorVoiceIfNeeded() }
+            if phase == .active { rearmIfIdle(); restoreScoreVoiceIfNeeded(); restoreEditorVoiceIfNeeded() }
             updateCameraContext()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+            rearmIfIdle()
         }
         .onChange(of: page) { _, _ in camera.resetMotion() }
         .onChange(of: camera.isEnabled) { _, _ in updateCameraContext() }

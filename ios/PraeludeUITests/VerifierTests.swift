@@ -20,9 +20,20 @@ final class VerifierTests: XCTestCase {
     }
 
     @MainActor private func openScore(_ app: XCUIApplication) {
-        let hideSidebar = app.buttons["Hide Sidebar"]
-        if hideSidebar.waitForExistence(timeout: 2), hideSidebar.isHittable { hideSidebar.press(forDuration: 0.15) }
-        let piece = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Practice study", "4 pages")).firstMatch
+        let pieces = app.tabBars.buttons["Pieces"]
+        if pieces.exists, pieces.isHittable {
+            pieces.tap()
+        } else {
+            let show = app.buttons["Show Sidebar"]
+            if show.waitForExistence(timeout: 1), show.isHittable { show.tap() }
+            let sidebarPieces = app.buttons["Pieces"].firstMatch
+            XCTAssertTrue(sidebarPieces.waitForExistence(timeout: 5), app.debugDescription)
+            sidebarPieces.tap()
+        }
+        XCTAssertTrue(app.navigationBars["Pieces"].waitForExistence(timeout: 8), app.debugDescription)
+        let hide = app.buttons["Hide Sidebar"]
+        if hide.exists, hide.isHittable { hide.tap() }
+        let piece = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@ AND label CONTAINS %@", "pieceRow", "Practice study", "Praelude test score")).firstMatch
         reveal(piece, in: app)
         piece.press(forDuration: 0.15)
         // §10a: the arm panel is already showing with rule defaults filled.

@@ -23,6 +23,9 @@ struct PracticeArmView: View {
     @State private var setupExpanded = false
     @State private var showTempoGoal = false
     @State private var ownsMetronomePreview = false
+    private var performanceTarget: Double? {
+        passage?.performanceTempo ?? store.pieces.first { $0.id == arm.pieceID }?.fullTempoBPM
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -163,6 +166,29 @@ struct PracticeArmView: View {
                         Image(systemName: "pencil").font(.caption).frame(width: 44, height: 44).contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityLabel("Edit passage name and goal tempo")
                         .accessibilityIdentifier("armEditPassage")
+                }
+            }
+            if let pieceID = arm.pieceID {
+                if let override = passage?.performanceTempo,
+                   override != store.pieces.first(where: { $0.id == pieceID })?.fullTempoBPM {
+                    Text("Passage target \(PracticeReferenceFormatting.bpm(override)) BPM")
+                        .font(.caption.weight(.medium))
+                }
+                HStack(spacing: 8) {
+                    PieceTargetTempoControl(pieceID: pieceID) {
+                        arm.arm(pieceID: pieceID, passage: passage, store: store, scoreSection: arm.scoreSection)
+                    }
+                    if let target = performanceTarget, abs(target - configBinding.wrappedValue.startBPM) > 0.01 {
+                        Button {
+                            var draft = configBinding.wrappedValue
+                            draft.startBPM = target; draft.targetBPM = max(target, draft.targetBPM)
+                            arm.applyConfigurationOverride(draft)
+                        } label: {
+                            Text("Play at target").font(.caption.weight(.medium))
+                                .frame(minHeight: 44).contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                            .accessibilityIdentifier("armPlayAtTarget")
+                    }
                 }
             }
             Text(passage.map { target in ScoreOrganization.locationLabel(for: target, in: store.pieces.first { $0.id == target.pieceID }) } ?? pieceSubtitle)

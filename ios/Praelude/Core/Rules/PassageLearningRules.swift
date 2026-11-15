@@ -4,12 +4,29 @@ import Foundation
 /// move a passage through `LearningState` (New → Learning → Review → PerformanceReady) and its
 /// `PassageSchedule`.
 extension PracticeRulesEngine {
+    /// The passage may deliberately override the piece-wide target. A practice starting tempo is
+    /// independent; it cannot become a mastery threshold merely because a set started there.
+    public static func targetTempo(for passage: Passage, context: RuleContext) -> Double? {
+        passage.performanceTempo ?? context.pieces.first(where: { $0.id == passage.pieceID })?.fullTempoBPM
+    }
+
     // MARK: - R3 cold attempt
 
-    /// R3: "the first attempt of the day on a passage before any work" — true exactly when no
-    /// `ColdGradeRecord` has been logged yet for this passage on `context.now`'s calendar day.
+    /// R3 means before any recorded work on this passage today, not merely before a grade.
+    /// Skipping an unstarted prompt remains reversible; warming the passage up cannot later be
+    /// relabeled a cold success. Other passages, undone/reset events and future timestamps do not
+    /// consume this passage's first check.
     public static func isColdAttemptEligible(passageID: UUID, context: RuleContext) -> Bool {
-        !context.coldGrades.contains { $0.passageID == passageID && context.calendar.isDate($0.date, inSameDayAs: context.now) }
+        guard !context.coldGrades.contains(where: {
+            $0.passageID == passageID && $0.date <= context.now &&
+                context.calendar.isDate($0.date, inSameDayAs: context.now)
+        }) else { return false }
+        return !(context.history + [context.activeSet].compactMap { $0 }).contains { set in
+            set.configuration.passageID == passageID && set.attempts.contains { attempt in
+                attempt.isEffective && attempt.date <= context.now &&
+                    context.calendar.isDate(attempt.date, inSameDayAs: context.now)
+            }
+        }
     }
 
     /// R3 grades the day's first attempt; that grade immediately drives R4's schedule update, so
@@ -25,9 +42,30 @@ extension PracticeRulesEngine {
             return ColdGradeApplication(record: record, newLearningState: passage.learningState,
                                          newSchedule: passage.schedule, decisions: [r3])
         }
-        let (state, rawSchedule, reason) = advanceSchedule(current: passage.learningState, schedule: passage.schedule,
-                                                             grade: grade, settings: context.settings,
-                                                             now: context.now, calendar: context.calendar)
+        let state: LearningState, rawSchedule: PassageSchedule, reason: String
+        if grade == .clean, let target = targetTempo(for: passage, context: context), tempo < target {
+            state = passage.learningState == .new ? .learning :
+                (passage.learningState == .performanceReady ? .review : passage.learningState)
+            rawSchedule = PassageSchedule(dueDate: context.calendar.startOfDay(afterAdding: 1, to: context.now),
+                                          intervalDays: 1, reviewStep: passage.schedule.reviewStep)
+            reason = "Clean below target. Keep building; check again tomorrow."
+        } else {
+            var startingSchedule = passage.schedule
+            var startingState = passage.learningState
+            // Recovery earns fresh short evidence. An old mature ladder position cannot turn
+            // one recovered first check into a month away, including warm corrections and slow
+            // work whose next-day task is derived without rewriting the saved schedule.
+            let recovering = grade == .clean && TodayOverview.dueReviews(context: context).contains {
+                $0.passageID == passageID && ($0.priority == .recall || $0.priority == .rebuild)
+            }
+            if recovering {
+                startingSchedule.reviewStep = 0
+                if startingState == .performanceReady { startingState = .review }
+            }
+            (state, rawSchedule, reason) = advanceSchedule(current: startingState, schedule: startingSchedule,
+                                                          grade: grade, settings: context.settings,
+                                                          now: context.now, calendar: context.calendar)
+        }
         let schedule = performanceCappedSchedule(rawSchedule, passage: passage, context: context)
         let r4 = Decision(ruleID: .r4SpacedReview, pieceID: passage.pieceID, passageID: passageID, reason: reason,
                            firedAt: context.now, outcome: .schedule(schedule, learningState: state))
@@ -54,8 +92,8 @@ extension PracticeRulesEngine {
     /// days), graduating New/Learning to Review once it reaches that ladder's third rung (7 days by
     /// default) — the spec names the four states and the five-step ladder but does not pin the
     /// exact crossover rung, so this is this engine's documented choice, guarded against a
-    /// shorter custom ladder. Shaky reschedules at `r4ShakyIntervalDays` without losing ladder
-    /// position (a quick recheck, not a lapse). Missed is a full lapse: back to Learning, due
+    /// shorter custom ladder. Shaky reschedules at `r4ShakyIntervalDays` and restarts the confidence
+    /// ladder while retaining learned material. Missed is a full lapse: back to Learning, due
     /// tomorrow, ladder restarts from its first rung next time.
     private static func advanceSchedule(current: LearningState, schedule: PassageSchedule, grade: ColdGrade,
                                          settings: RuleSettings, now: Date, calendar: Calendar) -> (LearningState, PassageSchedule, String) {
@@ -67,8 +105,9 @@ extension PracticeRulesEngine {
         case .shaky:
             let days = max(1, settings.r4ShakyIntervalDays)
             let due = calendar.startOfDay(afterAdding: days, to: now)
-            let newState: LearningState = current == .new ? .learning : current
-            return (newState, PassageSchedule(dueDate: due, intervalDays: days, reviewStep: schedule.reviewStep),
+            let newState: LearningState = current == .new ? .learning :
+                (current == .performanceReady ? .review : current)
+            return (newState, PassageSchedule(dueDate: due, intervalDays: days, reviewStep: 0),
                     "Shaky. Review in \(pluralize(days, "day")).")
         case .clean:
             let intervals = settings.r4CleanIntervalsDays.sorted()
@@ -92,12 +131,23 @@ extension PracticeRulesEngine {
     /// including — when required — one where the qualifying cold grade was the first timestamped
     /// activity of that whole day (approximated from data: it precedes every other attempt and every
     /// other passage's cold grade logged that day; Core has no separate "session opened" event to
-    /// check against). Requires `passage.performanceTempo` to be set.
+    /// check against). Requires a passage or piece target. A newer failed or below-target check
+    /// starts the evidence window again. An effective Sloppy rep is also an explicit supplied
+    /// failure; a slow starting tempo alone invents none. Future records cannot prove readiness.
     public static func evaluateR10PerformanceReady(passageID: UUID, context: RuleContext) -> Decision? {
         guard context.settings.r10Enabled, let passage = context.passages.first(where: { $0.id == passageID }),
-              let performanceTempo = passage.performanceTempo else { return nil }
-        let qualifying = context.coldGrades.filter {
-            $0.passageID == passageID && $0.grade == .clean && $0.tempo >= performanceTempo
+              let performanceTempo = targetTempo(for: passage, context: context) else { return nil }
+        let reports = context.coldGrades.filter { $0.passageID == passageID && $0.date <= context.now }
+        let latestColdFailure = reports.filter { $0.grade != .clean || $0.tempo < performanceTempo }.map(\.date).max()
+        let latestSloppy = (context.history + [context.activeSet].compactMap { $0 })
+            .filter { $0.configuration.passageID == passageID }
+            .flatMap(\.attempts)
+            .filter { $0.isEffective && $0.verdict == .sloppy && $0.date <= context.now }
+            .map(\.date).max()
+        let latestFailure = [latestColdFailure, latestSloppy].compactMap { $0 }.max()
+        let qualifying = reports.filter { report in
+            report.grade == .clean && report.tempo >= performanceTempo &&
+                (latestFailure.map { report.date > $0 } ?? true)
         }
         let distinctDays = Set(qualifying.map { context.calendar.startOfDay(for: $0.date) })
         guard distinctDays.count >= context.settings.r10DistinctDays else { return nil }

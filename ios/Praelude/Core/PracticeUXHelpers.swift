@@ -38,6 +38,18 @@ public enum PracticeUXHelpers {
         return pages[(index + 1) % pages.count]
     }
 
+    /// New practice begins below the performance target. A saved slower start remains useful;
+    /// a saved start at/above target cannot silently defeat that default. No history is changed.
+    public static func startingPracticeTempo(target: Double?, explicitStart: Double? = nil) -> Double {
+        if let explicitStart, explicitStart.isFinite, (20...300).contains(explicitStart) {
+            if let target, target.isFinite, (20...300).contains(target) {
+                if explicitStart < target { return explicitStart }
+            } else { return explicitStart }
+        }
+        guard let target, target.isFinite, (20...300).contains(target) else { return 60 }
+        return min(300, max(20, (target * 0.75).rounded()))
+    }
+
     /// §10a: "Tempo in one gesture: drag/scroll on the number... never a modal/keyboard." A vertical
     /// drag maps linearly to BPM: dragging up (a negative translation, in SwiftUI's down-positive
     /// coordinate space) raises tempo, matching a physical fader/thermometer reading, at

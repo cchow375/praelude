@@ -45,6 +45,141 @@ final class PracticeArmControllerTests: XCTestCase {
         return (piece, passage)
     }
 
+    @MainActor
+    func testPieceTargetSeeds75PercentAndTargetEditPreservesActiveAttempts() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        try fixture.store.setPracticeReference(120, plan: piece.practiceBalancePlan, for: piece.id)
+        fixture.arm.arm(pieceID: piece.id, passage: nil, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 90)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 90)
+        XCTAssertEqual(fixture.arm.configuration?.targetBPM, 120)
+        XCTAssertTrue(try fixture.arm.start(skippingColdGrade: true, store: fixture.store, runtime: fixture.runtime))
+        try fixture.store.record(.clean)
+        let active = try XCTUnwrap(fixture.store.activeSet)
+        try fixture.store.setPracticeReference(140, plan: piece.practiceBalancePlan, for: piece.id)
+        XCTAssertEqual(fixture.store.activeSet, active)
+        XCTAssertEqual(fixture.store.activeSet?.configuration.fullTempoBPM, 120)
+        XCTAssertEqual(fixture.store.activeSet?.effectiveAttempts.first?.bpm, 90)
+        try fixture.store.endSet()
+        let history = fixture.store.state.history
+        try fixture.store.setPracticeReference(130, plan: piece.practiceBalancePlan, for: piece.id)
+        XCTAssertEqual(fixture.store.state.history, history)
+    }
+
+    @MainActor
+    func testAtTargetTotalPlaysRepeatRemainsValidAndNewPieceTargetSeedsFutureDraftOnly() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        try fixture.store.setPracticeReference(100, plan: piece.practiceBalancePlan, for: piece.id)
+        try fixture.store.startSet(PracticeConfiguration(pieceID: piece.id, passageID: passage.id,
+            basis: .totalPlays, startBPM: 100, targetBPM: 100))
+        try fixture.store.record(.clean); try fixture.store.endSet()
+        let originalHistory = fixture.store.state.history
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 75)
+        XCTAssertEqual(fixture.arm.configuration?.targetBPM, 75)
+        XCTAssertTrue(try fixture.arm.start(skippingColdGrade: true, store: fixture.store, runtime: fixture.runtime))
+        try fixture.store.endSet()
+        try fixture.store.startSet(PracticeConfiguration(pieceID: piece.id, passageID: passage.id,
+            startBPM: 100, targetBPM: 100))
+        try fixture.store.record(.clean)
+        let originalActive = fixture.store.activeSet
+        try fixture.store.setPracticeReference(140, plan: piece.practiceBalancePlan, for: piece.id)
+        XCTAssertEqual(fixture.store.activeSet, originalActive)
+        for original in originalHistory {
+            XCTAssertEqual(fixture.store.state.history.first { $0.id == original.id }, original)
+        }
+        try fixture.store.endSet()
+        let freshArm = PracticeArmController()
+        freshArm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(freshArm.configuration?.startBPM, 105)
+        XCTAssertEqual(freshArm.configuration?.targetBPM, 140)
+    }
+
+    @MainActor
+    func testPersistedAtTargetPracticeStartsSlowerButSameWindowChoiceWins() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        try fixture.store.setPracticeReference(120, plan: piece.practiceBalancePlan, for: piece.id)
+        try fixture.store.startSet(PracticeConfiguration(pieceID: piece.id, passageID: passage.id,
+            startBPM: 120, targetBPM: 120))
+        try fixture.store.record(.clean); try fixture.store.endSet()
+        let history = fixture.store.state.history
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 90)
+        var chosen = try XCTUnwrap(fixture.arm.configuration)
+        chosen.startBPM = 120
+        fixture.arm.applyConfigurationOverride(chosen)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 120)
+        XCTAssertEqual(fixture.store.state.history, history)
+        try fixture.store.setDefaultPracticeTempo(100, for: piece.id)
+        let freshArm = PracticeArmController()
+        freshArm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        // A saved slower piece start remains useful; it must not preserve the old at-target start.
+        XCTAssertEqual(freshArm.configuration?.startBPM, 100)
+    }
+
+    @MainActor
+    func testSavedPieceStartAtTargetStillSeedsSlowerWholePieceAndPassageDrafts() throws {
+        let fixture = try fixture()
+        let (piece, passage) = try addPassage(fixture.store)
+        try fixture.store.setPracticeReference(100, plan: piece.practiceBalancePlan, for: piece.id)
+        try fixture.store.setDefaultPracticeTempo(100, for: piece.id)
+        fixture.arm.arm(pieceID: piece.id, passage: nil, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 75)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 75)
+        var explicit = try XCTUnwrap(fixture.arm.configuration)
+        explicit.startBPM = 100
+        fixture.arm.applyConfigurationOverride(explicit)
+        fixture.arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(fixture.arm.configuration?.startBPM, 100, "A deliberate Play at target choice still works today")
+    }
+
+    @MainActor
+    func testExplicitDraftsExpireAcrossLocalMidnightWithoutChangingSavedPractice() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        var date = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: 15, hour: 23, minute: 55)))
+        let fixture = try fixture(now: { date })
+        let (piece, passage) = try addPassage(fixture.store)
+        try fixture.store.setPracticeReference(100, plan: piece.practiceBalancePlan, for: piece.id)
+        let arm = PracticeArmController(now: { date }, calendar: calendar)
+        arm.arm(pieceID: piece.id, passage: nil, store: fixture.store)
+        var pieceChoice = try XCTUnwrap(arm.configuration)
+        pieceChoice.startBPM = 100; pieceChoice.targetBPM = 100
+        arm.applyConfigurationOverride(pieceChoice)
+        arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        var passageChoice = try XCTUnwrap(arm.configuration)
+        passageChoice.startBPM = 100; passageChoice.targetBPM = 100
+        arm.applyConfigurationOverride(passageChoice)
+        date = date.addingTimeInterval(60)
+        arm.arm(pieceID: piece.id, passage: nil, store: fixture.store)
+        XCTAssertEqual(arm.configuration?.startBPM, 100, "Explicit whole-piece choices survive same-day switching")
+        arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(arm.configuration?.startBPM, 100, "Explicit passage choices survive same-day switching")
+        XCTAssertTrue(try arm.start(skippingColdGrade: true, store: fixture.store, runtime: fixture.runtime))
+        try fixture.store.record(.clean); try fixture.store.endSet()
+        try fixture.store.startSet(passageChoice); try fixture.store.record(.clean)
+        let original = fixture.store.state
+        let originalBytes = try Data(contentsOf: fixture.store.fileURL)
+        date = date.addingTimeInterval(10 * 60)
+        arm.arm(pieceID: piece.id, passage: nil, store: fixture.store)
+        XCTAssertEqual(arm.configuration?.startBPM, 75, "Yesterday’s whole-piece choice expires even while the score window stays open")
+        arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(arm.configuration?.startBPM, 75, "Yesterday’s target-tempo passage choice must not become tomorrow’s default")
+        XCTAssertEqual(fixture.store.state, original, "Only unstarted draft choices expire; active attempts and saved history remain exact")
+        XCTAssertEqual(try Data(contentsOf: fixture.store.fileURL), originalBytes)
+        var todayChoice = try XCTUnwrap(arm.configuration)
+        todayChoice.startBPM = 82
+        arm.applyConfigurationOverride(todayChoice)
+        arm.arm(pieceID: piece.id, passage: passage, store: fixture.store)
+        XCTAssertEqual(arm.configuration?.startBPM, 82, "A fresh explicit choice on the new day is retained")
+    }
+
     // MARK: - arm(...)
 
     @MainActor

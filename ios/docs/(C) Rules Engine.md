@@ -1,5 +1,7 @@
 # (C) Rules Engine — the practice rules façade
 
+Last updated: 2026-11-15. Build22 candidate behavior; see `docs/qa/ios/2.0.0/build22/`.
+
 `PracticeRulesEngine` (`ios/Praelude/Core/Rules/`) is the pure, deterministic implementation of
 §11's fifteen practice rules, §10a's default set configuration, §10b's set-goal vocabulary, §10c's
 next-step line, and §4's passage learning-state machine. Every function is a plain transformation of
@@ -118,7 +120,7 @@ offers each seam independently rather than only the ends.
 first attempt of the day, graded Clean/Shaky/Missed, drives R4 — both fire from one call to
 `applyColdGrade`, returning a `ColdGradeApplication` with the record to persist and, in order, the R3
 decision and (if R4 is enabled) the R4 decision. Returns `nil` when R3 is disabled or the passage
-already has a cold grade today; "today" is `context.calendar`'s day, not `.current`'s.
+already has a cold grade or any effective recorded practice on this passage today. Ungraded work cannot later become a cold success. Undone/reset/future events and work on other passages do not consume this passage's eligibility; "today" uses `context.calendar`.
 
 ## R4 spaced review
 
@@ -126,15 +128,13 @@ Implemented as `advanceSchedule` inside `applyColdGrade` (private — always rea
 schedule only advances by grading a cold attempt). New→Learning→Review→PerformanceReady, kept in
 `Passage.learningState`; ladder position is `PassageSchedule.reviewStep`.
 
-- **Clean** climbs `r4CleanIntervalsDays` (default 1→3→7→14→30 days) one rung at a time, staying on
-  the ladder's last rung once there.
+- **Clean at target** climbs `r4CleanIntervalsDays` (default 1→3→7→14→30 days). The effective target is the passage override, otherwise piece `fullTempoBPM`. Below-target Clean returns tomorrow and holds the saved step. A due Recall/Build again recovery starts at the first configured rung, so a recovered check cannot inherit an old 30-day gap. Without a known target, the existing Clean ladder remains available.
 - **Judgment call — the New/Learning→Review crossover rung.** The spec names the four states and the
   five-step ladder but not which rung graduates a passage out of Learning. This engine's choice: the
   ladder's _third_ rung (7 days by default) — `min(2, intervals.count - 1)`, guarded against a shorter
   custom ladder. `PracticeRulesEngineTests.testR4CleanClimbsLadderAndGraduatesToReviewAtThirdRung`
   replays a passage through all three rungs and checks the exact state at each.
-- **Shaky** reschedules at `r4ShakyIntervalDays` (default 2) _without_ losing ladder position — a
-  quick recheck, not a lapse, so `reviewStep` is untouched.
+- **Shaky** reschedules at `r4ShakyIntervalDays` (default 2) and resets `reviewStep` to0. An unfinished failed check remains actionable for rebuilding even before that saved date. PerformanceReady demotes to Review; existing Review does not become New.
 - **Missed** is a full lapse: back to Learning, due tomorrow, `reviewStep` reset to 0 (the ladder
   restarts from its first rung next time this passage graduates again).
 
@@ -225,7 +225,7 @@ place.
 ## R10 performance-ready
 
 `evaluateR10PerformanceReady(passageID:context:)`. Clean cold attempts at (or above) performance
-tempo on `r10DistinctDays` (default 3) different calendar days, including — when
+tempo (passage override or shared piece target) on `r10DistinctDays` (default 3) different calendar days after the latest failed/below-target first check or effective Sloppy rep. Undone and future events cannot qualify or invalidate evidence; a slow start alone never invents a failure. Includes — when
 `r10RequiresFirstInSession` — one where the qualifying cold grade was the first timestamped activity
 of that whole day.
 
@@ -282,12 +282,12 @@ rules" (§2) for the metronome's behavior too, not only for whether a rule fires
 
 ## §10a default set configuration
 
-`defaultConfiguration(for:context:) -> PracticeConfiguration?`. Carries goal, completion basis, tempo
-step, and hands/parts wording forward from the player's last set on this passage (falling back to a
-plain default when there is none), applies R5's streak target for the passage's current learning
-state, and folds in R7's speed-up when it fires (bumping `startBPM`, raising `targetBPM` to match if
-needed). "Goals without tempo default click off" (§10b) falls straight out of
-`useMetronome: goal == .tempo`.
+`defaultConfiguration(for:context:) -> PracticeConfiguration?` preserves chosen count, techniques,
+hands and metronome conditions. Initial unchosen practice starts around75% of the passage/piece
+target, with an explicit piece starting tempo respected. A fresh visit after an at-target set starts
+slower; an explicit same-window arm draft still wins. Total plays keeps target==start. Changed
+piece targets seed future drafts without rewriting recorded contracts. R7 speed-up requires explicit
+acceptance; it is never applied silently.
 
 ## §10c next-step line
 
@@ -303,13 +303,16 @@ acknowledgement.
 
 ## R15 session builder
 
-`buildSession(availableMinutes:context:) -> SessionPlan`. Fits warmups, then due reviews (nearest
-performance date first), then learning passages, then up to `r15MaxNewPerSession` (default 3) new
-passages, then run-throughs for pieces performing soon, into `availableMinutes` at
-`r15EstimatedMinutesPerItem` (default 3) minutes per item. Items that do not fit are left off the plan
-— nothing about their own schedule changes, so "skip keeps due" needs no extra bookkeeping:
-`SessionPlan.items` is a plain, freely-reorderable array, and a passage left out (skipped, or never
-offered because the budget ran out) stays exactly as due as it already was.
+`buildSession(availableMinutes:context:) -> SessionPlan` fits a warmup, then the same finite
+`TodayOverview.dailyPlan` round, then approaching-performance run-throughs into available time.
+The daily round contains up to five distinct passages, including work already completed today;
+completed work consumes a slot and does not refill indefinitely. Fresh delayed recalls due today
+lead older carried-over recalls, followed by rebuilding, scheduled checks and new learning. Existing
+`r15MaxNewPerSession` limits unpracticed additions. The full remaining library stays available.
+Failed checks remain until meaningful work completes; slow/total-play completion earns work,
+not mastery. A replay-valid completed set or successful target cold check clears today's item,
+including during performance week. Saved schedule/history records are not rewritten by browsing.
+Items outside the time budget or explicitly skipped remain saved; reordering changes only this plan.
 
 **Judgment calls.**
 
@@ -319,8 +322,7 @@ offered because the budget ran out) stays exactly as due as it already was.
   stand-in for §12's own rotation (favorites, neglected keys, a key picker), enough to satisfy R15's
   "warmups at start"; §12's actual rotation is a future track's work, not this one's.
 - **Tap into R11.** R15 calls `evaluateR11PerformanceDate` per piece to fold its verdict in: a piece
-  in its final week contributes every one of its passages as "due today" (instead of only those with
-  a due `PassageSchedule`), and any piece R11 flags for run-throughs gets one appended at the end,
+  in its final week contributes active passages to the bounded daily round, while today's completed work still clears, and any piece R11 flags for run-throughs gets one appended at the end,
   nearest-performance-date first.
 
 ## Testing

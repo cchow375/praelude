@@ -116,8 +116,8 @@ final class ScoreFocusUITests: XCTestCase {
         app.launch(); continueAfterFailure = false
         let hide = app.buttons["Hide Sidebar"]
         if hide.waitForExistence(timeout: 1), hide.isHittable { hide.tap() }
+        app.buttons["todayPracticeTools"].tap()
         let organize = app.buttons["organizePassagesToday"]
-        for _ in 0..<6 where !organize.isHittable { app.swipeUp() }
         XCTAssertTrue(organize.waitForExistence(timeout: 5), app.debugDescription); organize.tap()
         let rename = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Edit name and goal for ")).firstMatch
         XCTAssertTrue(rename.waitForExistence(timeout: 5), app.debugDescription)

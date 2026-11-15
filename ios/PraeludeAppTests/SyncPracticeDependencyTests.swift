@@ -51,13 +51,18 @@ private actor PracticeDependencyTransport: SyncTransport {
         let date = Date(timeIntervalSince1970: 1_790_000_000)
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("sync-practice-parents-\(UUID())")
         addTeardownBlock { try? FileManager.default.removeItem(at: path) }
-        let store = PracticeStore(directory: path, now: { date.addingTimeInterval(50) })
+        var practiceNow = date.addingTimeInterval(50)
+        let store = PracticeStore(directory: path, now: { practiceNow })
         let piece = Piece(title: "Newer local score title", pdfFileName: "fixture.pdf", pageCount: 2, createdAt: date, updatedAt: date.addingTimeInterval(50))
         try store.addPiece(piece)
         let passage = Passage(pieceID: piece.id, title: "Newer local passage", createdAt: date, updatedAt: date.addingTimeInterval(50))
         try store.savePassage(passage)
         try store.startSet(PracticeConfiguration(pieceID: piece.id, passageID: passage.id, targetCount: 10, useMetronome: false))
-        try store.record(.clean); try store.record(.again); try store.undo(); try store.endSession()
+        try store.record(.clean)
+        // Distinct rep timestamps express the intended chronology; equal dates are canonically
+        // UUID-sorted during sync and made this preservation assertion depend on random IDs.
+        practiceNow = practiceNow.addingTimeInterval(1)
+        try store.record(.again); try store.undo(); try store.endSession()
         let old = try XCTUnwrap(store.state.history.last)
         let oldSession = try XCTUnwrap(store.state.sessions.first { $0.id == old.sessionID })
         // This separate active session must survive adopting older history from another device.

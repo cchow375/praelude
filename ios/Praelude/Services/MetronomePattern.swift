@@ -5,6 +5,12 @@ enum MetronomeSound: String, Codable, CaseIterable, Sendable {
     var title: String { rawValue.capitalized }
 }
 
+/// Device-local display choice. Audio always remains on the sample clock.
+enum MetronomeVisualStyle: String, Codable, CaseIterable, Sendable {
+    case beats, flash, bounce, off
+    var title: String { rawValue.capitalized }
+}
+
 enum BeatAccent: String, Codable, CaseIterable, Sendable {
     case regular, accented, muted
     var next: Self { switch self { case .regular: .accented; case .accented: .muted; case .muted: .regular } }
@@ -27,6 +33,7 @@ struct MetronomeSettings: Codable, Equatable, Sendable {
     var sound = MetronomeSound.wood
     var volume = 0.7
     var haptics = false
+    var visualStyle = MetronomeVisualStyle.beats
     /// Bars of plain click played once, unlooped, before the music starts (0 = off). Added after
     /// `v1` first shipped, so decoding defaults it rather than requiring the key (see `init(from:)`).
     var countInBars = 0
@@ -43,7 +50,7 @@ struct MetronomeSettings: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case version, bpm, beatsPerBar, denominator, subdivision, accents, sound, volume, haptics,
-             countInBars, keepRunningWhenLocked, beatGrouping
+             countInBars, keepRunningWhenLocked, beatGrouping, visualStyle
     }
     init() {}
     init(from decoder: Decoder) throws {
@@ -61,6 +68,7 @@ struct MetronomeSettings: Codable, Equatable, Sendable {
         countInBars = try values.decodeIfPresent(Int.self, forKey: .countInBars) ?? 0
         keepRunningWhenLocked = try values.decodeIfPresent(Bool.self, forKey: .keepRunningWhenLocked) ?? false
         beatGrouping = try values.decodeIfPresent(Int.self, forKey: .beatGrouping) ?? 1
+        visualStyle = try values.decodeIfPresent(MetronomeVisualStyle.self, forKey: .visualStyle) ?? .beats
     }
     static func accents(for beats: Int, denominator: Int) -> [BeatAccent] {
         guard (1...12).contains(beats) else { return [] }

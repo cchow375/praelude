@@ -118,7 +118,10 @@ final class PracticeErgonomicsUITests: XCTestCase {
 
     @MainActor func testWarmupFinishIsVisibleAndReturnsToLibrary() {
         let app = launch()
+        app.buttons["todayPracticeTools"].tap()
+        app.buttons["Plan by available time"].tap()
         let start = app.buttons["startSession"]
+        for _ in 0..<6 where !start.isHittable { app.swipeUp() }
         XCTAssertTrue(start.waitForExistence(timeout: 10), app.debugDescription)
         start.tap()
         let finish = app.buttons["finishWarmupPractice"]

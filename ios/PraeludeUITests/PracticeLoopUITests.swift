@@ -99,7 +99,10 @@ final class PracticeLoopUITests: XCTestCase {
 
     @MainActor func testTodayStartSessionBeginsTheFirstWarmup() {
         let app = launch()
+        app.buttons["todayPracticeTools"].tap()
+        app.buttons["Plan by available time"].tap()
         let startSession = app.buttons["startSession"]
+        for _ in 0..<6 where !startSession.isHittable { app.swipeUp() }
         XCTAssertTrue(startSession.waitForExistence(timeout: 15), app.debugDescription)
         startSession.press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["closeWarmupPractice"].waitForExistence(timeout: 15), app.debugDescription)
@@ -111,11 +114,11 @@ final class PracticeLoopUITests: XCTestCase {
         let app = launch()
         let tabs = app.tabBars.firstMatch
         guard tabs.waitForExistence(timeout: 2) else { throw XCTSkip("Sidebar navigation is active on this form factor.") }
-        for title in ["Today", "Pieces", "Warmups", "Progress", "More"] {
+        for title in ["Today", "Passages", "Pieces", "More"] {
             XCTAssertTrue(tabs.buttons[title].isHittable, app.debugDescription)
         }
         tabs.buttons["More"].press(forDuration: 0.15)
-        for title in ["Friends", "History", "Calendar", "Notebook", "Data", "Rewards"] {
+        for title in ["Warmups", "Progress", "Friends", "History", "Calendar", "Notebook", "Data", "Rewards"] {
             XCTAssertTrue(app.buttons[title].waitForExistence(timeout: 10), app.debugDescription)
         }
         screenshot("loop-compact-more-navigation", app: app)

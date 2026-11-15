@@ -7,6 +7,20 @@ import XCTest
 final class PracticeUXHelpersTests: XCTestCase {
     // MARK: - verdict(for:)
 
+    func testNewPracticeStartsAtThreeQuartersOfTargetUnlessAnExplicitStartWasSaved() {
+        XCTAssertEqual(PracticeUXHelpers.startingPracticeTempo(target: 120), 90)
+        XCTAssertEqual(PracticeUXHelpers.startingPracticeTempo(target: 100), 75)
+        XCTAssertEqual(PracticeUXHelpers.startingPracticeTempo(target: 20), 20)
+        XCTAssertEqual(PracticeUXHelpers.startingPracticeTempo(target: 120, explicitStart: 67), 67)
+        XCTAssertEqual(PracticeUXHelpers.startingPracticeTempo(target: 100, explicitStart: 100), 75)
+        XCTAssertEqual(PracticeUXHelpers.startingPracticeTempo(target: 100, explicitStart: 120), 75)
+        XCTAssertEqual(PracticeUXHelpers.startingPracticeTempo(target: 120, explicitStart: 100), 100)
+        XCTAssertEqual(PracticeUXHelpers.startingPracticeTempo(target: nil, explicitStart: 100), 100)
+        XCTAssertEqual(PracticeUXHelpers.startingPracticeTempo(target: nil), 60)
+        XCTAssertEqual(PracticeUXHelpers.startingPracticeTempo(target: .infinity), 60)
+        XCTAssertEqual(PracticeUXHelpers.startingPracticeTempo(target: 120, explicitStart: .nan), 90)
+    }
+
     func testColdGradeMapsToVerdict() {
         XCTAssertEqual(PracticeUXHelpers.verdict(for: .clean), .clean)
         XCTAssertEqual(PracticeUXHelpers.verdict(for: .shaky), .sloppy)

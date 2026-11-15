@@ -58,9 +58,18 @@ extension PracticeRulesEngine {
         if let lastSet {
             var value = lastSet.nextSetConfiguration
             value.focus = passage.focus
-            // Editing a passage's saved goal changes the next set, never the historical contract.
-            if let target = passage.performanceTempo,
-               target != lastSet.configuration.passageSnapshot?.performanceTempo,
+            let piece = context.pieces.first { $0.id == passage.pieceID }
+            let target = passage.performanceTempo ?? piece?.fullTempoBPM
+            let priorTarget = lastSet.configuration.passageSnapshot?.performanceTempo ?? lastSet.configuration.fullTempoBPM
+            // A saved set that finished at target is not a reason to start the next visit there.
+            // Same-window explicit overrides live in PracticeArmController and still take priority.
+            if let target,
+               value.startBPM >= target || (priorTarget.map { value.startBPM >= $0 } ?? false) {
+                value.startBPM = PracticeUXHelpers.startingPracticeTempo(target: target, explicitStart: piece?.defaultPracticeBPM)
+                if value.basis == .totalPlays { value.targetBPM = value.startBPM }
+            }
+            // Editing a saved target changes the next set, never the historical contract.
+            if let target, target != priorTarget,
                value.basis == .cleanStreak { value.targetBPM = max(value.startBPM, target) }
             return value
         }
@@ -69,9 +78,10 @@ extension PracticeRulesEngine {
         let targetCount = r5StreakTarget(for: passage.learningState, settings: context.settings)
         let tempoStep = lastSet?.configuration.tempoStep ?? .fixed(4)
         let hands = lastSet?.configuration.hands ?? "Both hands"
-        let pieceDefault = context.pieces.first { $0.id == passage.pieceID }?.defaultPracticeBPM
-        let startBPM = pieceDefault ?? passage.performanceTempo ?? 60
-        let targetBPM = max(passage.performanceTempo ?? startBPM, startBPM)
+        let piece = context.pieces.first { $0.id == passage.pieceID }
+        let target = passage.performanceTempo ?? piece?.fullTempoBPM
+        let startBPM = PracticeUXHelpers.startingPracticeTempo(target: target, explicitStart: piece?.defaultPracticeBPM)
+        let targetBPM = max(target ?? startBPM, startBPM)
         return PracticeConfiguration(pieceID: passage.pieceID, passageID: passageID, focus: passage.focus, goal: goal,
                                       basis: basis, targetCount: targetCount, startBPM: startBPM, targetBPM: targetBPM,
                                       tempoStep: tempoStep, hands: hands, useMetronome: goal == .tempo)
@@ -133,23 +143,15 @@ extension PracticeRulesEngine {
             !$0.archived && $0.deletedAt == nil && piece(for: $0) != nil &&
             ($0.parkedUntil.map { $0 <= context.now } ?? true) && piece(for: $0)?.status != .resting
         }
-        // One due queue powers both Today and this plan, including Learning after a Missed
-        // lapse. Keep each item's learning kind while bringing overdue/tough reviews forward.
-        let reviews = TodayOverview.dueReviews(context: context)
-        let reviewIDs = Set(reviews.map(\.passageID))
-        for review in reviews {
+        // The same finite round powers Today and session planning. Do not append a second new
+        // passage loop: an ungraded completed set can still have `.new` metadata, but its work
+        // already occupied a daily slot and must not silently re-enter through another path.
+        for review in TodayOverview.dailyPlan(context: context).items {
             guard let passage = activePassages.first(where: { $0.id == review.passageID }) else { continue }
-            take(SessionItem(id: passage.id, kind: passage.learningState == .learning ? .learning : .review,
-                             pieceID: passage.pieceID, passageID: passage.id,
+            let kind: SessionItemKind = review.priority == .new ? .new :
+                (passage.learningState == .learning ? .learning : .review)
+            take(SessionItem(id: passage.id, kind: kind, pieceID: passage.pieceID, passageID: passage.id,
                              estimatedMinutes: perItem, reason: "\(review.label). \(review.reason)"))
-        }
-
-        let newPassages = activePassages.filter { $0.learningState == .new && !reviewIDs.contains($0.id) }
-            .sorted { $0.createdAt < $1.createdAt }
-            .prefix(context.settings.r15MaxNewPerSession)
-        for passage in newPassages {
-            take(SessionItem(id: passage.id, kind: .new, pieceID: passage.pieceID, passageID: passage.id,
-                              estimatedMinutes: perItem, reason: "New. Getting started."))
         }
 
         let today = context.calendar.startOfDay(for: context.now)

@@ -1,5 +1,22 @@
 # Using Praelude Mobile
 
+## Build22 candidate — a smaller, finite practice day
+
+Source2.0.0/build22/schema5, November15. Not installed; phone last verified21, personal iPad last recorded20.
+
+1. Open Today. Start next passage begins the first of up to five passages. Each row shows the piece, passage name, score location and music preview. Recall first means you built it to target and should test it before warming up; Build again means it still needs practice.
+2. In setup, set the piece Target. It is shared by passages unless one has an explicit override. Unchosen practice starts at75%; explicit setup choices can be retained. Use Play at target deliberately before reporting a target first attempt. The target and the tempo currently playing are different values.
+3. Report your first attempt. Clean at target earns longer intervals; Clean below target returns tomorrow without advancing the step. Shaky/Missed stays in the rebuilding workflow. Recovery starts again at your shortest configured interval, rather than returning directly to an old 30-day gap. The app never grades your piano.
+4. Finish a set. The passage leaves today's work and uses one of the five daily slots. Slow completed work counts as work and returns for building; reaching target after practice earns a fresh recall tomorrow. More passages do not refill the day indefinitely.
+5. Expand Done today or Tomorrow when useful. Later opens the complete passage library; Passages groups compact rows by piece. Tap a thumbnail to enlarge the music and inspect review/history.
+6. The iPad sidebar leads with Today, Passages and Pieces. More and On your music stand expand secondary destinations. Phone keeps Today/Passages/Pieces/More tabs. Practice tools on Today contains the optional time planner, Goals and passage naming.
+7. Counter carries the metronome. Select Beats, Flash, Bounce or Off; Reduce Motion substitutes numbered beats. Open metronome settings for meter, accent and count-in. Smaller controls retain44pt touch targets. Score remains available.
+
+Opening, skipping and Undo do not fabricate a successful check. All existing scores/passages/history stay saved. Exact native checks and physical limitations are in the build22 QA ledger.
+
+**Next steps:** finish candidate validation and guarded physical delivery; judge organization, delayed recall and metronome readability in real practice separately.
+
+
 ## November 13 — Personal iPhone refreshed; launch verified
 
 **Matches: personal iPhone native2.0.0/build21/schema5 (2026-11-13).**

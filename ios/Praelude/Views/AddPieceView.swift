@@ -41,7 +41,7 @@ struct AddPieceView: View {
                         .accessibilityIdentifier("pieceFullTempo")
                     if !validFullTempo { Text("Enter 20–300 BPM or leave blank.").font(.caption).foregroundStyle(.red) }
                 } footer: {
-                    Text("A reference for practice history, separate from attempt tempo. Use the same beat unit when practicing. You can set or edit it later in History → By piece.")
+                    Text("The shared target for this piece’s passages. New practice starts at 75% of it. Use the same beat unit as the metronome. You can edit the target directly while practicing.")
                 }
                 if liveInstruments.count > 1 {
                     Section {

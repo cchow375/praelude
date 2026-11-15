@@ -8,14 +8,20 @@ final class ScoreWorkflowUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["--uitesting", "--reset", "--seed"] + extraArguments
         app.launch()
-        let hide = app.buttons["Hide Sidebar"]
-        if hide.waitForExistence(timeout: 1), hide.isHittable { hide.press(forDuration: 0.15) }
         let pieces = app.tabBars.buttons["Pieces"]
         if pieces.exists, pieces.isHittable {
             pieces.tap()
-            XCTAssertTrue(app.navigationBars["Pieces"].waitForExistence(timeout: 5))
+        } else {
+            let show = app.buttons["Show Sidebar"]
+            if show.waitForExistence(timeout: 1), show.isHittable { show.tap() }
+            let sidebarPieces = app.buttons["Pieces"].firstMatch
+            XCTAssertTrue(sidebarPieces.waitForExistence(timeout: 5), app.debugDescription)
+            sidebarPieces.tap()
         }
-        let piece = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Practice study", "4 pages")).firstMatch
+        XCTAssertTrue(app.navigationBars["Pieces"].waitForExistence(timeout: 8), app.debugDescription)
+        let hide = app.buttons["Hide Sidebar"]
+        if hide.exists, hide.isHittable { hide.tap() }
+        let piece = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@ AND label CONTAINS %@", "pieceRow", "Practice study", "Praelude test score")).firstMatch
         for _ in 0..<5 where !piece.isHittable { app.swipeUp() }
         XCTAssertTrue(piece.waitForExistence(timeout: 10), app.debugDescription)
         piece.press(forDuration: 0.15)

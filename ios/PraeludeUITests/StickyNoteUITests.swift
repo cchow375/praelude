@@ -8,11 +8,20 @@ final class StickyNoteUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["--uitesting"] + (reset ? ["--reset", "--seed"] + (large ? ["--seed-large-page"] : []) : [])
         app.launch()
-        let hide = app.buttons["Hide Sidebar"]
-        if hide.waitForExistence(timeout: 1), hide.isHittable { hide.tap() }
         let pieces = app.tabBars.buttons["Pieces"]
-        if pieces.exists, pieces.isHittable { pieces.tap() }
-        let piece = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Practice study", "4 pages")).firstMatch
+        if pieces.exists, pieces.isHittable {
+            pieces.tap()
+        } else {
+            let show = app.buttons["Show Sidebar"]
+            if show.waitForExistence(timeout: 1), show.isHittable { show.tap() }
+            let sidebarPieces = app.buttons["Pieces"].firstMatch
+            XCTAssertTrue(sidebarPieces.waitForExistence(timeout: 5), app.debugDescription)
+            sidebarPieces.tap()
+        }
+        XCTAssertTrue(app.navigationBars["Pieces"].waitForExistence(timeout: 8), app.debugDescription)
+        let hide = app.buttons["Hide Sidebar"]
+        if hide.exists, hide.isHittable { hide.tap() }
+        let piece = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@ AND label CONTAINS %@", "pieceRow", "Practice study", "Praelude test score")).firstMatch
         for _ in 0..<6 where !piece.isHittable { app.swipeUp() }
         XCTAssertTrue(piece.waitForExistence(timeout: 8), app.debugDescription)
         piece.tap()

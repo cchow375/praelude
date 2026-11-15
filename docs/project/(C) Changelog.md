@@ -1,5 +1,14 @@
 # 📜 Praelude — Changelog
 
+## 2026-11-15 — Native build22 candidate: finite daily passages and smaller controls
+
+**Why:** Christian's spoken feedback and handwritten notes request a coherent passage-learning loop, priority for tomorrow after hard-won target success, smaller components, collapsed navigation, shared piece target and visual Counter metronome.
+
+**Changed:** deterministic daily work projection and session-builder integration; target-aware first-check schedule with short confidence reset after recovery and failure-aware readiness evidence; compact Today/sidebar/grouped Passages; target editing and75% starting tempo; Counter beat visualization, meter wording and smaller verdicts. Modules: native Core/Insights/TodayOverview, Rules/PassageLearningRules/SessionRules, PracticeUXHelpers, arm/metronome services, main/Today/passage/practice views, project generator and regression/UI tests. No schema/backend changes or personal library mutations. Candidate2.0.0/build22/schema5.
+
+**Evidence and limits:** Core580/one optional skip/zero failures; full native380/one optional skip/zero failures; services2,349 assertions; selected phone/iPad flows and independent live/visual review pass. `docs/qa/ios/2.0.0/build22/README.md` retains exact scoped checks, screenshots and intermediate failures. Phone21/personal iPad20/friend12/Mac11.1.0 remain the recorded installed boundaries. Candidate has not been physically installed.
+
+
 ## November 13 — Praelude loaded onto the personal iPhone from this Mac
 
 - **Why:** Christian requested installation on the phone and confirmed cable/unlock/trust and paused practice readiness.

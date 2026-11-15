@@ -1,5 +1,14 @@
 # Praelude — Flaws, Risks & Honest Limits
 
+## B175 — Overdue passage accumulation and bulky native navigation (2026-11-15)
+
+**Reported:** Christian cannot tell which passage to practice, recognize anonymous numbered passages or see a day finish. Tall duplicated review/session components and the sidebar obscure the useful work. Old priority primarily sorts days overdue; ordinary set completion does not clear a stale date, and hard-won target success does not create tomorrow's recall.
+
+**Repair candidate:** build22's bounded daily round, completion/retention distinction, target-aware clean check, next-day recall and compact grouped interface. No existing passage or history is erased. Implementation and verification are in `docs/qa/ios/2.0.0/build22/`. The subjective organization/readability and delayed recall at the piano remain open until Christian uses the candidate; source and simulator evidence do not close physical acceptance.
+
+**Next steps:** complete native/fresh-context checks, safely deliver when requested and evaluate several real practice days. Keep B170–B173 camera/audio/sync boundaries separate.
+
+
 ## November 13 — Personal iPhone refreshed; launch verified
 
 **Last updated: 2026-11-13. Personal iPhone native 2.0.0/build21/schema5 refreshed and observed

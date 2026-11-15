@@ -1,5 +1,16 @@
 # (C) Praelude for iPad — Full Build Spec v2 (condensed working copy of Christian's spec, 2026-09-24)
 
+## Current behavior override — November15, 2026
+
+Christian's build22 feedback replaces the bulky dashboard/overdue pile with one bounded daily
+passage round, delayed target recall, work/retention separation, short confidence rebuilding,
+compact grouped navigation, shared piece target,75% unchosen starts and integrated visual beats.
+`USING_MOBILE.md`, `(C) Rules Engine.md` and `docs/qa/ios/2.0.0/build22/` own the current candidate
+contract. Source is2.0.0/build22/schema5, not physically installed. The condensed September spec
+below is historical where it conflicts with these later decisions or the current AGENTS manual,
+including its old filename-prefix/private-repository instructions. No personal content is bundled.
+
+
 ## 0. Ground rules
 
 Audit every item as works / partially works / missing. Build on existing iPad app (ios/). Mac app (repo root: src/, src-tauri/) is behavior reference (set contracts, streaks, ladders, variants, routines, retention/review, warmups, rewards), not UI reference. Never lose user data (reps, passages, annotations, scores, profile survive updates, sync conflicts, sign-out/in, reinstall). Files authored get prefix "(C)". No service-role key in repo/app; only anon key. Repo must be private.

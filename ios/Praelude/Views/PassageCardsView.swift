@@ -62,6 +62,7 @@ struct PassageCardArtwork: View {
 struct PassageCardsView: View {
     @Environment(PracticeStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let onStart: (UUID, UUID) -> Void
     var onOpenScore: (UUID, Int) -> Void = { _, _ in }
     @State private var search = ""
@@ -76,7 +77,8 @@ struct PassageCardsView: View {
     private var pieces: [UUID: Piece] {
         Dictionary(store.pieces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
-    private var dueIDs: Set<UUID> { Set(TodayOverview.dueReviews(context: RuleContext(state: store.state, now: Date())).map(\.passageID)) }
+    private var plan: TodayOverview.DailyPassagePlan { TodayOverview.dailyPlan(context: RuleContext(state: store.state, now: Date())) }
+    private var dueIDs: Set<UUID> { Set(plan.items.map(\.passageID)) }
     private var practicedIDs: Set<UUID> { PassageCardLibrary.practicedPassageIDs(in: store.state) }
     private var allPassages: [Passage] {
         let pieces = pieces
@@ -104,39 +106,55 @@ struct PassageCardsView: View {
                 if a != b { return a < b }
             }
             if due.contains(left.id) != due.contains(right.id) { return due.contains(left.id) }
-            if left.createdAt != right.createdAt { return left.createdAt > right.createdAt }
+            if left.page != right.page { return left.page < right.page }
+            if left.startMeasure != right.startMeasure { return (left.startMeasure ?? Int.max) < (right.startMeasure ?? Int.max) }
             return left.id.uuidString < right.id.uuidString
         }
     }
 
     var body: some View {
-        let due = dueIDs, practiced = practicedIDs, pieceIndex = pieces
+        let dailyPlan = plan
+        let due = Set(dailyPlan.items.map(\.passageID)), practiced = practicedIDs, pieceIndex = pieces
+        let displayed = visible
+        let completed = Set(dailyPlan.completedToday.map(\.passageID))
+        let tomorrow = Set(dailyPlan.tomorrow.map(\.passageID))
+        let labels = Dictionary(dailyPlan.items.map { ($0.passageID, $0.label) }, uniquingKeysWith: { first, _ in first })
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
                     introduction
-                    if visible.isEmpty {
+                    if displayed.isEmpty {
                         PraeludeEmptyState(title: allPassages.isEmpty ? "Start with a few bars" : "No cards here yet",
                                           symbol: "rectangle.stack",
                                           message: allPassages.isEmpty ? "Take a photo of your paper score, or mark a passage on a PDF. Its music becomes the card." : "Try another filter or search. Your saved passages are kept.",
                                           actionTitle: "Add photo passage", action: { capture = true })
                             .frame(minHeight: 280)
                     } else {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 270, maximum: 500), spacing: 16)], spacing: 16) {
-                            ForEach(visible) { passage in
-                                card(passage, piece: pieceIndex[passage.pieceID], due: due, practiced: practiced)
-                                    .contextMenu {
-                                        Button("Review details", systemImage: "clock.arrow.circlepath") { reviewDetails = passage }
-                                        Button("Open score", systemImage: "music.book.closed") { onOpenScore(passage.pieceID, passage.regions.first?.page ?? passage.page) }
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            ForEach(store.realPieces.filter { piece in displayed.contains { $0.pieceID == piece.id } }) { piece in
+                                VStack(alignment: .leading, spacing: 0) {
+                                    HStack {
+                                        Text(piece.title).font(.subheadline.weight(.semibold))
+                                        Spacer()
+                                        Text("\(displayed.filter { $0.pieceID == piece.id }.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    }.padding(.horizontal, 12).padding(.vertical, 10)
+                                    ForEach(displayed.filter { $0.pieceID == piece.id }) { passage in
+                                        Divider().padding(.leading, 12)
+                                        card(passage, piece: pieceIndex[passage.pieceID], status: status(passage, label: labels[passage.id], completed: completed, tomorrow: tomorrow, practiced: practiced))
+                                            .contextMenu {
+                                                Button("Review details", systemImage: "clock.arrow.circlepath") { reviewDetails = passage }
+                                                Button("Open score", systemImage: "music.book.closed") { onOpenScore(passage.pieceID, passage.regions.first?.page ?? passage.page) }
+                                            }
                                     }
+                                }.background(PraeludeColor.surface, in: RoundedRectangle(cornerRadius: 12))
                             }
                         }
                     }
-                }.padding(16).frame(maxWidth: 1400).frame(maxWidth: .infinity)
+                }.padding(12).frame(maxWidth: 900).frame(maxWidth: .infinity)
             }
             .accessibilityIdentifier("passageCardLibraryScroll")
             .background(PraeludeColor.paper)
-            .navigationTitle("Passage cards")
+            .navigationTitle("Passages").navigationBarTitleDisplayMode(.inline)
             .searchable(text: $search, prompt: "Piece, passage, composer or focus")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -150,7 +168,7 @@ struct PassageCardsView: View {
                             withAnimation(PraeludeMotion.tap(reduceMotion: reduceMotion)) { shuffleOrder = visible.map(\.id).shuffled() }
                             PraeludeHaptic.toggle()
                         }.disabled(visible.count < 2)
-                        if !shuffleOrder.isEmpty { Button("Due first, newest next") { shuffleOrder = [] } }
+                        if !shuffleOrder.isEmpty { Button("Practice order, then score order") { shuffleOrder = [] } }
                     } label: { Label("Card options", systemImage: "line.3.horizontal.decrease") }
                     .accessibilityIdentifier("passageCardOptions")
                 }
@@ -181,8 +199,8 @@ struct PassageCardsView: View {
                 Spacer()
                 Text("\(visible.count)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
             }
-            Text("Recognize the music. Do a practice set. Your first-attempt report sets the next review.")
-                .font(.subheadline).foregroundStyle(.secondary)
+            Text("Your library, grouped by piece. Today gives you a short practice order.")
+                .font(.caption).foregroundStyle(.secondary)
             if recall {
                 Label("Recall mode · Picture the opening, then reveal the music. Nothing is graded automatically.", systemImage: "eye.slash")
                     .font(.caption).foregroundStyle(.secondary)
@@ -190,52 +208,50 @@ struct PassageCardsView: View {
         }
     }
 
-    private func card(_ passage: Passage, piece: Piece?, due: Set<UUID>, practiced: Set<UUID>) -> some View {
+    private func card(_ passage: Passage, piece: Piece?, status: String) -> some View {
         let hidden = recall && !revealed.contains(passage.id)
-        return VStack(alignment: .leading, spacing: 12) {
+        return (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .center, spacing: 10))) {
             Button {
                 if hidden { withAnimation(PraeludeMotion.tap(reduceMotion: reduceMotion)) { _ = revealed.insert(passage.id) }; PraeludeHaptic.toggle() }
                 else { selected = passage }
             } label: {
                 Group {
                     if hidden {
-                        VStack(spacing: 10) {
-                            Image(systemName: "eye.slash").font(.title2)
-                            Text("Recall the opening").font(.headline)
-                            Text("Tap to reveal").font(.subheadline)
+                        VStack(spacing: 4) {
+                            Image(systemName: "eye.slash")
+                            Text("Reveal").font(.caption)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
                             .foregroundStyle(PraeludeColor.inkSecondary).background(PraeludeColor.inkFillQuiet)
                     } else { PassageCardArtwork(passage: passage, piece: piece) }
-                }.frame(height: 160).clipShape(RoundedRectangle(cornerRadius: 12))
+                }.frame(width: dynamicTypeSize.isAccessibilitySize ? 120 : 76, height: 64).clipShape(RoundedRectangle(cornerRadius: 8))
             }.buttonStyle(.plain)
                 .accessibilityLabel(hidden ? "Reveal music for \(passage.title)" : "Enlarge music for \(passage.title)")
                 .accessibilityIdentifier("passageCardImage_\(passage.id)")
             VStack(alignment: .leading, spacing: 4) {
-                Text(passage.title).font(.headline).lineLimit(2)
-                if piece?.title != passage.title { Text(piece?.title ?? "Piece").font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }
-                HStack {
-                    Label(status(passage, due: due, practiced: practiced), systemImage: due.contains(passage.id) ? "clock" : "rectangle.stack")
-                    Spacer()
-                    if let tempo = passage.performanceTempo { Text("Goal \(PracticeReferenceFormatting.bpm(tempo)) BPM") }
-                }.font(.caption).foregroundStyle(.secondary)
-                Text(passage.focus).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-            }
+                Text(passage.title).font(.subheadline.weight(.medium)).lineLimit(2)
+                Text(ScoreOrganization.locationLabel(for: passage, in: piece)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                Text(status).font(.caption).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, alignment: .leading)
             Button { onStart(passage.pieceID, passage.id) } label: {
-                Label("Practice", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 30)
-            }.buttonStyle(.praeludePrimary).accessibilityIdentifier("practiceCard_\(passage.id)")
-        }.padding(14).background(PraeludeColor.surface, in: RoundedRectangle(cornerRadius: 18))
-            .overlay(RoundedRectangle(cornerRadius: 18).stroke(PraeludeColor.hairline, lineWidth: 0.5))
+                Image(systemName: "play.fill").frame(width: 44, height: 44).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel("Practice \(passage.title)")
+                .accessibilityIdentifier("practiceCard_\(passage.id)")
+        }.padding(10)
     }
 
-    private func status(_ passage: Passage, due: Set<UUID>, practiced: Set<UUID>) -> String {
-        if due.contains(passage.id) { return "Review due" }
+    private func status(_ passage: Passage, label: String?, completed: Set<UUID>, tomorrow: Set<UUID>, practiced: Set<UUID>) -> String {
+        if let label { return label }
+        if completed.contains(passage.id) { return "Worked today" }
+        if tomorrow.contains(passage.id) { return "Fresh check tomorrow" }
         if !practiced.contains(passage.id) { return "Unpracticed" }
-        if let date = passage.schedule.dueDate { return "Review \(date.formatted(date: .abbreviated, time: .omitted))" }
+        if let date = passage.schedule.dueDate {
+            return date < Calendar.current.startOfDay(for: .now) ? "Ready when you have time" : "Check \(date.formatted(date: .abbreviated, time: .omitted))"
+        }
         return passage.learningState == .performanceReady ? "Performance ready" : "In practice"
     }
 
     private enum CardFilter: String, CaseIterable, Identifiable {
-        case all = "All passages", due = "Due for review", unpracticed = "Unpracticed", photo = "Photo passages"
+        case all = "All passages", due = "Today's passages", unpracticed = "Unpracticed", photo = "Photo passages"
         var id: String { rawValue }
     }
 }

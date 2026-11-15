@@ -10,30 +10,32 @@ struct PassageReviewQueueView: View {
     var onStart: (UUID, UUID) -> Void
 
     private var context: RuleContext { RuleContext(state: store.state, now: Date()) }
-    private var due: [TodayOverview.DueReview] { TodayOverview.dueReviews(context: context) }
-    private var upcomingTough: [TodayOverview.DueReview] {
-        TodayOverview.toughPassages(context: context).filter { !$0.isDue }
-    }
+    private var plan: TodayOverview.DailyPassagePlan { TodayOverview.dailyPlan(context: context) }
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    if due.isEmpty { Text("No reviews due.").foregroundStyle(.secondary) }
-                    rows(due)
-                } header: { Text("Due & overdue") } footer: {
-                    Text("URGENT means an overdue date, or a due passage whose latest first attempt you marked Missed or Shaky. Being late is not a playing failure. Starting a review is your choice.")
+                    if plan.items.isEmpty { Label("Today's passage work is clear", systemImage: "checkmark.circle").foregroundStyle(.secondary) }
+                    rows(plan.items)
+                } header: { Text("Next, in order") } footer: {
+                    Text("Up to five passages. Work completed today leaves this list. A hard-won result comes back for a fresh check tomorrow.")
                 }
-                if !upcomingTough.isEmpty {
+                if !plan.completedToday.isEmpty {
+                    DisclosureGroup("Worked today · \(plan.completedToday.count)") { rows(plan.completedToday) }
+                }
+                if !plan.tomorrow.isEmpty {
+                    DisclosureGroup("Tomorrow · \(plan.tomorrow.count)") { rows(plan.tomorrow) }
+                }
+                if plan.laterCount > 0 {
                     Section {
-                        rows(upcomingTough)
-                    } header: { Text("Tough passages · Upcoming") } footer: {
-                        Text("Based on your latest Missed or Shaky first attempt. Their saved due dates have not been brought forward. A later Clean first attempt clears this label.")
+                        Text("\(plan.laterCount) more in your passage library. They can wait; they are not added as you finish today's list.")
+                            .font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
             }
             .accessibilityIdentifier("passageReviewQueue")
-            .navigationTitle("Passage reviews").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Practice order").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("How reviews work", systemImage: "questionmark.circle") { showingGuide = true } }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
@@ -61,6 +63,7 @@ struct PassageReviewQueueView: View {
 
 struct PassageReviewRow: View {
     @Environment(PracticeStore.self) private var store
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var showingDetails = false
     let review: TodayOverview.DueReview
     let passage: Passage
@@ -69,45 +72,30 @@ struct PassageReviewRow: View {
     let onEdit: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .center, spacing: 10))) {
             Button { showingDetails = true } label: {
                 PassageCardArtwork(passage: passage, piece: store.pieces.first { $0.id == passage.pieceID })
-                    .frame(height: 112).clipped()
+                    .frame(width: 68, height: 56).clipped()
             }.buttonStyle(.plain).accessibilityLabel("See review details for \(passage.title)")
-            Text(review.label).font(.caption.weight(.bold))
-                .foregroundStyle(review.isUrgent ? Color.orange : PraeludeColor.inkSecondary)
-                .accessibilityIdentifier("reviewPriority_\(passage.id)")
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(passage.title).font(.headline)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(review.label).font(.caption.weight(.semibold)).foregroundStyle(PraeludeColor.inkSecondary)
+                        .accessibilityIdentifier("reviewPriority_\(passage.id)")
+                    Text(passage.title).font(.subheadline.weight(.medium)).lineLimit(2)
                         .onTapGesture(count: 2, perform: onEdit)
                         .accessibilityAction(named: "Edit name and goal tempo", onEdit)
-                    Text(pieceTitle).font(.caption).foregroundStyle(.secondary)
-                    if let tempo = passage.performanceTempo {
-                        Text("Goal \(PracticeReferenceFormatting.bpm(tempo)) BPM").font(.caption).foregroundStyle(.secondary)
-                    }
+                    Text("\(pieceTitle) · \(ScoreOrganization.locationLabel(for: passage, in: store.pieces.first { $0.id == passage.pieceID }))")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    Text(review.reason).font(.caption).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                Button(action: onEdit) {
-                    Image(systemName: "pencil").frame(width: 44, height: 44).contentShape(Rectangle())
-                }.buttonStyle(.plain)
-                    .accessibilityLabel("Edit name and goal for \(passage.title)")
-                Button("Review", action: onStart).font(.subheadline.weight(.semibold))
-                    .frame(minHeight: 44)
+                Button(action: onStart) { Image(systemName: "play.fill").frame(width: 44, height: 44).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).accessibilityLabel("Practice \(passage.title)")
                     .accessibilityIdentifier("reviewPassage_\(passage.id)")
-            }
-            Text(review.reason).font(.caption).foregroundStyle(.secondary)
-            if let grade = review.latestColdGrade {
-                Text(grade.date, format: .dateTime.month(.abbreviated).day())
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            if let date = review.dueDate {
-                Text("Scheduled \(date.formatted(date: .abbreviated, time: .omitted))")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Button("Review date & first-attempt history", systemImage: "clock.arrow.circlepath") { showingDetails = true }
-                .font(.caption).frame(minHeight: 44)
         }.padding(.vertical, 4)
         .accessibilityElement(children: .contain)
+        .contextMenu {
+            Button("Review date & first-attempt history", systemImage: "clock.arrow.circlepath") { showingDetails = true }
+            Button("Name & goal tempo", systemImage: "pencil", action: onEdit)
+        }
         .sheet(isPresented: $showingDetails) { PassageReviewDetailsView(passageID: passage.id) }
     }
 }

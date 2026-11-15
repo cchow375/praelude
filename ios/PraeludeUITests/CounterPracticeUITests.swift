@@ -5,6 +5,51 @@ import UIKit
 /// simulator audio, camera, haptics and playing-distance legibility remain physical checks.
 final class CounterPracticeUITests: XCTestCase {
     private var requestedDisplay = "counter"
+    @MainActor func testSharedTargetSlowerStartAndVisualMetronomePreserveSavedReps() {
+        let app = launch()
+        openScore(app)
+        let target = app.buttons["pieceTargetTempo"].firstMatch
+        reveal(target, app: app); target.tap()
+        let entry = app.textFields["pieceTargetTempoEntry"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 8), app.debugDescription)
+        entry.tap(); entry.typeText("120")
+        app.buttons["savePieceTargetTempo"].tap()
+        startPassage(app)
+        let tempo = app.buttons["tempoDialValue"]
+        XCTAssertTrue(tempo.waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertEqual(tempo.value as? String, "90 beats per minute", app.debugDescription)
+        let clean = app.buttons["verdict_clean"]
+        XCTAssertGreaterThanOrEqual(clean.frame.height, 55.9)
+        XCTAssertLessThan(clean.frame.height, 79.9, "Compact controls should keep generous touch targets without the previous bulk")
+        clean.tap(); expectProgress("1 of", app: app)
+        let atTarget = app.buttons["counterPlayAtTarget"]
+        reveal(atTarget, app: app)
+        XCTAssertGreaterThanOrEqual(atTarget.frame.height, 43.9)
+        atTarget.tap()
+        XCTAssertEqual(tempo.value as? String, "120 beats per minute", app.debugDescription)
+        app.buttons["counterQuick75Percent"].tap()
+        XCTAssertEqual(tempo.value as? String, "90 beats per minute", app.debugDescription)
+        let styles = app.buttons["counterVisualStyle"]
+        reveal(styles, app: app); styles.tap()
+        app.buttons["counterVisualStyle_bounce"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["practiceBeatDisplay"].exists, app.debugDescription)
+        screenshot("compact-counter-target-and-bounce", app: app)
+        styles.tap(); app.buttons["counterVisualStyle_off"].tap()
+        XCTAssertFalse(app.descendants(matching: .any)["practiceBeatDisplay"].exists, app.debugDescription)
+        styles.tap(); app.buttons["counterVisualStyle_beats"].tap()
+        reveal(target, app: app); target.tap()
+        XCTAssertTrue(entry.waitForExistence(timeout: 8), app.debugDescription)
+        entry.tap()
+        entry.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (entry.value as? String ?? "").count) + "140"); app.buttons["savePieceTargetTempo"].tap()
+        expectProgress("1 of", app: app)
+        XCTAssertEqual(tempo.value as? String, "90 beats per minute", "A piece-target edit must not rewrite the current set or saved attempts")
+        let picker = app.segmentedControls["practiceDisplayPicker"]
+        picker.buttons["Score"].tap()
+        XCTAssertTrue(target.waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertEqual(target.value as? String, "140 BPM", app.debugDescription)
+        screenshot("compact-score-shared-target", app: app)
+    }
+
     @MainActor func testIndependentCardScoreCounterCleanUndoPreservesUngradedReview() {
         let app = launch(display: "automatic")
         let tab = app.tabBars.buttons["Passages"]
@@ -101,13 +146,15 @@ final class CounterPracticeUITests: XCTestCase {
         let pause = app.buttons["pausePractice"]
         reveal(pause, app: app); pause.tap()
         app.buttons["closeScore"].tap()
-        let progress = app.tabBars.buttons["Progress"]
-        if progress.exists { progress.tap() }
+        let more = app.tabBars.buttons["More"]
+        if more.exists { more.tap() }
         else {
             let show = app.buttons["Show Sidebar"]
-            if show.exists { show.tap() }
-            app.buttons["Progress"].firstMatch.tap()
+            if show.exists && show.isHittable { show.tap() }
+            let extras = app.descendants(matching: .any).matching(identifier: "sidebarMore").firstMatch
+            if !app.buttons["Progress"].firstMatch.isHittable { extras.tap() }
         }
+        app.buttons["Progress"].firstMatch.tap()
         let calendar = app.buttons["Practice calendar"]
         XCTAssertTrue(calendar.waitForExistence(timeout: 10), app.debugDescription)
         calendar.tap()
@@ -207,7 +254,7 @@ final class CounterPracticeUITests: XCTestCase {
         screenshot("counter-running-portrait", app: app)
         for value in ["clean", "sloppy", "again"] {
             let button = app.buttons["verdict_\(value)"]
-            XCTAssertGreaterThanOrEqual(button.frame.height, 79.9, app.debugDescription)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 55.9, app.debugDescription)
             XCTAssertTrue(button.isHittable, app.debugDescription)
         }
         app.buttons["verdict_clean"].tap()

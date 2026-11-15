@@ -17,6 +17,7 @@ struct CounterPracticeView: View {
     let onToggleMetronome: () -> Void
     let onOpenMetronome: () -> Void
     let onBeginRest: () -> Bool
+    @Environment(PracticeStore.self) private var store
     @Environment(MetronomeService.self) private var metronome
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -24,11 +25,15 @@ struct CounterPracticeView: View {
     @State private var showTools = false
     @State private var restUntil: Date?
 
-    private var tempoReference: Double { active.configuration.fullTempoBPM ?? active.effectiveTargetBPM }
+    private var tempoReference: Double {
+        active.configuration.passageSnapshot?.performanceTempo
+            ?? store.pieces.first { $0.id == active.configuration.pieceID }?.fullTempoBPM
+            ?? active.configuration.fullTempoBPM ?? active.effectiveTargetBPM
+    }
     private var lastCleanBPM: Double? { active.effectiveAttempts.last(where: { $0.verdict == .clean })?.bpm }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 10) {
             progress
             if active.isComplete { completion }
             else {
@@ -58,7 +63,7 @@ struct CounterPracticeView: View {
             Text(active.isComplete ? "Set complete" : active.status == .paused ? "Practice paused" : active.configuration.basis == .cleanStreak ? "Clean in a row" : "Repetitions")
                 .font(.subheadline.weight(.medium)).foregroundStyle(PraeludeColor.inkSecondary)
             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text("\(active.progressCount)").praeludeNumeral(dynamicTypeSize.isAccessibilitySize ? 64 : 88, weight: .bold)
+                Text("\(active.progressCount)").praeludeNumeral(dynamicTypeSize.isAccessibilitySize ? 56 : 64, weight: .bold)
                 Text("/ \(active.requiredCount)").praeludeNumeral(30, weight: .medium).foregroundStyle(PraeludeColor.inkTertiary)
             }
             .contentTransition(.numericText())
@@ -76,12 +81,12 @@ struct CounterPracticeView: View {
                     .font(.subheadline.weight(.medium)).multilineTextAlignment(.center)
             }
             Text(active.configuration.basis == .cleanStreak
-                 ? "Clean builds the streak. Sloppy or Again restarts it; every play stays saved."
+                 ? "Again keeps your place. Sloppy resets the clean streak."
                  : "Every verdict adds one play. You decide how it went.")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text("\(active.totalPlays) plays saved · \(CounterPracticeTools.duration(CounterPracticeTools.elapsed(active, at: context.date))) active")
+                Text("\(active.totalPlays) \(active.totalPlays == 1 ? "play" : "plays") saved · \(CounterPracticeTools.duration(CounterPracticeTools.elapsed(active, at: context.date))) active")
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     .accessibilityIdentifier("counterElapsedTime")
             }
@@ -102,10 +107,8 @@ struct CounterPracticeView: View {
 
     private func verdict(_ value: Verdict, title: String, icon: String, emphasis: Bool) -> some View {
         Button { onVerdict(value) } label: {
-            VStack(spacing: 7) {
-                Image(systemName: icon).font(.title2.weight(.medium))
-                Text(title).font(.headline)
-            }.frame(maxWidth: .infinity, minHeight: 80)
+            Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 56)
         }
         .buttonStyle(CounterPracticeButtonStyle(emphasis: emphasis))
         .accessibilityIdentifier("verdict_\(value.rawValue)")
@@ -113,21 +116,25 @@ struct CounterPracticeView: View {
     }
 
     private var metronomeControls: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 12) {
+        VStack(spacing: 4) {
+            PracticeBeatDisplay()
+            if let override = active.configuration.passageSnapshot?.performanceTempo,
+               override != store.pieces.first(where: { $0.id == active.configuration.pieceID })?.fullTempoBPM {
+                Text("Passage target \(PracticeReferenceFormatting.bpm(override)) BPM")
+                    .font(.caption.weight(.medium)).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: 8) {
                 Button(action: onToggleMetronome) {
-                    VStack(spacing: 4) {
-                        Image(systemName: "metronome").font(.title2)
-                        Text(metronome.isPlaying ? "Click on" : "Click off").font(.subheadline.weight(.semibold))
-                    }.frame(maxWidth: .infinity, minHeight: 64)
+                    Label(metronome.isPlaying ? "Click on" : "Click off", systemImage: "metronome")
+                        .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
                 }.buttonStyle(CounterPracticeButtonStyle(emphasis: metronome.isPlaying))
                     .accessibilityLabel(metronome.isPlaying ? "Stop metronome" : "Start metronome")
                     .accessibilityIdentifier("toggleMetronomeHUD")
                 Button { showTempoEntry = true } label: {
                     VStack(spacing: 0) {
-                        Text(PracticeReferenceFormatting.bpm(active.currentBPM)).praeludeNumeral(40, weight: .semibold)
+                        Text(PracticeReferenceFormatting.bpm(active.currentBPM)).praeludeNumeral(30, weight: .semibold)
                         Text(metronome.groupedCompoundPulse ? "BPM · dotted quarter" : "BPM").font(.caption2)
-                    }.frame(maxWidth: .infinity, minHeight: 64)
+                    }.frame(maxWidth: .infinity, minHeight: 44)
                 }.buttonStyle(CounterPracticeButtonStyle())
                     .accessibilityLabel("Tempo").accessibilityValue("\(PracticeReferenceFormatting.bpm(active.currentBPM)) beats per minute")
                     .accessibilityIdentifier("tempoDialValue")
@@ -136,10 +143,37 @@ struct CounterPracticeView: View {
                             .presentationCompactAdaptation(.popover)
                     }
             }
+            targetControls
             HStack(spacing: 8) {
                 tempoNudge(-5); tempoNudge(-1); tempoNudge(1); tempoNudge(5)
             }
         }.disabled(isSaving)
+    }
+
+    private var targetControls: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
+                PieceTargetTempoControl(pieceID: active.configuration.pieceID)
+                if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
+                Button { onAdjustTempo(CounterPracticeTools.percentageTempo(75, reference: tempoReference)) } label: {
+                    Text("75%").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityIdentifier("counterQuick75Percent")
+                Button { onAdjustTempo(tempoReference) } label: {
+                    Text("Play at target").font(.caption.weight(.medium)).frame(minHeight: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityIdentifier("counterPlayAtTarget")
+                Menu {
+                    ForEach(MetronomeVisualStyle.allCases, id: \.self) { style in
+                        Button {
+                            metronome.visualStyle = style
+                        } label: {
+                            Label(style.title, systemImage: metronome.visualStyle == style ? "checkmark" : "circle")
+                        }.accessibilityIdentifier("counterVisualStyle_\(style.rawValue)")
+                    }
+                } label: {
+                    Image(systemName: "eye").frame(width: 44, height: 44).contentShape(Rectangle())
+                }.accessibilityLabel("Visual metronome style").accessibilityIdentifier("counterVisualStyle")
+            }
     }
 
     private func tempoNudge(_ delta: Double) -> some View {
@@ -159,7 +193,7 @@ struct CounterPracticeView: View {
         let layout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
         return layout {
-            Button(action: onUndo) { Label("Undo", systemImage: "arrow.uturn.backward").frame(maxWidth: .infinity, minHeight: 48) }
+            Button(action: onUndo) { Label("Undo", systemImage: "arrow.uturn.backward").frame(maxWidth: .infinity, minHeight: 44) }
                 .buttonStyle(CounterPracticeButtonStyle()).disabled(active.effectiveAttempts.isEmpty || isSaving)
                 .accessibilityLabel("Undo last repetition").accessibilityIdentifier("undoRep")
             Button {
@@ -167,11 +201,11 @@ struct CounterPracticeView: View {
                 onTogglePause()
             } label: {
                 Label(active.status == .paused ? "Resume" : "Pause", systemImage: active.status == .paused ? "play.fill" : "pause.fill")
-                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }.buttonStyle(CounterPracticeButtonStyle()).disabled(isSaving)
                 .accessibilityLabel(active.status == .paused ? "Resume practice" : "Pause practice")
                 .accessibilityIdentifier("pausePractice")
-            Button(action: onStop) { Label("Stop set", systemImage: "stop.fill").frame(maxWidth: .infinity, minHeight: 48) }
+            Button(action: onStop) { Label("Stop set", systemImage: "stop.fill").frame(maxWidth: .infinity, minHeight: 44) }
                 .buttonStyle(CounterPracticeButtonStyle()).disabled(isSaving).accessibilityIdentifier("stopSet")
         }.font(.subheadline.weight(.medium))
     }
@@ -180,7 +214,7 @@ struct CounterPracticeView: View {
         VStack(spacing: 10) {
             Button(action: onAnotherSet) { Text("Another set").frame(maxWidth: .infinity, minHeight: 54) }
                 .buttonStyle(CounterPracticeButtonStyle(emphasis: true)).accessibilityIdentifier("counterAnotherSet")
-            Button(action: onFinishSession) { Text("Finish practice").frame(maxWidth: .infinity, minHeight: 48) }
+            Button(action: onFinishSession) { Text("Finish practice").frame(maxWidth: .infinity, minHeight: 44) }
                 .buttonStyle(CounterPracticeButtonStyle()).accessibilityIdentifier("counterFinishPractice")
             Button(action: onUndo) { Text("Undo last repetition").frame(maxWidth: .infinity, minHeight: 44) }
                 .disabled(active.effectiveAttempts.isEmpty || isSaving)

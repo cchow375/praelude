@@ -76,6 +76,34 @@ final class FreshBuild13UITests: XCTestCase {
         hierarchy.name = name + "-hierarchy"; hierarchy.lifetime = .keepAlways; add(hierarchy)
     }
 
+    @MainActor private func openPracticeOrder(_ app: XCUIApplication) {
+        tap(app.buttons["todayPracticeTools"], app: app)
+        let entry = app.buttons.matching(NSPredicate(format: "label == %@", "Practice order & review guide"))
+            .allElementsBoundByIndex.first(where: { $0.isHittable })
+        XCTAssertNotNil(entry, app.debugDescription)
+        guard let entry else { return }
+        tap(entry, app: app)
+        XCTAssertTrue(app.navigationBars["Practice order"].waitForExistence(timeout: 8), app.debugDescription)
+    }
+
+    @MainActor private func reveal(_ element: XCUIElement, listID: String, app: XCUIApplication) {
+        let list = app.descendants(matching: .any).matching(identifier: listID).firstMatch
+        XCTAssertTrue(list.waitForExistence(timeout: 5), app.debugDescription)
+        for _ in 0..<8 {
+            let barBottom = app.navigationBars.allElementsBoundByIndex.last(where: { $0.isHittable })?.frame.maxY ?? list.frame.minY
+            let top = max(list.frame.minY, barBottom) + 8
+            let bottom = min(list.frame.maxY, app.frame.maxY) - 12
+            let viewport = CGRect(x: list.frame.minX, y: top, width: list.frame.width, height: max(0, bottom - top))
+            if element.exists, element.isHittable, viewport.contains(element.frame) { return }
+            let towardTop = element.exists && element.frame.minY < viewport.minY
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let start = origin.withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * (towardTop ? 0.35 : 0.7)))
+            let end = origin.withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * (towardTop ? 0.65 : 0.4)))
+            start.press(forDuration: 0.05, thenDragTo: end)
+        }
+        XCTAssertTrue(element.exists && element.isHittable, app.debugDescription)
+    }
+
     @MainActor private func armPassage(_ app: XCUIApplication, title: String = "Evenness and pulse") {
         tap(app.buttons["passages"], app: app)
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "savedPassage_", title)).firstMatch
@@ -462,7 +490,7 @@ final class FreshBuild13UITests: XCTestCase {
         shot("fresh13-direct-name-decimal-goal-reopened", app: app)
     }
 
-    @MainActor func testFirstAttemptClickStateAndMissedFutureToughQueueSurviveRelaunch() {
+    @MainActor func testFirstAttemptClickStateAndUnfinishedRebuildSurviveRelaunch() {
         let app = XCUIApplication(); openScore(app); armPassage(app)
         let click = app.buttons["armMetronome"]
         XCTAssertEqual(click.value as? String, "Off")
@@ -484,19 +512,15 @@ final class FreshBuild13UITests: XCTestCase {
         if hide.waitForExistence(timeout: 1), hide.isHittable { hide.tap() }
         let today = app.tabBars.buttons["Today"]
         if today.exists, today.isHittable { tap(today, app: app) }
-        let all = app.buttons["allPassageReviews"]
-        for _ in 0..<8 where !all.isHittable { app.swipeUp() }
-        tap(all, app: app)
-        XCTAssertTrue(app.navigationBars["Passage reviews"].waitForExistence(timeout: 5), app.debugDescription)
-        let queue = app.collectionViews["passageReviewQueue"]
+        openPracticeOrder(app)
+        let queue = app.descendants(matching: .any).matching(identifier: "passageReviewQueue").firstMatch
         XCTAssertTrue(queue.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(queue.staticTexts["Tough passages · Upcoming"].exists, app.debugDescription)
         XCTAssertTrue(queue.staticTexts["Evenness and pulse"].exists, app.debugDescription)
-        XCTAssertTrue(queue.staticTexts["Your last first attempt: Missed."].exists, app.debugDescription)
         let priority = queue.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "reviewPriority_")).firstMatch
-        XCTAssertEqual(priority.label, "Tough passage", "A Missed report due tomorrow must not be marked overdue or URGENT today")
-        XCTAssertFalse(queue.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "URGENT ·")).firstMatch.exists)
-        shot("fresh13-missed-upcoming-tough-review-reopened", app: app)
+        XCTAssertEqual(priority.label, "Build again", "Stopping an unfinished set leaves the rebuilding task actionable today.")
+        XCTAssertTrue(queue.staticTexts["The first check needed work. Finish a practice set, then return tomorrow."].exists, app.debugDescription)
+        XCTAssertFalse(queue.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "URGENT")).firstMatch.exists)
+        shot("build22-missed-unfinished-rebuild-reopened", app: app)
     }
 
     @MainActor private func editNameAndGoal(_ app: XCUIApplication, name: String, bpm: String) {
@@ -646,7 +670,7 @@ final class FreshBuild13UITests: XCTestCase {
         tap(app.navigationBars["Rename passage"].buttons["Cancel"], app: app)
     }
 
-    @MainActor func testTodayPriorityRenderingShowsDueCountAndKeepsFutureToughNonurgent() {
+    @MainActor func testTodayShowsActionsForUnfinishedChecksWithoutOverdueDebt() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -654,30 +678,19 @@ final class FreshBuild13UITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 8), app.debugDescription)
         let identities = ["00000000-0000-4000-8000-000000000131", "00000000-0000-4000-8000-000000000132", "00000000-0000-4000-8000-000000000133"]
-        let labels = ["URGENT · 2 days overdue", "URGENT · Tough passage due", "Tough passage"]
-        let offsets = [-2, 0, 2]
-        let today = Calendar.current.startOfDay(for: Date())
-        var previousY: CGFloat = -1
-        for index in identities.indices {
-            let priority = app.staticTexts["reviewPriority_\(identities[index])"]
-            XCTAssertTrue(priority.waitForExistence(timeout: 8), app.debugDescription)
-            XCTAssertEqual(priority.label, labels[index])
-            XCTAssertTrue(priority.isHittable && app.frame.contains(priority.frame), app.debugDescription)
-            XCTAssertGreaterThan(priority.frame.minY, previousY)
-            previousY = priority.frame.minY
-            let cell = app.cells.containing(.staticText, identifier: priority.identifier).firstMatch
-            let date = Calendar.current.date(byAdding: .day, value: offsets[index], to: today)!
-            XCTAssertTrue(cell.staticTexts["Scheduled \(date.formatted(date: .abbreviated, time: .omitted))"].exists,
-                          "The displayed priority must retain its actual saved date.\n\(app.debugDescription)")
+        for id in identities {
+            let row = app.buttons["startSessionItem_review_\(id)"]
+            reveal(row, listID: "todayPracticeList", app: app)
+            XCTAssertTrue(row.label.contains("Build again"), app.debugDescription)
+            XCTAssertTrue(row.label.contains("Practice study"), app.debugDescription)
         }
-        XCTAssertTrue(app.staticTexts["2 reviews due."].exists)
-        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label BEGINSWITH %@", "reviewPriority_", "URGENT")).count, 2)
-        shot("fresh14-today-overdue-due-and-future-priorities", app: app)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "URGENT")).firstMatch.exists)
         XCTAssertFalse(app.buttons["pausePractice"].exists)
         XCTAssertFalse(app.buttons["stopSet"].exists)
+        shot("build22-today-unfinished-check-actions", app: app)
     }
 
-    @MainActor func testUrgentOverdueAndDueToughQueueKeepsFutureReviewNonurgent() {
+    @MainActor func testPracticeOrderKeepsFailedChecksActionableAndRetainsSavedDates() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -685,46 +698,37 @@ final class FreshBuild13UITests: XCTestCase {
         app.launch()
         let hide = app.buttons["Hide Sidebar"]
         if hide.waitForExistence(timeout: 1), hide.isHittable { hide.tap() }
-        let today = app.tabBars.buttons["Today"]
-        if today.exists, today.isHittable { tap(today, app: app) }
-        let all = app.buttons["allPassageReviews"]
-        for _ in 0..<8 where !all.isHittable { app.swipeUp() }
-        tap(all, app: app)
-        XCTAssertTrue(app.navigationBars["Passage reviews"].waitForExistence(timeout: 8), app.debugDescription)
-        let queue = app.collectionViews["passageReviewQueue"]
+        openPracticeOrder(app)
+        let queue = app.descendants(matching: .any).matching(identifier: "passageReviewQueue").firstMatch
         XCTAssertTrue(queue.waitForExistence(timeout: 5), app.debugDescription)
-        let overdue = queue.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000131"]
-        let due = queue.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000132"]
-        let future = queue.staticTexts["reviewPriority_00000000-0000-4000-8000-000000000133"]
-        XCTAssertTrue(overdue.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertEqual(overdue.label, "URGENT · 2 days overdue")
-        XCTAssertEqual(due.label, "URGENT · Tough passage due")
-        XCTAssertLessThan(overdue.frame.minY, due.frame.minY)
-        shot("fresh13-urgent-overdue-and-due-tough", app: app)
-        let list = queue
-        XCTAssertTrue(list.exists, app.debugDescription)
-        for _ in 0..<8 {
-            let visible = list.frame.intersection(app.frame).insetBy(dx: 0, dy: 8)
-            if future.exists, future.isHittable, visible.contains(future.frame) { break }
-            list.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.75)).press(forDuration: 0.1,
-                thenDragTo: list.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.55)), withVelocity: .slow, thenHoldForDuration: 0.1)
+        let identities = ["00000000-0000-4000-8000-000000000131", "00000000-0000-4000-8000-000000000132", "00000000-0000-4000-8000-000000000133"]
+        for id in identities {
+            let priority = queue.staticTexts["reviewPriority_\(id)"]
+            reveal(priority, listID: "passageReviewQueue", app: app)
+            XCTAssertEqual(priority.label, "Build again", "A failed first check without a completed set remains actionable, independent of its saved check date.")
         }
-        XCTAssertTrue(future.exists && future.isHittable, app.debugDescription)
-        XCTAssertEqual(future.label, "Tough passage")
-        XCTAssertTrue(queue.staticTexts["Tough passages · Upcoming"].exists)
-        shot("fresh13-future-tough-is-not-urgent", app: app)
-        let edit = queue.buttons["Edit name and goal for Future tough synthetic review"]
-        XCTAssertTrue(edit.exists && edit.isHittable, app.debugDescription)
-        XCTAssertGreaterThanOrEqual(edit.frame.width, 43.99, app.debugDescription)
-        XCTAssertGreaterThanOrEqual(edit.frame.height, 43.99, app.debugDescription)
-        edit.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.85)).tap()
+        XCTAssertFalse(queue.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "URGENT")).firstMatch.exists)
+        shot("build22-practice-order-unfinished-checks", app: app)
+        let details = queue.buttons["See review details for Future tough synthetic review"]
+        reveal(details, listID: "passageReviewQueue", app: app); tap(details, app: app)
+        XCTAssertTrue(app.navigationBars["Review details"].waitForExistence(timeout: 8), app.debugDescription)
+        let savedDate = app.descendants(matching: .any).matching(identifier: "savedReviewDate").firstMatch
+        reveal(savedDate, listID: "passageReviewDetailList", app: app)
+        let date = Calendar.current.date(byAdding: .day, value: 2, to: Calendar.current.startOfDay(for: Date()))!
+        let savedReadout = savedDate.label + " " + (savedDate.value as? String ?? "")
+        XCTAssertTrue(savedReadout.contains(date.formatted(date: .abbreviated, time: .omitted)),
+                      "The action readout must preserve the original saved date.\n\(app.debugDescription)")
+        shot("build22-future-saved-date-retained", app: app)
+        tap(app.navigationBars["Review details"].buttons["Done"], app: app)
+        let title = queue.staticTexts["Future tough synthetic review"]
+        reveal(title, listID: "passageReviewQueue", app: app)
+        title.doubleTap()
         XCTAssertTrue(app.navigationBars["Rename passage"].waitForExistence(timeout: 8), app.debugDescription)
         XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "passageRenameField").firstMatch.value as? String,
                        "Future tough synthetic review")
         tap(app.navigationBars["Rename passage"].buttons["Cancel"], app: app)
-        XCTAssertTrue(app.navigationBars["Passage reviews"].waitForExistence(timeout: 8), app.debugDescription)
-        XCTAssertEqual(future.label, "Tough passage")
-        tap(app.navigationBars["Passage reviews"].buttons["Done"], app: app)
+        XCTAssertTrue(app.navigationBars["Practice order"].waitForExistence(timeout: 8), app.debugDescription)
+        tap(app.navigationBars["Practice order"].buttons["Done"], app: app)
         XCTAssertFalse(app.buttons["pausePractice"].exists)
         XCTAssertFalse(app.buttons["stopSet"].exists)
     }

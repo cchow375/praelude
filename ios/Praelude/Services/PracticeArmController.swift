@@ -36,7 +36,23 @@ final class PracticeArmController {
     private var pendingStages: [UUID: [VariantStage]] = [:]
     private var pendingHands: [UUID: String] = [:]
     private var chosenConfigurations: [PracticeDraftTarget: PracticeConfiguration] = [:]
+    private var chosenConfigurationDate: Date?
+    @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private let calendar: Calendar
     private(set) var errorMessage: String?
+
+    init(now: @escaping () -> Date = Date.init, calendar: Calendar = .autoupdatingCurrent) {
+        self.now = now
+        self.calendar = calendar
+    }
+
+    /// An explicit draft remains convenient today, but cannot silently start tomorrow at target.
+    /// This touches only unstarted in-memory choices; durable active sets and history are separate.
+    private func expireChosenConfigurations(at date: Date) {
+        guard let chosenConfigurationDate, !calendar.isDate(chosenConfigurationDate, inSameDayAs: date) else { return }
+        chosenConfigurations.removeAll()
+        self.chosenConfigurationDate = nil
+    }
 
     /// §11 R1/R2/R6-R13: every other rule that fired for the just-ended set's passage, as dismissible
     /// one-line prompts. §10c's single headline (`nextStep`) is kept separate and never duplicated
@@ -54,6 +70,8 @@ final class PracticeArmController {
     /// total, §10a): a cold-eligible passage's *second* tap/word is already the grade, in place of a
     /// plain Start, never an extra third step.
     func arm(pieceID: UUID, passage: Passage?, store: PracticeStore, scoreSection: ScoreSection? = nil) {
+        let date = now()
+        expireChosenConfigurations(at: date)
         // "Moving on to arm something else" (see this method's own doc comment above) means the
         // target actually changes — a re-arm of the *same* piece/passage (how every idle rearm after
         // a set ends, including a manual Stop, reaches this) must not wipe out a next-step/suggestions
@@ -70,15 +88,16 @@ final class PracticeArmController {
         // right after a set): always stale once anything is armed again, same-target or not.
         lastColdGradeDecision = nil
         guard let passage else {
-            let tempo = store.pieces.first { $0.id == pieceID }?.defaultPracticeBPM ?? 60
+            let piece = store.pieces.first { $0.id == pieceID }
+            let tempo = PracticeUXHelpers.startingPracticeTempo(target: piece?.fullTempoBPM, explicitStart: piece?.defaultPracticeBPM)
             let key: PracticeDraftTarget = scoreSection.map { .section(pieceID: pieceID, sectionID: $0.id) } ?? .piece(pieceID)
             var draft = chosenConfigurations[key] ?? PracticeConfiguration(pieceID: pieceID, focus: "Pulse", startBPM: tempo, targetBPM: tempo)
-            draft.passageSnapshot = scoreSection.map { ScoreOrganization.practiceSnapshot(for: $0, pieceID: pieceID, at: Date()) }
+            draft.passageSnapshot = scoreSection.map { ScoreOrganization.practiceSnapshot(for: $0, pieceID: pieceID, at: date) }
             configuration = draft
             awaitingColdGrade = false
             return
         }
-        let context = RuleContext(state: store.state, now: Date())
+        let context = RuleContext(state: store.state, now: date, calendar: calendar)
         var draft = PracticeRulesEngine.defaultConfiguration(for: passage.id, context: context)
             ?? PracticeConfiguration(pieceID: pieceID, passageID: passage.id, focus: passage.focus)
         if let chosen = chosenConfigurations[.passage(passage.id)] {
@@ -141,8 +160,10 @@ final class PracticeArmController {
     }
 
     /// A deliberate setup choice survives switching away/back and repeating a set in this score
-    /// window. Starting a set is what persists its configuration; an unstarted draft earns nothing.
+    /// window on this calendar day. Starting a set persists its configuration; an unstarted draft earns nothing.
     func applyConfigurationOverride(_ value: PracticeConfiguration) {
+        let date = now()
+        expireChosenConfigurations(at: date)
         var value = value
         if value.basis == .totalPlays { value.targetBPM = value.startBPM; value.stages = [] }
         value.tempoChanges = []
@@ -155,6 +176,7 @@ final class PracticeArmController {
         else if isCurrentTarget, let scoreSection { key = .section(pieceID: value.pieceID, sectionID: scoreSection.id) }
         else { key = .piece(value.pieceID) }
         chosenConfigurations[key] = value
+        chosenConfigurationDate = date
         let pendingKey = value.passageID ?? value.pieceID
         pendingTempo[pendingKey] = nil; pendingStages[pendingKey] = nil; pendingHands[pendingKey] = nil
         if pieceID == value.pieceID, passage?.id == value.passageID { configuration = value }

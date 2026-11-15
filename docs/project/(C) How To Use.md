@@ -1,5 +1,10 @@
 # Praelude — How To Use
 
+## November 15 — Build22 source preview; installed instructions retained
+
+**Matches: installed iPhone2.0.0/build21; personal iPad last recorded2.0.0/build20; Mac11.1.0/schema21.** Build22 is a development candidate and has not replaced those apps. Its candidate-only usage guide is `ios/docs/USING_MOBILE.md`, with design/checks under `docs/qa/ios/2.0.0/build22/`. It adds the five-passage daily order, separate Done/Tomorrow views, grouped compact passage rows, shared piece target,75% start and Counter visual beats. Follow the installed guidance below until a guarded update is recorded.
+
+
 ## November 13 — Current personal iPhone installation
 
 **Matches: personal iPhone native2.0.0/build21/schema5, refreshed and running 2026-11-13.**

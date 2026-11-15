@@ -219,6 +219,17 @@ import Foundation
         var legacySettings = legacyBlob; legacySettings.removeValue(forKey: "beatGrouping")
         let legacyDecoded = try JSONDecoder().decode(MetronomeSettings.self, from: JSONSerialization.data(withJSONObject: legacySettings))
         expect(legacyDecoded.beatGrouping == 1, "Older settings keep their written-note pulse")
+        legacySettings.removeValue(forKey: "visualStyle")
+        let visualLegacy = try JSONDecoder().decode(MetronomeSettings.self, from: JSONSerialization.data(withJSONObject: legacySettings))
+        expect(visualLegacy.visualStyle == .beats, "Older settings gain the numbered visual beat display")
+        for style in MetronomeVisualStyle.allCases {
+            var visual = settings; visual.visualStyle = style
+            let decoded = try JSONDecoder().decode(MetronomeSettings.self, from: JSONEncoder().encode(visual))
+            expect(decoded.visualStyle == style && decoded.isValid, "Visual style persists without changing sound or tempo")
+            expect(decoded.bpm == settings.bpm && decoded.accents == settings.accents && decoded.sound == settings.sound,
+                   "Visual styles leave sample-clock audio settings untouched")
+        }
+
 
         var taps = TapTempoEstimator()
         expect(taps.tap(at: 0) == nil, "First tap does not guess tempo")

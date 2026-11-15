@@ -26,8 +26,8 @@ final class PassageReviewPriorityTests: XCTestCase {
         let reviews = TodayOverview.dueReviews(context: context)
         XCTAssertEqual(reviews.map(\.passageID), [lapsed.id, ordinary.id])
         XCTAssertEqual(reviews[0].overdueDays, 2)
-        XCTAssertEqual(reviews[0].label, "URGENT · 2 days overdue")
-        XCTAssertEqual(reviews[0].reason, "Your last first attempt: Missed.")
+        XCTAssertEqual(reviews[0].label, "Build again")
+        XCTAssertEqual(reviews[0].reason, "The first check needed work. Finish a practice set, then return tomorrow.")
         let plan = PracticeRulesEngine.buildSession(availableMinutes: 30, context: context)
         XCTAssertEqual(plan.items.compactMap(\.passageID), reviews.map(\.passageID))
         XCTAssertEqual(plan.items.map(\.kind), [.learning, .review])
@@ -35,17 +35,18 @@ final class PassageReviewPriorityTests: XCTestCase {
         XCTAssertEqual(context.coldGrades, [grade], "An overdue date never creates a playing verdict.")
     }
 
-    func testToughFutureReviewStaysFutureAndLaterCleanClearsTheLabel() {
+    func testUnfinishedShakyReturnsNextDayEvenBeforeOldScheduleAndLaterCleanClearsTheLabel() {
         let piece = Piece(title: "Synthetic score")
         let spot = passage(piece, state: .learning, due: 12)
         let shaky = ColdGradeRecord(passageID: spot.id, date: date(10), grade: .shaky, tempo: 60)
         var context = RuleContext(now: date(11), calendar: calendar, pieces: [piece], passages: [spot], coldGrades: [shaky])
-        XCTAssertTrue(TodayOverview.dueReviews(context: context).isEmpty)
+        XCTAssertEqual(TodayOverview.dueReviews(context: context).map(\.passageID), [spot.id])
         let tough = TodayOverview.toughPassages(context: context)
         XCTAssertEqual(tough.map(\.passageID), [spot.id])
-        XCTAssertFalse(tough[0].isUrgent)
-        XCTAssertEqual(tough[0].dueDate, spot.schedule.dueDate)
-        XCTAssertTrue(PracticeRulesEngine.buildSession(availableMinutes: 30, context: context).items.isEmpty)
+        XCTAssertTrue(tough[0].isUrgent)
+        XCTAssertEqual(tough[0].dueDate, spot.schedule.dueDate, "The derived rebuilding task preserves the saved schedule.")
+        XCTAssertEqual(tough[0].nextActionDate, date(11, hour: 0))
+        XCTAssertEqual(PracticeRulesEngine.buildSession(availableMinutes: 30, context: context).items.map(\.passageID), [spot.id])
         context.coldGrades.append(ColdGradeRecord(passageID: spot.id, date: date(11, hour: 9), grade: .clean, tempo: 60))
         XCTAssertTrue(TodayOverview.toughPassages(context: context).isEmpty)
     }
@@ -57,7 +58,7 @@ final class PassageReviewPriorityTests: XCTestCase {
                                   coldGrades: [ColdGradeRecord(passageID: due.id, date: date(10), grade: .shaky, tempo: 60)])
         let reviews = TodayOverview.dueReviews(context: context)
         XCTAssertEqual(reviews[0].passageID, due.id)
-        XCTAssertEqual(reviews[0].label, "URGENT · Tough passage due")
+        XCTAssertEqual(reviews[0].label, "Build again")
         XCTAssertFalse(reviews[1].isTough)
         XCTAssertFalse(reviews[1].isUrgent)
         XCTAssertNil(reviews[1].latestColdGrade)

@@ -165,8 +165,8 @@ private enum Destination: String, CaseIterable, Identifiable {
     case history = "History", calendar = "Calendar", notebook = "Notebook", insights = "Data"
     case rewards = "Rewards"
     case more = "More"
-    static let compactTabs: [Destination] = [.today, .passages, .pieces, .progress, .more]
-    static let moreDestinations: [Destination] = [.warmups, .friends, .history, .calendar, .notebook, .insights, .rewards]
+    static let compactTabs: [Destination] = [.today, .passages, .pieces, .more]
+    static let moreDestinations: [Destination] = [.warmups, .progress, .history, .calendar, .notebook, .friends, .insights, .rewards]
     var id: String { rawValue }
     var symbol: String {
         switch self {
@@ -200,7 +200,8 @@ struct AppRootView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
     private var usesSidebar: Bool { UIDevice.current.userInterfaceIdiom == .pad && !dynamicTypeSize.isAccessibilitySize }
-    @AppStorage("ios.sidebar.showExtras") private var showSidebarExtras = false
+    @AppStorage("ios.sidebar.moreExpanded.v2") private var showSidebarExtras = false
+    @State private var showMusicStand = false
     @State private var destination = Destination.today
     #if DEBUG
     @State private var didOpenGestureAudit = false
@@ -248,8 +249,9 @@ struct AppRootView: View {
                 #endif
             }
         } label: {
-            Label(item.rawValue, systemImage: item.symbol).frame(minHeight: 44)
+            Label(item.rawValue, systemImage: item.symbol).font(.subheadline).frame(minHeight: 44)
         }
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 12))
         .listRowBackground(destination == item && selectedPiece == nil ? PraeludeColor.inkFillQuiet : Color.clear)
     }
     private func sidebarVisibilityButton(showing: Bool) -> some View {
@@ -277,39 +279,47 @@ struct AppRootView: View {
             if usesSidebar {
                 NavigationSplitView(columnVisibility: $sidebarVisibility) {
                     List {
-                        Section("Practice") {
-                            ForEach([Destination.today, .passages, .pieces, .warmups]) { sidebarDestination($0) }
+                        Section {
+                            ForEach([Destination.today, .passages, .pieces]) { sidebarDestination($0) }
                         }
-                        Section("Review") {
-                            ForEach([Destination.progress, .history, .notebook]) { sidebarDestination($0) }
-                        }
-                        DisclosureGroup("More", isExpanded: $showSidebarExtras) {
-                            ForEach([Destination.calendar, .friends, .insights, .rewards]) { sidebarDestination($0) }
-                        }
-                        if !store.realPieces.isEmpty {
-                            Section("On your music stand") {
-                                ForEach(store.realPieces.filter { $0.status != .resting }.prefix(8)) { piece in
-                                    Button { openPiece(piece.id) } label: {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(piece.title).foregroundStyle(.primary).lineLimit(2)
-                                            if !piece.composer.isEmpty { Text(piece.composer).font(.caption).foregroundStyle(.secondary) }
-                                        }.frame(minHeight: 44)
-                                    }
-                                    ForEach(piece.scoreSections.sorted { $0.startPage < $1.startPage }) { movement in
-                                        Button { openPiece(piece.id, startPage: movement.startPage) } label: {
-                                            Label(movement.title, systemImage: "music.note")
-                                                .font(.subheadline).foregroundStyle(.secondary)
-                                                .frame(minHeight: 44).lineLimit(2)
+                        Section {
+                            DisclosureGroup(isExpanded: $showSidebarExtras) {
+                                ForEach(Destination.moreDestinations) { sidebarDestination($0) }
+                            } label: {
+                                Label("More", systemImage: "ellipsis.circle").font(.subheadline).frame(minHeight: 44)
+                            }
+                            .accessibilityIdentifier("sidebarMore")
+                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 12))
+                            if !store.realPieces.isEmpty {
+                                DisclosureGroup(isExpanded: $showMusicStand) {
+                                    ForEach(store.realPieces.filter { $0.status != .resting }.prefix(8)) { piece in
+                                        Button { openPiece(piece.id) } label: {
+                                            Text(piece.title).font(.subheadline).foregroundStyle(.primary)
+                                                .lineLimit(2).frame(minHeight: 44)
+                                        }
+                                        ForEach(piece.scoreSections.sorted { $0.startPage < $1.startPage }) { movement in
+                                            Button { openPiece(piece.id, startPage: movement.startPage) } label: {
+                                                Label(movement.title, systemImage: "music.note")
+                                                    .font(.caption).foregroundStyle(.secondary)
+                                                    .frame(minHeight: 44).lineLimit(2)
+                                            }
                                         }
                                     }
+                                } label: {
+                                    Label("On your music stand", systemImage: "music.book.closed")
+                                        .font(.subheadline).frame(minHeight: 44)
                                 }
+                                .accessibilityIdentifier("sidebarMusicStand")
+                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 12))
                             }
                         }
                     }
                     .scrollContentBackground(.hidden)
                     .background(PraeludeColor.paper)
                     .navigationTitle("Praelude")
-                    .navigationSplitViewColumnWidth(min: 230, ideal: 270, max: 340)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .environment(\.defaultMinListRowHeight, 44)
+                    .navigationSplitViewColumnWidth(min: 215, ideal: 240, max: 300)
                     .toolbar(removing: sizeClass == .regular ? .sidebarToggle : nil)
                     .toolbar {
                         if sizeClass == .regular {
@@ -582,6 +592,7 @@ struct AppRootView: View {
         switch destination {
         case .warmups: WarmupsView(onStartPractice: { practicingWarmup = true })
         case .friends: FriendsView()
+        case .progress: PracticeProgressView()
         case .history: HistoryView()
         case .calendar: CalendarView()
         case .notebook: NotebookView()

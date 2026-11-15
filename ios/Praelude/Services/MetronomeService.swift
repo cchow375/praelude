@@ -66,6 +66,10 @@ final class MetronomeService {
             persistSettings()
         }
     }
+    var visualStyle: MetronomeVisualStyle {
+        get { settings.visualStyle }
+        set { settings.visualStyle = newValue; persistSettings() }
+    }
     var hapticsEnabled: Bool {
         get { settings.haptics }
         set { settings.haptics = newValue; persistSettings() }

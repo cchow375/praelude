@@ -90,20 +90,25 @@ final class TapDeliveryUITests: XCTestCase {
     }
 
     @MainActor private func openReviews(_ app: XCUIApplication, cycle: String) {
-        centerTap(app.buttons["allPassageReviews"], name: cycle + "-all-reviews-center", app: app)
+        centerTap(app.buttons["todayPracticeTools"], name: cycle + "-practice-tools", app: app)
+        let entry = app.buttons.matching(NSPredicate(format: "label == %@", "Practice order & review guide"))
+            .allElementsBoundByIndex.first(where: { $0.isHittable })
+        XCTAssertNotNil(entry, app.debugDescription)
+        guard let entry else { return }
+        centerTap(entry, name: cycle + "-all-reviews-center", app: app)
         require(cycle + "-review-queue-open", app: app) {
-            app.navigationBars["Passage reviews"].exists &&
+            app.navigationBars["Practice order"].exists &&
             app.staticTexts["Overdue synthetic review"].exists &&
-            app.navigationBars["Passage reviews"].buttons["Done"].isHittable
+            app.navigationBars["Practice order"].buttons["Done"].isHittable
         }
     }
 
     @MainActor private func closeReviews(_ app: XCUIApplication, cycle: String) {
-        centerTap(app.navigationBars["Passage reviews"].buttons["Done"],
+        centerTap(app.navigationBars["Practice order"].buttons["Done"],
                   name: cycle + "-reviews-done", app: app)
         require(cycle + "-review-queue-dismissed", app: app) {
-            !app.navigationBars["Passage reviews"].exists && app.navigationBars["Today"].exists &&
-            app.buttons["allPassageReviews"].isHittable
+            !app.navigationBars["Practice order"].exists && app.navigationBars["Today"].exists &&
+            app.buttons["todayPracticeTools"].isHittable
         }
     }
 

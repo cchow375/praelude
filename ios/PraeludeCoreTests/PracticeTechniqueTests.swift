@@ -2,6 +2,57 @@ import XCTest
 @testable import PraeludeCore
 
 final class PracticeTechniqueTests: XCTestCase {
+    @MainActor func testChangedPieceTargetReseedsAtTargetRepeatAndKeepsTotalPlaysValid() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PracticeStore(directory: directory)
+        let piece = Piece(title: "Target test", fullTempoBPM: 100)
+        let passage = Passage(pieceID: piece.id, title: "Opening")
+        try store.addPiece(piece); try store.savePassage(passage)
+        try store.startSet(PracticeConfiguration(pieceID: piece.id, passageID: passage.id,
+            basis: .totalPlays, startBPM: 100, targetBPM: 100))
+        try store.record(.clean); try store.endSet()
+        let repeated = try XCTUnwrap(PracticeRulesEngine.defaultConfiguration(for: passage.id, context: RuleContext(state: store.state)))
+        XCTAssertEqual(repeated.startBPM, 75); XCTAssertEqual(repeated.targetBPM, 75)
+        XCTAssertNoThrow(try PracticeEngine.validate(repeated))
+        try store.startSet(PracticeConfiguration(pieceID: piece.id, passageID: passage.id,
+            startBPM: 100, targetBPM: 100))
+        try store.record(.clean)
+        let original = store.activeSet
+        try store.setPracticeReference(140, plan: piece.practiceBalancePlan, for: piece.id)
+        XCTAssertEqual(store.activeSet, original)
+        try store.endSet()
+        let next = try XCTUnwrap(PracticeRulesEngine.defaultConfiguration(for: passage.id, context: RuleContext(state: store.state)))
+        XCTAssertEqual(next.startBPM, 105); XCTAssertEqual(next.targetBPM, 140)
+        XCTAssertNoThrow(try PracticeEngine.validate(next))
+    }
+
+    @MainActor func testSavedPieceStartAtTargetCannotDefeatTheSlowerDefault() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PracticeStore(directory: directory)
+        let piece = Piece(title: "Target default", defaultPracticeBPM: 100, fullTempoBPM: 100)
+        let passage = Passage(pieceID: piece.id, title: "Opening")
+        try store.addPiece(piece); try store.savePassage(passage)
+        let first = try XCTUnwrap(PracticeRulesEngine.defaultConfiguration(for: passage.id, context: RuleContext(state: store.state)))
+        XCTAssertEqual(first.startBPM, 75, "A saved piece default equal to target must not put a new passage at full tempo")
+        try store.startSet(PracticeConfiguration(pieceID: piece.id, passageID: passage.id, startBPM: 100, targetBPM: 100))
+        try store.record(.clean)
+        let originalActive = store.activeSet
+        let repeatWhileActive = try XCTUnwrap(PracticeRulesEngine.defaultConfiguration(for: passage.id, context: RuleContext(state: store.state)))
+        XCTAssertEqual(repeatWhileActive.startBPM, 75)
+        XCTAssertEqual(store.activeSet, originalActive)
+        try store.endSet()
+        let originalHistory = store.state.history
+        let repeated = try XCTUnwrap(PracticeRulesEngine.defaultConfiguration(for: passage.id, context: RuleContext(state: store.state)))
+        XCTAssertEqual(repeated.startBPM, 75)
+        try store.setPracticeReference(120, plan: piece.practiceBalancePlan, for: piece.id)
+        let slowerSavedStart = try XCTUnwrap(PracticeRulesEngine.defaultConfiguration(for: passage.id, context: RuleContext(state: store.state)))
+        XCTAssertEqual(slowerSavedStart.startBPM, 100, "A valid saved start below the new target still takes precedence")
+        XCTAssertEqual(slowerSavedStart.targetBPM, 120)
+        XCTAssertEqual(store.state.history, originalHistory)
+    }
+
     func testRhythmAndHandChainsReturnToTheWrittenMusic() {
         XCTAssertEqual(PracticeTechnique.rhythmPair.stageNames, ["Long–short", "Short–long", "As written"])
         XCTAssertEqual(PracticeTechnique.hands.stageNames, ["Right hand", "Left hand", "Together"])

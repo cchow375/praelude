@@ -4,7 +4,16 @@ import XCTest
 /// checked in the sample domain; screenshots are not proof of loudness or a hardware route.
 final class MetronomeQualityUITests: XCTestCase {
     @MainActor private func openScore(_ app: XCUIApplication) {
-        let piece = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Practice study")).firstMatch
+        let pieces = app.tabBars.buttons["Pieces"]
+        if pieces.exists { pieces.tap() }
+        else {
+            let show = app.buttons["showAppSidebar"]
+            if show.exists && show.isHittable { show.tap() }
+            let destination = app.buttons["Pieces"].firstMatch
+            XCTAssertTrue(destination.waitForExistence(timeout: 5), app.debugDescription)
+            destination.tap()
+        }
+        let piece = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "pieceRow", "Practice study")).firstMatch
         _ = piece.waitForExistence(timeout: 3)
         for _ in 0..<8 where !piece.exists || !piece.isHittable { app.swipeUp() }
         XCTAssertTrue(piece.waitForExistence(timeout: 10), app.debugDescription)
@@ -18,10 +27,10 @@ final class MetronomeQualityUITests: XCTestCase {
     }
 
     @discardableResult
-    @MainActor private func reveal(_ element: XCUIElement, app: XCUIApplication, centerInForm: Bool = false) -> CGRect? {
+    @MainActor private func reveal(_ element: XCUIElement, app: XCUIApplication, centerInForm: Bool = false, towardTop: Bool = false) -> CGRect? {
         // iPad presents this sheet inside the screen. Its clipped Form viewport, rather than
         // the app's full-height window, determines both visibility and scroll direction.
-        var searchDown = true
+        var searchDown = !towardTop
         for attempt in 0..<14 {
             let form = app.collectionViews["metronomeSettingsForm"]
             guard form.exists else {
@@ -47,11 +56,11 @@ final class MetronomeQualityUITests: XCTestCase {
                     else if frame.minY < viewport.minY { searchDown = false }
                     else if frame.maxY > viewport.maxY { searchDown = true }
                 }
-            } else if attempt == 7 {
+            } else if attempt == 7 && !towardTop {
                 searchDown.toggle()
             }
-            let start = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: searchDown ? 0.72 : 0.28))
-            let end = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: searchDown ? 0.38 : 0.62))
+            let start = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: searchDown ? 0.62 : 0.38))
+            let end = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: searchDown ? 0.46 : 0.54))
             start.press(forDuration: 0.05, thenDragTo: end)
         }
         capture("metronome-control-unreachable", app: app)
@@ -78,12 +87,17 @@ final class MetronomeQualityUITests: XCTestCase {
 
     @MainActor private func presentedTempo(_ app: XCUIApplication) -> XCUIElement {
         // Select the exposed native text rather than a covered HUD or an untyped descendant.
-        let values = app.staticTexts.matching(identifier: "tempoDialValue").allElementsBoundByIndex
-        return values.first { $0.isHittable }!
+        let query = app.collectionViews["metronomeSettingsForm"].descendants(matching: .any).matching(identifier: "tempoDialValue")
+        let value = query.allElementsBoundByIndex.first { $0.isHittable }
+        XCTAssertNotNil(value, app.debugDescription)
+        return value ?? query.firstMatch
     }
 
     @MainActor private func exposedButton(_ name: String, app: XCUIApplication) -> XCUIElement {
-        app.buttons.matching(identifier: name).allElementsBoundByIndex.first { $0.isHittable }!
+        let query = app.buttons.matching(identifier: name)
+        let value = query.allElementsBoundByIndex.first { $0.isHittable }
+        XCTAssertNotNil(value, app.debugDescription)
+        return value ?? query.firstMatch
     }
 
     @MainActor private func capture(_ name: String, app: XCUIApplication) {
@@ -144,6 +158,8 @@ final class MetronomeQualityUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [presetReady], timeout: 5), .completed,
                        "The visible native meter menu must expose a tappable 6/8 option.\n" + app.debugDescription)
         compoundPreset.tap()
+        let custom = app.buttons["Custom meter & accents"]
+        reveal(custom, app: app); custom.tap()
         let compound = app.switches["compoundPulse"]
         reveal(compound, app: app)
         XCTAssertTrue(compound.exists, app.debugDescription)
@@ -179,12 +195,14 @@ final class MetronomeQualityUITests: XCTestCase {
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1"), object: locked)
         XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed,
                        "Keep click when locked must actually be enabled before testing background playback.\n" + app.debugDescription)
-        reveal(toggle, app: app)
+        reveal(toggle, app: app, towardTop: true)
         XCTAssertEqual(toggle.label, "Stop", "Playback must still be running before leaving the metronome")
         capture("metronome-count-in-lock-native-phone", app: app)
         app.buttons["Done"].press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["verdict_clean"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.staticTexts["1 of 5 clean"].exists, "Settings edits must keep the saved practice repetition")
+        let savedRep = app.staticTexts["repProgress"]
+        let retained = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label BEGINSWITH %@", "1 of 5"), object: savedRep)
+        XCTAssertEqual(XCTWaiter.wait(for: [retained], timeout: 5), .completed, "Settings edits must keep the saved practice repetition")
         XCUIDevice.shared.press(.home)
         app.activate()
         XCTAssertTrue(app.buttons["openMetronome"].waitForExistence(timeout: 10), app.debugDescription)

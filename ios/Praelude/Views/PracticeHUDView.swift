@@ -106,7 +106,12 @@ struct PracticeHUDView: View {
                     // §3d/§10c: readable from playing position, not just up close — see "(C) Audit.md"
                     // (this line measured well under the 20/20 acuity floor at arm's length at its old
                     // `.subheadline`/`.caption` sizes).
-                    Text(passageTitle).onTapGesture(count: 2, perform: onRenamePassage).accessibilityAction(named: "Rename passage", onRenamePassage).font(.title3.weight(.semibold)).lineLimit(1)
+                    let identityLayout = dynamicTypeSize.isAccessibilitySize
+                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(spacing: 8))
+                    identityLayout {
+                        Text(passageTitle).onTapGesture(count: 2, perform: onRenamePassage).accessibilityAction(named: "Rename passage", onRenamePassage).font(.title3.weight(.semibold)).lineLimit(1)
+                        PieceTargetTempoControl(pieceID: active.configuration.pieceID)
+                    }
                     HStack(spacing: 8) {
                         if let stageName = active.currentStage?.name {
                             Text(stageName).font(.subheadline).foregroundStyle(PraeludeColor.inkSecondary).lineLimit(1)
@@ -151,8 +156,11 @@ struct PracticeHUDView: View {
             : AnyLayout(HStackLayout(spacing: 6))
         return layout {
             VStack(alignment: .leading, spacing: 2) {
-                Text(passageTitle).onTapGesture(count: 2, perform: onRenamePassage).accessibilityAction(named: "Rename passage", onRenamePassage).font(.subheadline.weight(.medium))
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(passageTitle).onTapGesture(count: 2, perform: onRenamePassage).accessibilityAction(named: "Rename passage", onRenamePassage).font(.subheadline.weight(.medium))
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    PieceTargetTempoControl(pieceID: active.configuration.pieceID)
+                }
                 Text(dynamicTypeSize.isAccessibilitySize ? practiceContext : compactPracticeContext)
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
@@ -396,7 +404,7 @@ private struct PracticeHUDActionStyle: ButtonStyle {
 /// extra width goes to passage identity and the verdicts rather than leaving a narrow dock.
 private struct PracticeHUDRunningLayout: Layout {
     private let spacing: CGFloat = 8
-    private let minimumStatusWidth: CGFloat = 220
+    private let minimumStatusWidth: CGFloat = 300
 
     private func frames(width: CGFloat, subviews: Subviews) -> [CGRect] {
         let transport = subviews[1].sizeThatFits(.unspecified)

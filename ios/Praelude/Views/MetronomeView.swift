@@ -46,8 +46,8 @@ struct MetronomeView: View {
         @Bindable var feedback = FeedbackService.shared
         return Form {
                 Section {
-                    VStack(spacing: 20) {
-                        TempoDial(bpm: tempoBinding, numeralSize: 64, onTapTempo: { tapTempo() })
+                    VStack(spacing: 12) {
+                        TempoDial(bpm: tempoBinding, numeralSize: 48, onTapTempo: { tapTempo() })
                         Text("\(beatName.capitalized) = \(Int(tempoBinding.wrappedValue.rounded()))")
                             .font(.callout).foregroundStyle(.secondary)
                         if activeTempo {
@@ -66,8 +66,8 @@ struct MetronomeView: View {
                 }.listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
 
                 Section {
-                    MetronomePulseGrid()
-                    MetronomePulseProgress()
+                    MetronomeVisualStylePicker()
+                    PracticeBeatDisplay(editable: true)
                     Menu {
                         ForEach([2, 3, 4, 5], id: \.self) { beats in
                             Button("\(beats)/4") { metronome.setMeter(beats: beats, denominator: 4) }
@@ -80,29 +80,32 @@ struct MetronomeView: View {
                         }
                         Button("7/8 · eighth-note pulse") { metronome.setMeter(beats: 7, denominator: 8) }
                     } label: {
-                        Label("Common meters", systemImage: "music.note")
+                        Label("Choose a meter · \(metronome.beatsPerBar)/\(metronome.denominator)", systemImage: "music.note")
                             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                             .contentShape(Rectangle())
                     }
                         .accessibilityIdentifier("meterPresets")
-                    Picker("Beats per bar", selection: $metronome.beatsPerBar) {
-                        ForEach(1...12, id: \.self) { Text("\($0)").tag($0) }
+                    DisclosureGroup("Custom meter & accents") {
+                        Picker("Beats per bar", selection: $metronome.beatsPerBar) {
+                            ForEach(1...12, id: \.self) { Text("\($0)").tag($0) }
+                        }
+                        Picker("Beat value", selection: $metronome.denominator) {
+                            Text("Half note · 2").tag(2)
+                            Text("Quarter note · 4").tag(4)
+                            Text("Eighth note · 8").tag(8)
+                        }
+                        if metronome.supportsCompoundPulse {
+                            Toggle("Count dotted-quarter pulses", isOn: $metronome.groupedCompoundPulse)
+                                .accessibilityIdentifier("compoundPulse")
+                        }
+                        LabeledContent("Time signature", value: "\(metronome.beatsPerBar)/\(metronome.denominator)")
+                        Button("Reset accents") { metronome.resetAccents() }
+                        if metronome.visualStyle != .beats { MetronomePulseGrid() }
                     }
-                    Picker("Beat value", selection: $metronome.denominator) {
-                        Text("Half note · 2").tag(2)
-                        Text("Quarter note · 4").tag(4)
-                        Text("Eighth note · 8").tag(8)
-                    }
-                    if metronome.supportsCompoundPulse {
-                        Toggle("Count dotted-quarter pulses", isOn: $metronome.groupedCompoundPulse)
-                            .accessibilityIdentifier("compoundPulse")
-                    }
-                    LabeledContent("Time signature", value: "\(metronome.beatsPerBar)/\(metronome.denominator)")
-                    Button("Reset accents") { metronome.resetAccents() }
                 } header: {
                     Text("Meter & accents")
                 } footer: {
-                    Text("Tap a beat to cycle accent, silence, and regular beat. Tempo counts each \(beatName); subdivisions divide that pulse. In compound meters, choose dotted-quarter pulses to follow the larger beat.")
+                    Text("Each number is one beat. Tap it for a strong beat (⌃), silence, or a regular click. Tempo counts the \(beatName). Choose Beats, Flash, Bounce, or Off for the visual; sound stays the same.")
                 }
 
                 Section {

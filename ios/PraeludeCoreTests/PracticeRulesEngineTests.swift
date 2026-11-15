@@ -216,7 +216,7 @@ final class PracticeRulesEngineTests: XCTestCase {
         XCTAssertEqual(app3.decisions.last?.reason, "Clean. Next review in 7 days.")
     }
 
-    func testR4ShakyKeepsLadderPositionAndReschedulesSoon() throws {
+    func testR4ShakyRestartsConfidenceAndReschedulesSoon() throws {
         let calendar = makeCalendar()
         let now = makeDate(2026, 1, 5, calendar: calendar)
         let piece = makePiece()
@@ -225,7 +225,7 @@ final class PracticeRulesEngineTests: XCTestCase {
         let context = makeContext(now: now, calendar: calendar, pieces: [piece], passages: [passage])
         let app = try XCTUnwrap(PracticeRulesEngine.applyColdGrade(passageID: passage.id, grade: .shaky, tempo: 90, context: context))
         XCTAssertEqual(app.newLearningState, .review)
-        XCTAssertEqual(app.newSchedule.reviewStep, 3, "Shaky is a quick recheck, not a ladder reset")
+        XCTAssertEqual(app.newSchedule.reviewStep, 0, "Shaky retains learned material but restarts short confidence checks")
         XCTAssertEqual(app.newSchedule.intervalDays, 2)
         XCTAssertEqual(app.newSchedule.dueDate, calendar.startOfDay(afterAdding: 2, to: now))
         XCTAssertEqual(app.decisions.last?.reason, "Shaky. Review in 2 days.")
@@ -794,8 +794,10 @@ final class PracticeRulesEngineTests: XCTestCase {
         let piece2 = makePiece(performanceDates: [makeDate(2026, 1, 20, 15, 0, calendar: calendar)]) // 10 days out
 
         let due = PassageSchedule(dueDate: now.addingTimeInterval(-3600), intervalDays: 7, reviewStep: 2)
-        let review1 = makePassage(pieceID: piece1.id, learningState: .review, schedule: due)
-        let learning1 = makePassage(pieceID: piece1.id, learningState: .learning, schedule: due)
+        let review1 = makePassage(pieceID: piece1.id, learningState: .review, schedule: due,
+                                  createdAt: makeDate(2026, 1, 7, calendar: calendar))
+        let learning1 = makePassage(pieceID: piece1.id, learningState: .learning, schedule: due,
+                                    createdAt: makeDate(2026, 1, 8, calendar: calendar))
         let review2 = makePassage(pieceID: piece2.id, learningState: .review, schedule: due)
         let newPassages = (1...5).map { day in
             makePassage(pieceID: piece1.id, learningState: .new, createdAt: makeDate(2026, 1, day, calendar: calendar))
@@ -806,21 +808,21 @@ final class PracticeRulesEngineTests: XCTestCase {
                                    passages: [review1, learning1, review2] + newPassages, warmupExercises: [warmup])
         let plan = PracticeRulesEngine.buildSession(availableMinutes: 1000, context: context)
 
-        XCTAssertEqual(plan.items.map(\.kind), [.warmup, .review, .review, .learning, .new, .new, .new, .runThrough])
+        XCTAssertEqual(plan.items.map(\.kind), [.warmup, .review, .review, .learning, .new, .new, .runThrough])
         XCTAssertEqual(plan.items[0].reason, "Never in rotation yet.")
         // The piece with a nearer performance date is reviewed first.
         XCTAssertEqual(plan.items[1].passageID, review2.id)
         XCTAssertEqual(plan.items[2].passageID, review1.id)
         XCTAssertEqual(plan.items[3].passageID, learning1.id)
-        // Only the three oldest new passages made the cut, oldest first.
-        XCTAssertEqual(Array(plan.items[4...6]).map(\.passageID), newPassages.prefix(3).map { $0.id })
+        // The daily round has five passage slots: three reviews leave two new passages.
+        XCTAssertEqual(Array(plan.items[4...5]).map(\.passageID), newPassages.prefix(2).map { $0.id })
         let includedIDs = Set(plan.items.compactMap(\.passageID))
         XCTAssertFalse(includedIDs.contains(newPassages[3].id))
         XCTAssertFalse(includedIDs.contains(newPassages[4].id))
         // Skipped passages are untouched — still new, still due whenever they were.
         XCTAssertEqual(newPassages[3].learningState, .new)
 
-        let runThrough = plan.items[7]
+        let runThrough = plan.items[6]
         XCTAssertEqual(runThrough.pieceID, piece2.id)
         XCTAssertNil(runThrough.passageID)
         XCTAssertEqual(runThrough.reason, "10 days out. Run it through.")

@@ -1,5 +1,17 @@
 # NOTES
 
+## Native daily passage projection (2026-11-15, build22 candidate)
+
+- Today projects a finite5-slot round from existing cold grades and replay-valid completed sets; no schema/backend field or personal-data rewrite. A unique passage worked today consumes a slot even when practiced from another screen. Library backlog stays accessible.
+- Recovery restarts the configured first interval. Shaky resets step0; at-target recovery checks cannot inherit a mature 30-day rung. R10 ignores prior successes before the latest effective Sloppy/failed/below-target report, while undone/future events and slow starts alone never invent a failure.
+- Warm completion is work, not retention proof. Hard-won target work returns for next-day recall; slow/total-plays completion returns for rebuilding. Only a clean first check at the passage override or piece fullTempoBPM can extend a known-target interval.
+- Tempo controls must distinguish piece reference, active set contract and actual rep BPM.75%-default changes must keep Total plays target==start and preserve historical/attempted active sets. Same-window deliberate drafts remain choices.
+- Finishing work must clear the daily list even during performance week; session builder must not reinsert completed new/learning passages through a secondary loop. Equal timestamp ordering uses stable UUID ties.
+- Cached arm choices expire on the next local day; foreground/significant-time refresh only rearms an idle score. A saved piece start at or above target is treated as the old target default and falls back to75%; slower starts and current-day deliberate choices remain. Active sets/history are unchanged.
+- Final candidate checks: Core580 and native380 cases, one optional skip each, zero failures; services2,349 assertions; scoped phone/iPad UI plus independent native/visual review. Source checkpoint `ios-v2.0.0-build22-candidate`.
+- Scope/evidence: `docs/qa/ios/2.0.0/build22/`. Installed devices remain unchanged; sound, hardware readability and cross-device convergence are separate checks.
+
+
 ## Personal iPhone refresh from the second Mac (2026-11-13)
 
 - **Delivered:** unchanged native2.0.0/build21/schema5 source from published `00cf2b0`, current repo implementation tree at `3cef0ca`. Existing phone21 is refreshed in place and observed running through read-only version/process readback. Personal iPad/friend/Mac are not operated.
