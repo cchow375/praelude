@@ -2,13 +2,15 @@
 
 ## November 15 — Daily passage practice and compact iOS interface
 
-**Last updated: 2026-11-15. Source candidate native 2.0.0/build22/schema5; not installed.** Christian reports an overwhelming overdue pile, bulky main navigation and unclear practice priorities. Today now leads with one finite round of up to five passages: delayed recall of hard-won work first, rebuilding next, scheduled checks and new learning after that. Meaningful completed sets clear today's workload; slow work counts without earning mastery. Clean first attempts below the effective target retain the review step and return tomorrow. A Shaky report or a recovery check restarts the configured short confidence ladder; old successes cannot restore readiness after a newer effective Sloppy report. Piece/location/music identify each item; completed work, tomorrow's checks and the remaining library are secondary. Passages is compact and grouped by piece.
+**Last updated: 2026-11-18. Published source candidate native 2.0.0/build22/schema5; not installed.** Christian reports an overwhelming overdue pile, bulky main navigation and unclear practice priorities. Today now leads with one finite round of up to five passages: delayed recall of hard-won work first, rebuilding next, scheduled checks and new learning after that. Meaningful completed sets clear today's workload; slow work counts without earning mastery. Clean first attempts below the effective target retain the review step and return tomorrow. A Shaky report or a recovery check restarts the configured short confidence ladder; old successes cannot restore readiness after a newer effective Sloppy report. Piece/location/music identify each item; completed work, tomorrow's checks and the remaining library are secondary. Passages is compact and grouped by piece.
 
 The sidebar exposes Today, Passages and Pieces with supporting destinations collapsed. A piece-wide target is editable from setup and practice; new unchosen practice starts at about 75% of it, with an explicit Play at target control for deliberate checks. Counter includes numbered beats, Flash, Bounce or Off, with a reduced-motion fallback. Saved histories and attempted active sets retain their recorded BPM. No schema/backend migration, score deletion or practice reset.
 
 Verification passes within the candidate scope: full Core580 cases and native runtime380 cases (one optional skip each, zero failures),2,349 deterministic service assertions, selected native phone/iPad flows, and independent source/live/visual review. Exact scoped runs, retained failures and synthetic screenshots are in `docs/qa/ios/2.0.0/build22/README.md`; the product contract is `daily-practice-design.md` beside it. Installed phone remains last verifiedBuild21; personal iPad last recordedBuild20, friendBuild12, Mac11.1.0/schema21. This source work makes no new physical-device, piano/audio or real-account convergence claim.
 
-**Next steps:** review the verified source/simulator candidate. Physical delivery remains a separate guarded same-bundle update to an authorized idle device with complete backup, exact preservation, package verification and launch/readback. Evaluate actual piano use and two-device behavior separately.
+**Published November 18:** verified source `e4b5bfa98a54cb8d438c97b390efa5b5b4f310e5` is on the existing public [GitHub repository](https://github.com/cchow375/praelude), with exact remote readback of `main`, `codex/ios-daily-practice` and tag `ios-v2.0.0-build22-candidate`. This publishes the source/simulator candidate; native 2.0.0/build22/schema5 is not installed and gains no new physical-device acceptance.
+
+**Next steps:** pull `main` on the working Mac and continue from the verified build22 candidate. Physical delivery remains a separate guarded same-bundle update to an authorized idle device with complete backup, exact preservation, package verification and launch/readback. Evaluate actual piano use and two-device behavior separately.
 
 
 ## November 13 — Personal iPhone refreshed; launch verified
@@ -35,14 +37,14 @@ sustained piano use remain separate. Evidence: repo `docs/qa/ios/phone-install-2
 
 ## Primary lane — iPhone/iPad development on this Mac
 
-Source recovery is complete at `00cf2b0` (B175). Use `ios/` as the primary workspace; current
-native source is 2.0.0/build21/schema5. Local core/service/helper checks, unsigned simulator build and independent selected native runtime verification all pass.
+Use `ios/` as the primary workspace. Current native source is the verified, published
+2.0.0/build22/schema5 candidate at `e4b5bfa`; source recovery at `00cf2b0` (B175) remains historical setup evidence.
 
 ### Next steps
 
-Local core/service/helper/build and selected native runtime checks pass. Continue mobile development here. Preserve
-the dated phone21/personal iPad20/friend12 and active-practice install hold until new evidence
-supersedes them. Real-account convergence and physical controls remain separate acceptance gates.
+Pull `main` before continuing mobile development or switching Macs. Preserve the recorded
+phone21/personal iPad20/friend12 boundaries and guarded idle-device installation requirements.
+Real-account convergence and physical controls remain separate acceptance gates.
 
 
 **This Mac, November 13, 2026:** the published source at `00cf2b0` is now received, including

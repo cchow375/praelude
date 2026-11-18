@@ -1,5 +1,9 @@
 # 📜 Praelude — Changelog
 
+## 2026-11-18 — Published verified native build22 source to GitHub
+
+Christian requests the verified iOS changes on GitHub. Source `e4b5bfa98a54cb8d438c97b390efa5b5b4f310e5`, `main`, `codex/ios-daily-practice` and tag `ios-v2.0.0-build22-candidate` are published to the existing public repository and read back exactly. Native 2.0.0/build22/schema5 remains a source/simulator candidate, not installed; no new physical acceptance or version/schema change. Updated the vault Changelog, portable summary, Roadmap, Command Center and AGENTS current status/next steps, plus their Markdown-only `docs/project/` mirrors. Installed tutorial Matches and recorded device versions remain unchanged.
+
 ## 2026-11-15 — Native build22 candidate: finite daily passages and smaller controls
 
 **Why:** Christian's spoken feedback and handwritten notes request a coherent passage-learning loop, priority for tomorrow after hard-won target success, smaller components, collapsed navigation, shared piece target and visual Counter metronome.
